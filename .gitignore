@@ -1,0 +1,19 @@
+# Secrets
+config.py
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Envs
+.venv/
+venv/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db
+

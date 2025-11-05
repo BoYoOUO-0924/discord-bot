@@ -2,7 +2,19 @@
 import discord
 from discord.ext import commands
 import os         # 用來讀取資料夾
-import config     # 載入我們的 config.py
+try:
+    import config  # 嘗試載入本地 config.py（不應上傳到 Git）
+    TOKEN = getattr(config, "TOKEN", None)
+except ImportError:
+    TOKEN = None
+
+# 若沒有 config.py 或其中未設定 TOKEN，改從環境變數取得
+if not TOKEN:
+    TOKEN = os.getenv("DISCORD_TOKEN")
+    if not TOKEN:
+        raise RuntimeError(
+            "找不到 Bot Token，請建立 config.py 設定 TOKEN 或設置環境變數 DISCORD_TOKEN"
+        )
 
 # --- Bot 設定 ---
 
@@ -41,7 +53,7 @@ async def load_cogs():
 # --- 啟動 Bot ---
 async def main():
     await load_cogs()
-    await bot.start(config.TOKEN)
+    await bot.start(TOKEN)
 
 if __name__ == "__main__":
     import asyncio
