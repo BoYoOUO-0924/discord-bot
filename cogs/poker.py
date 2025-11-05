@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import secrets
 from collections import Counter
 from enum import Enum
@@ -169,8 +170,11 @@ class GameRoom:
 
     def _load_chips(self, cog: "Poker") -> None:
         """從 points.json 載入玩家籌碼"""
+        data_dir = os.path.join(os.getcwd(), "data")
+        os.makedirs(data_dir, exist_ok=True)
+        points_path = os.path.join(data_dir, "points.json")
         try:
-            with open("points.json", "r", encoding="utf-8") as f:
+            with open(points_path, "r", encoding="utf-8") as f:
                 points = json.load(f)
             for uid in self.players:
                 uid_str = str(uid)
@@ -181,14 +185,17 @@ class GameRoom:
 
     def _save_chips(self, cog: "Poker") -> None:
         """儲存玩家籌碼到 points.json"""
+        data_dir = os.path.join(os.getcwd(), "data")
+        os.makedirs(data_dir, exist_ok=True)
+        points_path = os.path.join(data_dir, "points.json")
         try:
-            with open("points.json", "r", encoding="utf-8") as f:
+            with open(points_path, "r", encoding="utf-8") as f:
                 points = json.load(f)
         except Exception:
             points = {}
         for uid, amount in self.chips.items():
             points[str(uid)] = amount
-        with open("points.json", "w", encoding="utf-8") as f:
+        with open(points_path, "w", encoding="utf-8") as f:
             json.dump(points, f, indent=2)
 
     def reset_deck(self) -> None:

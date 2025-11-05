@@ -11,9 +11,10 @@ class CheckinCog(commands.Cog):
         self.bot = bot
         # 根目錄
         root_dir = os.path.dirname(os.path.dirname(__file__))
-        # 積分檔與簽到檔
-        self.points_path = os.path.join(root_dir, 'points.json')
-        self.checkin_path = os.path.join(root_dir, 'checkin.json')
+        data_dir = os.path.join(root_dir, 'data')
+        # 積分檔與簽到檔（皆存放於 data/）
+        self.points_path = os.path.join(data_dir, 'points.json')
+        self.checkin_path = os.path.join(data_dir, 'checkin.json')
         self.STARTING_POINTS = 0
         # 載入資料
         self.user_points = self._load_json(self.points_path, default={})
