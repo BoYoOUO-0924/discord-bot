@@ -185,9 +185,10 @@ class BlackjackCog(commands.Cog):
         # } }
         self.tables = {}
         self.STARTING_POINTS = 0
-        # 設定保存路徑：專案根目錄下的 points.json
+        # 設定保存路徑：專案根目錄下的 data/points.json
         root_dir = os.path.dirname(os.path.dirname(__file__))
-        self.points_path = os.path.join(root_dir, 'points.json')
+        data_dir = os.path.join(root_dir, 'data')
+        self.points_path = os.path.join(data_dir, 'points.json')
         self.user_points = self._load_points()
 
     @commands.command(name='blackjack', help='開始一局 21 點。可加上賭注：!blackjack 100')

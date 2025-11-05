@@ -17,3 +17,7 @@ ENV/
 .DS_Store
 Thumbs.db
 
+# Data (ignore json but keep folder)
+data/*.json
+!data/.gitkeep
+

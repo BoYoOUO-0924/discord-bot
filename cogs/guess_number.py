@@ -14,7 +14,8 @@ class GameCog(commands.Cog):
         self.guessing_games = {} # 格式：{ '頻道ID': { 'answer': int, 'attempts': int } }
         # 積分存檔（與 blackjack、checkin 共用 points.json）
         root_dir = os.path.dirname(os.path.dirname(__file__))
-        self.points_path = os.path.join(root_dir, 'points.json')
+        data_dir = os.path.join(root_dir, 'data')
+        self.points_path = os.path.join(data_dir, 'points.json')
 
     # 告訴 discord.py 這是一個 Cog
     # 這個 setup 函數是必須的，用來讓主程式 bot.py 載入
