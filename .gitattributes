@@ -1,9 +1,2 @@
 * text=auto
 
-cd "h:/我的雲端硬碟/discord bot"
-git init
-git add .
-git commit -m "Init: 基礎專案、Poker MVP、環境設定與CI"
-git branch -M main
-git remote add origin https://github.com/BoYoOuO-0924/discord-bot.git
-git push -u origin main
