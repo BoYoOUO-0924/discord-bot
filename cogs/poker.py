@@ -167,6 +167,15 @@ class GameRoom:
         self.current_bet = 0  # 當前最高下注
         self.action_message: Optional[discord.Message] = None
         self.action_view: Optional[discord.ui.View] = None
+        # 下注規則追蹤
+        self.last_raiser_idx: Optional[int] = None
+        self.last_raise_amount: int = 0
+        # 行動鎖避免競態
+        self.action_lock = asyncio.Lock()
+        # 邊池/全下狀態
+        self.committed: Dict[int, int] = {}
+        self.all_in: List[int] = []
+        self.pots: List[Dict[str, object]] = []  # [{"amount": int, "eligible": set[int]}]
 
     def _load_chips(self, cog: "Poker") -> None:
         """從 points.json 載入玩家籌碼"""
@@ -233,20 +242,17 @@ class GameRoom:
         self.community.clear()
         self.bets.clear()
         self.folded.clear()
+        self.committed = {uid: 0 for uid in self.players}
+        self.all_in = []
+        self.pots = []
         self.pot = 0
         self.current_bet = 0
         self.stage = RoundStage.PREFLOP
         self.dealer_idx = (self.dealer_idx + 1) % len(self.players)
 
-        # 發手牌
+        # 發手牌（不使用私訊；之後透過按鈕以 ephemeral 顯示）
         for uid in self.players:
             self.hole[uid] = [self.deck.pop(), self.deck.pop()]
-            user = await bot.fetch_user(uid)
-            try:
-                dm = await user.create_dm()
-                await dm.send(f"你的手牌：{' '.join(map(str, self.hole[uid]))}")
-            except Exception:
-                pass
 
         # 下盲注
         sb_idx = (self.dealer_idx + 1) % len(self.players)
@@ -256,17 +262,35 @@ class GameRoom:
 
         self.bets[sb_player] = min(self.small_blind, self.chips[sb_player])
         self.chips[sb_player] -= self.bets[sb_player]
+        self.committed[sb_player] += self.bets[sb_player]
         self.pot += self.bets[sb_player]
+        if self.chips[sb_player] == 0 and sb_player not in self.all_in:
+            self.all_in.append(sb_player)
 
         self.bets[bb_player] = min(self.big_blind, self.chips[bb_player])
         self.chips[bb_player] -= self.bets[bb_player]
+        self.committed[bb_player] += self.bets[bb_player]
         self.pot += self.bets[bb_player]
+        if self.chips[bb_player] == 0 and bb_player not in self.all_in:
+            self.all_in.append(bb_player)
         self.current_bet = self.big_blind
 
+        # 初始下注狀態
+        self.current_bet = self.bets[bb_player]
+        self.last_raiser_idx = bb_idx
+        self.last_raise_amount = self.big_blind
+
+        # 公告盲注（使用 mention）
         await self.channel.send(
-            f"小盲注：{self.players[sb_idx]} 下注 {self.bets[sb_player]}\n"
-            f"大盲注：{self.players[bb_idx]} 下注 {self.bets[bb_player]}\n"
+            f"小盲注：<@{sb_player}> 下注 {self.bets[sb_player]}\n"
+            f"大盲注：<@{bb_player}> 下注 {self.bets[bb_player]}\n"
             f"底池：{self.pot}"
+        )
+
+        # 提供查看手牌的按鈕（ephemeral 顯示，只有點擊者可見）
+        await self.channel.send(
+            "點擊下方按鈕查看你的手牌（只有你可見）",
+            view=HandView(self)
         )
 
         # 開始 Preflop 下注輪
@@ -280,15 +304,15 @@ class GameRoom:
             await self._end_hand(bot, cog)
             return
 
-        # 檢查是否所有人都下注相同
-        if self._all_bets_equal():
+        # 檢查是否下注輪應結束（回到最後加注者左手，且平注）
+        if self._betting_round_complete():
             await self._next_stage(bot, cog)
             return
 
         # 找到下一個需要行動的玩家
         while True:
             player = self.players[self.current_player_idx]
-            if player in self.folded:
+            if player in self.folded or player in self.all_in:
                 self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
                 continue
             if player not in active:
@@ -300,23 +324,34 @@ class GameRoom:
                 break
 
             self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
-            if self.current_player_idx == (self.dealer_idx + 3) % len(self.players):
-                # 回到起點，檢查是否完成下注輪
-                if self._all_bets_equal():
-                    await self._next_stage(bot, cog)
-                    return
-                break
+            # 若回到最後加注者左手，檢查是否完成下注輪
+            if self._betting_round_complete():
+                await self._next_stage(bot, cog)
+                return
+            break
 
         player = self.players[self.current_player_idx]
         await self._show_action_buttons(bot, player, cog)
 
     def _all_bets_equal(self) -> bool:
-        """檢查所有活躍玩家是否下注相同"""
-        active = self.get_active_players()
-        if not active:
+        """檢查需要行動的玩家是否都已平注。
+        僅考慮未棄牌且未全下的玩家；全下者不再要求補齊最高注。
+        若沒有任何需要行動的玩家，視為平注。
+        """
+        candidates = [uid for uid in self.players if uid not in self.folded and uid not in self.all_in]
+        if not candidates:
             return True
-        bets = [self.bets.get(uid, 0) for uid in active]
-        return len(set(bets)) <= 1
+        return all(self.bets.get(uid, 0) == self.current_bet for uid in candidates)
+
+    def _betting_round_complete(self) -> bool:
+        """判斷是否完成本輪下注（回到最後加注者左手，且平注）。
+        若本街尚無加注者，預設以莊家為基準。
+        """
+        base_raiser_idx = self.last_raiser_idx if self.last_raiser_idx is not None else self.dealer_idx
+        start_idx = (base_raiser_idx + 1) % len(self.players)
+        if self.current_player_idx != start_idx:
+            return False
+        return self._all_bets_equal()
 
     async def _show_action_buttons(self, bot: commands.Bot, player_id: int, cog: "Poker") -> None:
         """顯示行動按鈕給指定玩家"""
@@ -324,7 +359,7 @@ class GameRoom:
         player_bet = self.bets.get(player_id, 0)
         to_call = self.current_bet - player_bet
         can_check = to_call == 0
-        can_raise = self.chips[player_id] > to_call
+        can_raise = (self.chips[player_id] > to_call) and (player_id not in self.all_in)
 
         view = ActionView(self, player_id, cog, can_check, to_call, can_raise)
         self.action_view = view
@@ -358,36 +393,54 @@ class GameRoom:
 
     async def _handle_action(self, player_id: int, action: str, amount: int, bot: commands.Bot, cog: "Poker") -> None:
         """處理玩家行動"""
-        if self.action_view:
-            self.action_view.action_taken = True
-            self.action_view.stop()
-            self.action_view = None
+        async with self.action_lock:
+            if self.action_view:
+                self.action_view.action_taken = True
+                self.action_view.stop()
+                self.action_view = None
 
         if action == "fold":
             if player_id not in self.folded:
                 self.folded.append(player_id)
-            await self.channel.send(f"{await bot.fetch_user(player_id)} 棄牌")
+            await self.channel.send(f"<@{player_id}> 棄牌")
         elif action == "check":
-            pass  # 不下注
+            # 不下注
+            await self.channel.send(f"<@{player_id}> 過牌")
         elif action == "call":
             player_bet = self.bets.get(player_id, 0)
-            to_call = self.current_bet - player_bet
+            to_call = max(0, self.current_bet - player_bet)
             bet_amount = min(to_call, self.chips[player_id])
             self.bets[player_id] = player_bet + bet_amount
             self.chips[player_id] -= bet_amount
             self.pot += bet_amount
-            await self.channel.send(f"{await bot.fetch_user(player_id)} 跟注 {bet_amount}")
+            self.committed[player_id] += bet_amount
+            if self.chips[player_id] == 0 and player_id not in self.all_in:
+                self.all_in.append(player_id)
+            await self.channel.send(f"<@{player_id}> 跟注 {bet_amount}")
         elif action == "raise":
             player_bet = self.bets.get(player_id, 0)
-            to_call = self.current_bet - player_bet
-            total_bet = to_call + amount
-            if total_bet > self.chips[player_id]:
-                total_bet = self.chips[player_id]
-            self.bets[player_id] = player_bet + total_bet
-            self.chips[player_id] -= total_bet
-            self.pot += total_bet
-            self.current_bet = self.bets[player_id]
-            await self.channel.send(f"{await bot.fetch_user(player_id)} 加注 {total_bet}")
+            to_call = max(0, self.current_bet - player_bet)
+            # amount 是純加注額（不含跟注）
+            # 檢查最小加注（若非全下且小於 last_raise_amount，拒絕）
+            max_raise_cap = max(0, self.chips[player_id] - to_call)
+            raise_amt = min(amount, max_raise_cap)
+            total_bet = to_call + raise_amt
+
+            if raise_amt < self.last_raise_amount and total_bet < (to_call + self.last_raise_amount) and total_bet < self.chips[player_id] + player_bet:
+                await self.channel.send(f"<@{player_id}> 加注失敗：最小加注為 {self.last_raise_amount}")
+            else:
+                self.bets[player_id] = player_bet + total_bet
+                self.chips[player_id] -= total_bet
+                self.pot += total_bet
+                self.committed[player_id] += total_bet
+                # 若為完整加注（非因全下導致不足），更新追蹤
+                if raise_amt >= self.last_raise_amount or self.chips[player_id] == 0:
+                    self.current_bet = self.bets[player_id]
+                    self.last_raise_amount = max(self.last_raise_amount, raise_amt)
+                    self.last_raiser_idx = self.current_player_idx
+                if self.chips[player_id] == 0 and player_id not in self.all_in:
+                    self.all_in.append(player_id)
+                await self.channel.send(f"<@{player_id}> 加注 {total_bet}")
 
         # 刪除行動訊息
         if self.action_message:
@@ -414,18 +467,25 @@ class GameRoom:
             self.community.extend([self.deck.pop(), self.deck.pop(), self.deck.pop()])
             await self.channel.send(f"**Flop：** {' '.join(map(str, self.community))}")
             self.current_player_idx = (self.dealer_idx + 1) % len(self.players)
+            # 新一街預設以莊家作為加注基準，確保全員過牌可正確結束
+            self.last_raiser_idx = self.dealer_idx
+            self.last_raise_amount = self.big_blind
         elif self.stage == RoundStage.FLOP:
             # Turn
             self.stage = RoundStage.TURN
             self.community.append(self.deck.pop())
             await self.channel.send(f"**Turn：** {' '.join(map(str, self.community))}")
             self.current_player_idx = (self.dealer_idx + 1) % len(self.players)
+            self.last_raiser_idx = self.dealer_idx
+            self.last_raise_amount = self.big_blind
         elif self.stage == RoundStage.TURN:
             # River
             self.stage = RoundStage.RIVER
             self.community.append(self.deck.pop())
             await self.channel.send(f"**River：** {' '.join(map(str, self.community))}")
             self.current_player_idx = (self.dealer_idx + 1) % len(self.players)
+            self.last_raiser_idx = self.dealer_idx
+            self.last_raise_amount = self.big_blind
         else:
             # Showdown
             await self._showdown(bot, cog)
@@ -442,33 +502,76 @@ class GameRoom:
             self.chips[winner] += self.pot
             await self.channel.send(f"{await bot.fetch_user(winner)} 獲勝！獲得 {self.pot} 籌碼")
         else:
-            # 比牌
-            results = []
-            for uid in active:
-                rank, kicker = evaluate_hand(self.hole[uid], self.community)
-                results.append((uid, rank, kicker))
-                user = await bot.fetch_user(uid)
-                try:
-                    dm = await user.create_dm()
-                    await dm.send(f"你的手牌：{' '.join(map(str, self.hole[uid]))}")
-                except Exception:
-                    pass
+            # 計算各玩家牌力
+            hand_rank: Dict[int, Tuple[int, List[int]]] = {}
+            for uid in self.players:
+                hand_rank[uid] = evaluate_hand(self.hole.get(uid, []), self.community)
 
-            # 排序：牌型等級 > 踢腳牌
-            results.sort(key=lambda x: (x[1], x[2]), reverse=True)
-            winner = results[0][0]
-            self.chips[winner] += self.pot
-
+            # 建立邊池
+            side_pots = self._compute_side_pots()
+            total_distributed = 0
             rank_names = ["高牌", "一對", "兩對", "三條", "順子", "同花", "葫蘆", "四條", "同花順", "皇家同花順"]
-            await self.channel.send(
-                f"**攤牌結果：**\n"
-                f"獲勝者：{await bot.fetch_user(winner)}（{rank_names[results[0][1]]}）\n"
-                f"獲得 {self.pot} 籌碼"
-            )
+            lines = ["**攤牌結果（含邊池）**"]
+            for i, pot in enumerate(side_pots, start=1):
+                amount = pot["amount"]
+                eligible = pot["eligible"]
+                if amount <= 0 or not eligible:
+                    continue
+                # 找出本邊池的最佳牌力
+                best = None
+                winners: List[int] = []
+                for uid in eligible:
+                    r = hand_rank.get(uid, (0, []))
+                    if best is None or r > best:
+                        best = r
+                        winners = [uid]
+                    elif r == best:
+                        winners.append(uid)
+                # 平手分池
+                share = amount // len(winners)
+                remainder = amount % len(winners)
+                for idx, uid in enumerate(sorted(winners)):
+                    gain = share + (1 if idx < remainder else 0)
+                    self.chips[uid] += gain
+                    total_distributed += gain
+                rank_name = rank_names[best[0]] if best else "高牌"
+                winner_mentions = ", ".join(f"<@{uid}>" for uid in winners)
+                lines.append(f"邊池 {i}：{winner_mentions}（{rank_name}）平分 {amount} → 每人 {share}{' +1' if remainder else ''}")
+            # 若有剩餘未分配（理論上不會），一併加到最佳總贏家
+            leftover = self.pot - total_distributed
+            if leftover > 0:
+                # 給第一個主池贏家
+                first_pot = next((p for p in side_pots if p["amount"] > 0 and p["eligible"]), None)
+                if first_pot:
+                    uid0 = sorted(first_pot["eligible"])[0]
+                    self.chips[uid0] += leftover
+                    lines.append(f"餘額 {leftover} 發放給 <@{uid0}>")
+            await self.channel.send("\n".join(lines))
 
         self._save_chips(cog)
         self.started = False
         self.stage = RoundStage.PREFLOP
+
+    def _compute_side_pots(self) -> List[Dict[str, object]]:
+        """根據 self.committed 計算邊池。
+        金額計算包含所有玩家的投入，但 eligible 只包含未棄牌的玩家。
+        回傳列表由小到大主序依序列出。
+        """
+        amounts = [v for v in self.committed.values() if v > 0]
+        if not amounts:
+            return []
+        thresholds = sorted(set(amounts))
+        pots: List[Dict[str, object]] = []
+        prev = 0
+        for t in thresholds:
+            contributors = [uid for uid, c in self.committed.items() if c >= t]
+            delta = (t - prev) * len(contributors)
+            if delta > 0:
+                eligible = set(uid for uid in contributors if uid not in self.folded)
+                pots.append({"amount": delta, "eligible": eligible})
+            prev = t
+        # 若仍有超過最大門檻的投入（金額相等不會再有），此處不需再處理
+        return pots
 
     async def _end_hand(self, bot: commands.Bot, cog: "Poker") -> None:
         """結束牌局（所有人棄牌）"""
@@ -575,6 +678,26 @@ class RaiseModal(discord.ui.Modal, title="輸入加注金額"):
         await interaction.response.defer()
         await self.room._handle_action(self.player_id, "raise", amt, self.cog.bot, self.cog)
 
+
+class HandView(discord.ui.View):
+    def __init__(self, room: GameRoom) -> None:
+        super().__init__(timeout=None)
+        self.room = room
+
+    @discord.ui.button(label="查看手牌", style=discord.ButtonStyle.secondary)
+    async def show_hand(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = interaction.user.id
+        if uid not in self.room.players:
+            await interaction.response.send_message("你不在這個房間內。", ephemeral=True)
+            return
+        cards = self.room.hole.get(uid)
+        if not cards:
+            await interaction.response.send_message("目前沒有可顯示的手牌。", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"你的手牌：{' '.join(map(str, cards))}",
+            ephemeral=True
+        )
 
 class LobbyView(discord.ui.View):
     def __init__(self, cog: "Poker", room_id: int, *, timeout: Optional[float] = 300) -> None:
