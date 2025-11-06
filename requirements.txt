@@ -1,1 +1,2 @@
-discord.py>=2.6.4
+discord.py
+google-generativeai
