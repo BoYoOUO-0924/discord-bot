@@ -4,7 +4,7 @@ from discord.ext import commands
 import os         # 用來讀取資料夾
 try:
     import config  # 嘗試載入本地 config.py（不應上傳到 Git）
-    TOKEN = getattr(config, "TOKEN", None)
+    TOKEN = getattr(config, "DISCORD_TOKEN", None)
 except ImportError:
     TOKEN = None
 
