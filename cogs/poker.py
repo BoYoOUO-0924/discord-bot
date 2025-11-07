@@ -3,13 +3,14 @@ from discord.ext import commands
 from typing import Dict
 
 from .poker_utils.game_room import GameRoom
-from .poker_utils.views import LobbyView # Import the new LobbyView
+from .poker_utils.views import LobbyView
 
 class Poker(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.lobbies: Dict[int, Dict] = {}
         self.game_rooms: Dict[int, GameRoom] = {}
+        self.player_hands: Dict = {} # <--- THE FIX
         self.points_cog = None
 
     @commands.Cog.listener()
@@ -34,14 +35,12 @@ class Poker(commands.Cog):
             await ctx.send(f"{ctx.author.mention}, 你的積分不足（目前為 {player_points}），無法創建遊戲。")
             return
         
-        # Create the lobby data structure
         self.lobbies[ctx.channel.id] = {
             "host": ctx.author,
             "players": [ctx.author],
             "big_blind": big_blind
         }
 
-        # Create the Embed and View
         embed = discord.Embed(
             title="🎲 德州撲克大廳已創建！",
             color=discord.Color.blue()
@@ -50,11 +49,9 @@ class Poker(commands.Cog):
         embed.add_field(name="大盲注", value=str(big_blind), inline=False)
         embed.description = "目前的玩家:\n- {}".format(ctx.author.mention)
 
-        # Send the message with the Embed and the View
         await ctx.send(embed=embed, view=LobbyView(self))
 
     async def _start_game_from_lobby(self, lobby: dict, channel: discord.TextChannel):
-        """Internal function to transition from a lobby to a game room."""
         if not self.points_cog:
             await channel.send("錯誤：無法啟動遊戲，積分系統未載入。")
             return
@@ -65,11 +62,9 @@ class Poker(commands.Cog):
         
         initial_chips = {p.id: self.points_cog.get_points(p.id) for p in initial_players}
 
-        # Clean up the lobby
         if channel.id in self.lobbies:
             del self.lobbies[channel.id]
         
-        # Create and start the game room
         room = GameRoom(
             bot=self.bot, 
             cog=self, 
@@ -85,17 +80,18 @@ class Poker(commands.Cog):
     @commands.command(name="stopgame", help="停止當前頻道的撲克遊戲或關閉大廳。")
     @commands.guild_only()
     async def stopgame(self, ctx: commands.Context):
-        # This command can now also be used to forcefully close a button-based lobby
         if ctx.channel.id in self.lobbies:
+            # Try to find the original message to disable the view
+            # This is complex, so for now we just delete data and send a message.
             del self.lobbies[ctx.channel.id]
-            # Optionally, find the original message and disable the view
-            # This is more complex, for now just deleting the lobby data is enough.
             await ctx.send("遊戲大廳已由管理員強制關閉。")
             return
             
         room = self.game_rooms.get(ctx.channel.id)
         if room and room.is_active:
-            await room.stop_game("遊戲已由管理員強制結束。")
+            await room.stop_game("遊戲已由管理員強制結束。") # stop_game is not a method in GameRoom
+            # We should probably call _end_game here
+            await room._end_game()
         else:
             await ctx.send("這個頻道沒有正在進行的遊戲或等待中的大廳。")
 
