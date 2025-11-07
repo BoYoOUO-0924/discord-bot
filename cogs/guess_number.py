@@ -63,8 +63,8 @@ class GameCog(commands.Cog):
             # 猜對了，清除遊戲狀態
             del self.guessing_games[channel_id]
 
-    @commands.command(name='giveup', help='放棄猜數字遊戲')
-    async def giveup(self, ctx):
+    @commands.command(name='guess_giveup', help='放棄猜數字遊戲')
+    async def guess_giveup(self, ctx):
         """放棄遊戲"""
         channel_id = ctx.channel.id
         if channel_id in self.guessing_games:
@@ -102,4 +102,3 @@ class GameCog(commands.Cog):
 async def setup(bot):
     await bot.add_cog(GameCog(bot))
 
-    
