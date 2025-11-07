@@ -72,7 +72,7 @@ class HelpCog(commands.Cog):
             inline=False
         )
         embed.add_field(
-            name='德州撲克 (Texas Hold\'em)',
+            name='德州撲克 (Texas Hold\'em) (目前不可用)',
             value=f'`{prefix}poker [大盲注]`: 創建大廳\n`{prefix}join`: 加入大廳\n`{prefix}startpoker`: 開始遊戲\n`{prefix}stopgame`: 結束遊戲',
             inline=False
         )

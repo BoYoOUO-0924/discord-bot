@@ -33,7 +33,7 @@ def evaluate_hand(hole: List[Card], community: List[Card]) -> Tuple[int, List[in
         - best_rank (int): The rank of the best hand (0-8).
         - best_kicker_values (List[int]): The kicker values for tie-breaking.
         - hand_name (str): The chinese name of the hand.
-        - best_hand_cards (List[Card]): The 5 cards that form the best hand.
+        - best_hand_cards (List[Card]): The 5 cards that form the best hand, sorted by value.
     """
     all_cards = hole + community
 
@@ -64,7 +64,10 @@ def evaluate_hand(hole: List[Card], community: List[Card]) -> Tuple[int, List[in
 
     hand_name = get_hand_name(best_rank, best_kicker_values)
 
-    return (best_rank, best_kicker_values, hand_name, best_hand_cards)
+    # Sort the final best hand for clear presentation
+    sorted_best_hand = sorted(best_hand_cards, key=lambda c: c.value(), reverse=True)
+
+    return (best_rank, best_kicker_values, hand_name, sorted_best_hand)
 
 
 def _evaluate_five(cards: List[Card]) -> Tuple[int, List[int]]:
