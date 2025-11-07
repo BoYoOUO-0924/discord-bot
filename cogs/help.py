@@ -1,98 +1,100 @@
 import discord
 from discord.ext import commands
 
+# --- UI View for Buttons ---
+class HelpView(discord.ui.View):
+    def __init__(self, cog, prefix: str):
+        super().__init__(timeout=180.0)  # 3 minutes timeout
+        self.cog = cog
+        self.prefix = prefix
+        self.message = None
 
+    async def on_timeout(self):
+        if self.message:
+            for item in self.children:
+                item.disabled = True
+            await self.message.edit(view=self)
+
+    @discord.ui.button(label="首頁", style=discord.ButtonStyle.green, emoji="🏠")
+    async def home_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = self.cog._get_main_help_embed(self.prefix, interaction.client.user)
+        await interaction.response.edit_message(embed=embed)
+
+    @discord.ui.button(label="通用", style=discord.ButtonStyle.secondary, emoji="🔧")
+    async def general_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = self.cog._get_general_help_embed(self.prefix)
+        await interaction.response.edit_message(embed=embed)
+
+    @discord.ui.button(label="遊戲", style=discord.ButtonStyle.secondary, emoji="🎮")
+    async def game_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = self.cog._get_game_help_embed(self.prefix)
+        await interaction.response.edit_message(embed=embed)
+
+# --- Cog with Embed Generation and Command ---
 class HelpCog(commands.Cog):
+    """一個可分類的互動式幫助指令。"""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name='help', help='顯示所有功能與用法')
-    async def help_command(self, ctx):
-        prefix = '!'
+    def _get_main_help_embed(self, prefix: str, bot_user: discord.ClientUser) -> discord.Embed:
         embed = discord.Embed(
-            title='指令說明',
-            description=f'目前前綴為 `{prefix}`。以下為可用功能與範例：',
-            color=0x00bcd4
+            title=f'{bot_user.name} 指令選單',
+            description=f"歡迎使用！請點擊下方按鈕來瀏覽不同類別的指令。\n目前指令前綴為 `{prefix}`",
+            color=discord.Color.blurple()
         )
+        if bot_user.avatar:
+            embed.set_thumbnail(url=bot_user.avatar.url)
+        embed.add_field(
+            name="導覽",
+            value=(
+                "- `🏠 首頁`: 回到這個主畫面。\n"
+                "- `🔧 通用`: 查看日常實用指令。\n"
+                "- `🎮 遊戲`: 尋找所有可玩的遊戲。"
+            ),
+            inline=False
+        )
+        embed.set_footer(text="選單將在 3 分鐘後自動失效。")
+        return embed
 
-        # 猜數字
+    def _get_general_help_embed(self, prefix: str) -> discord.Embed:
+        embed = discord.Embed(title='🔧 通用指令 (General)', description="日常使用的實用工具。", color=0x2ECC71)
+        embed.add_field(name=f'{prefix}checkin', value='✨ **每日簽到**: 獲取每日積分獎勵，連續簽到有加成！', inline=False)
+        embed.add_field(name=f'{prefix}point', value='💰 **查詢積分**: 查詢你目前擁有的積分總額。', inline=False)
+        embed.add_field(name=f'{prefix}clear [數量]', value='🧹 **清除訊息**: 清除頻道訊息(預設10則)，僅限管理員。', inline=False)
+        return embed
+
+    def _get_game_help_embed(self, prefix: str) -> discord.Embed:
+        embed = discord.Embed(title='🎮 遊戲指令 (Game)', description="與朋友們一起同樂！", color=0xE67E22)
         embed.add_field(
             name='猜數字 (Guess Number)',
-            value=(
-                f'• 開始/猜測：`{prefix}guess [1-100 數字]`\n'
-                f'• 放棄：`{prefix}giveup`\n'
-                f'說明：每個頻道各自一局。系統會提示高/低；猜中或放棄時會公布答案與累計猜測次數。\n'
-                f'獎勵：5 次內答對 +100 分、10 次內 +50 分（超過 10 次 0 分）'
-            ),
+            value=f'`{prefix}guess [數字]`: 開始遊戲或猜一個數字。\n`{prefix}guess_giveup`: 放棄當前遊戲。',
             inline=False
         )
-
-        # 21點
-        embed.add_field(
-            name='Blackjack (21 點)',
-            value=(
-                f'• 開局：`{prefix}blackjack [賭注]`（你與莊家各 2 張，莊家亮 1 張）\n'
-                f'• 要牌：`{prefix}hit`\n'
-                f'• 停牌：`{prefix}stand`\n'
-                f'• 分牌：可分時用按鈕或 `{prefix}split`\n'
-                f'• 積分：查詢 `{prefix}point`，預設起始 {0} 分（JSON 本地保存）\n'
-                f'說明：A 會自動在 1/11 間調整。玩家爆牌直接結算；莊家補到至少 17 再比較點數，可能平手。'
-            ),
-            inline=False
-        )
-        
-        # 德州撲克
         embed.add_field(
             name='德州撲克 (Texas Hold\'em)',
-            value=(
-                f'• 建立房間：`{prefix}poker`\n'
-                f'• 遊戲互動：透過按鈕【加入/離開/開始遊戲】\n'
-                f'• 遊戲流程：開始後，透過按鈕【過牌/跟注/加注/棄牌】進行遊戲。\n'
-                f'說明：一個更複雜的多人撲克遊戲。籌碼與 21點 連動。'
-            ),
+            value=f'`{prefix}poker [大盲注]`: 創建大廳\n`{prefix}join`: 加入大廳\n`{prefix}startpoker`: 開始遊戲\n`{prefix}stopgame`: 結束遊戲',
             inline=False
         )
-
-        # 每日簽到
         embed.add_field(
-            name='每日簽到 (Check-in)',
-            value=(
-                f'• 指令：`{prefix}checkin`\n'
-                f'• 規則：基礎 +100，首次簽到額外 +500；連續簽到每日加成 +20（無上限）\n'
-                f'• 日界：以 UTC 00:00 為換日基準'
-            ),
+            name='21點 (Blackjack)',
+            value=f'`{prefix}blackjack [賭注]`: 開始一局21點。\n`{prefix}hit`: 要牌。\n`{prefix}stand`: 停牌。\n*遊戲中可透過按鈕進行互動。*',
             inline=False
         )
-
-        # 井字遊戲 (UI互動版)
         embed.add_field(
-            name='井字遊戲 (Tic-Tac-Toe) - UI互動版',
-            value=(
-                f'• 開始遊戲：`{prefix}tictactoe @對手` (別名: `ttt`, `井字遊戲`)\n'
-                f'• 下棋：直接點擊遊戲盤面上的按鈕即可。\n'
-                f'• 結束遊戲：`{prefix}stoptictactoe` (限管理員)\n'
-                f'說明：透過互動式 UI 按鈕遊玩的 3x3 井字遊戲。'
-            ),
+            name='井字遊戲 (Tic-Tac-Toe)',
+            value=f'`{prefix}tictactoe @對手`: 開始一場井字遊戲，透過按鈕互動。',
             inline=False
         )
+        return embed
 
-        # 海龜湯
-        embed.add_field(
-            name='🐢 海龜湯 (Sea Tortoise)',
-            value=(
-                f'• 開始遊戲：`{prefix}seatortoise` (別名: `海龜湯`)\n'
-                f'• 提問：直接在頻道中提出「是/否」問題 (需以問號結尾)。\n'
-                f'• 猜測答案：`{prefix}answer <你的猜測>`\n'
-                f'• 放棄/看答案：`{prefix}giveup`\n'
-                f'說明：由 AI 擔任湯主，玩家透過問答來推理故事真相的懸疑遊戲。'
-            ),
-            inline=False
-        )
-
-        embed.set_footer(text='有想加入的新遊戲，直接跟我說！')
-        await ctx.send(embed=embed)
-
+    @commands.command(name='help', help='顯示互動式幫助選單。')
+    async def help_command(self, ctx: commands.Context):
+        prefix = '!'
+        embed = self._get_main_help_embed(prefix, self.bot.user)
+        view = HelpView(self, prefix)
+        view.message = await ctx.send(embed=embed, view=view)
 
 async def setup(bot):
+    bot.remove_command('help')
     await bot.add_cog(HelpCog(bot))
