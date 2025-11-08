@@ -206,3 +206,32 @@ class LobbyView(discord.ui.View):
         
         embed = discord.Embed(title="撲克大廳已取消", description=f"由 {interaction.user.mention} 操作。", color=discord.Color.red())
         await interaction.response.edit_message(embed=embed, view=None)
+
+class NextHandView(discord.ui.View):
+    def __init__(self, room: "GameRoom"):
+        super().__init__(timeout=300) # 5 minute timeout
+        self.room = room
+
+    @discord.ui.button(label="開始下一手", style=discord.ButtonStyle.success)
+    async def start_next_hand_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.room.host_id:
+            await interaction.response.send_message("只有房主才能開始下一手牌。", ephemeral=True)
+            return
+
+        alive_players = [p_id for p_id in self.room.player_ids if self.room.chips.get(p_id, 0) > 0]
+        if len(alive_players) < 2:
+            await interaction.response.edit_message(content="沒有足夠的玩家可以開始下一手牌。遊戲即將結束。", view=None)
+            await self.room._end_game()
+            return
+
+        await interaction.response.edit_message(content="準備開始下一手牌...", view=None)
+        await self.room._start_hand()
+
+    @discord.ui.button(label="結束遊戲", style=discord.ButtonStyle.danger)
+    async def end_game_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.room.host_id:
+            await interaction.response.send_message("只有房主才能結束遊戲。", ephemeral=True)
+            return
+            
+        await interaction.response.edit_message(content="遊戲已由玩家手動結束。", view=None)
+        await self.room._end_game()

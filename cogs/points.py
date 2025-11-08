@@ -40,9 +40,9 @@ class PointsCog(commands.Cog, name="Points"): # Assign a public name for easy ac
         try:
             with open(self.points_path, 'w', encoding='utf-8') as f:
                 json.dump(all_points, f, indent=4)
-        except IOError:
+        except IOError as e:
             # In a real-world scenario, you might want to log this error
-            pass
+            print(f"寫入積分檔案時發生錯誤: {e}")
 
     # --- Public API for other Cogs ---
     def get_points(self, user_id: int) -> int:
