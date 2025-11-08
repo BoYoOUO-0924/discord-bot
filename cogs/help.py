@@ -3,6 +3,7 @@ import discord
 from discord.ext import commands
 from discord import ui
 import copy
+from typing import Optional
 
 # --- Modals for Commands with Arguments ---
 
@@ -99,7 +100,7 @@ class CategoryBaseView(ui.View):
         else:
             await interaction.response.send_message(f"❌ 錯誤：找不到指令 `{command_name}` 或權限不足。", ephemeral=True)
 
-# --- Category Specific Views with Chinese Labeled Buttons ---
+# --- Category Specific Views ---
 
 class GeneralHelpView(CategoryBaseView):
     @ui.button(label="每日簽到", style=discord.ButtonStyle.success, emoji="✨", row=0)
@@ -117,15 +118,15 @@ class GeneralHelpView(CategoryBaseView):
         await interaction.response.send_modal(modal)
 
 class GameHelpView(CategoryBaseView):
-    @ui.button(label="開始猜數字", style=discord.ButtonStyle.success, emoji="▶️", row=0)
+    @ui.button(label="開始猜數字", style=discord.ButtonStyle.success, emoji="🔢", row=0)
     async def execute_start_guess(self, interaction: discord.Interaction, button: ui.Button):
-        await self._execute_command(interaction, "start_guess")
+        await self._execute_command(interaction, "`start_guess`")
         
     @ui.button(label="結束猜數字", style=discord.ButtonStyle.danger, emoji="⏹️", row=0)
     async def execute_stop_guess(self, interaction: discord.Interaction, button: ui.Button):
-        await self._execute_command(interaction, "stop_guess")
+        await self._execute_command(interaction, "`stop_guess`")
 
-    @ui.button(label="德州撲克", style=discord.ButtonStyle.success, emoji="▶️", row=1)
+    @ui.button(label="德州撲克", style=discord.ButtonStyle.success, emoji="♠️", row=1)
     async def execute_poker(self, interaction: discord.Interaction, button: ui.Button):
         prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
         modal = CommandModal(self.cog, "poker", "大盲注金額 (預設20)", f"執行 {prefix}poker")
@@ -135,13 +136,12 @@ class GameHelpView(CategoryBaseView):
     async def execute_stopgame(self, interaction: discord.Interaction, button: ui.Button):
         await self._execute_command(interaction, "stopgame")
 
-    @ui.button(label="21點", style=discord.ButtonStyle.success, emoji="▶️", row=2)
+    @ui.button(label="21點", style=discord.ButtonStyle.success, emoji="🃏", row=2)
     async def execute_blackjack(self, interaction: discord.Interaction, button: ui.Button):
         prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
         modal = CommandModal(self.cog, "blackjack", "您的賭注", f"執行 {prefix}blackjack")
         await interaction.response.send_modal(modal)
 
-    # --- 關鍵新增：拉霸機按鈕 ---
     @ui.button(label="拉霸機", style=discord.ButtonStyle.success, emoji="🎰", row=3)
     async def execute_slots(self, interaction: discord.Interaction, button: ui.Button):
         prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
@@ -155,7 +155,7 @@ class HelpCog(commands.Cog):
         self.bot = bot
 
     def _get_main_help_embed(self, prefix: str, bot_user: discord.ClientUser) -> discord.Embed:
-        embed = discord.Embed(title=f'{bot_user.name} 指令選單', description=f"歡迎！點擊下方按鈕瀏覽指令分類，或點擊指令按鈕直接執行。", color=discord.Color.blurple())
+        embed = discord.Embed(title=f'{bot_user.name} 指令選單', description=f"歡迎！點擊下方按鈕瀏覽指令分類，或使用 `{prefix}help [主題]` 尋求特定幫助 (例如: `{prefix}help poker`)。", color=discord.Color.blurple())
         if bot_user.avatar: embed.set_thumbnail(url=bot_user.avatar.url)
         embed.add_field(name="導覽", value="- `🏠 首頁`: 回到主畫面\n- `🔧 通用`: 日常實用指令\n- `🎮 遊戲`: 所有可玩的遊戲", inline=False)
         embed.set_footer(text=f"指令前綴: {prefix} | 選單將在3分鐘後失效")
@@ -168,79 +168,26 @@ class HelpCog(commands.Cog):
         embed.add_field(name=f'{prefix}clear [數量]', value='🧹 **清除訊息**: 清除頻道訊息(預設10則)，僅限管理員。', inline=False)
         return embed
 
-  # --- 關鍵修改：德州撲克教學 Embed，加入範例 ---
-    def _get_poker_help_embed(self, prefix: str) -> discord.Embed:
-        embed = discord.Embed(title="♠️♥️ 德州撲克 (Texas Hold'em) 遊戲教學 ♦️♣️",
-                              description="目標：用你的 **2張底牌** 和 **5張公共牌**，組合出最強的5張牌組，贏得底池！",
-                              color=0xC41E3A) # Poker Red
-
-        embed.add_field(
-            name="➡️ 遊戲流程",
-            value="1. **發起遊戲**: 玩家用 `!poker [大盲注]` 指令開局。\n"
-                  "2. **盲注 (Blinds)**: 遊戲開始時，兩位玩家需強制下注（小盲注和大盲注）。\n"
-                  "3. **翻牌前 (Pre-flop)**: 每位玩家拿到2張底牌，第一輪下注開始。\n"
-                  "4. **翻牌圈 (Flop)**: 桌上發出3張公共牌，第二輪下注開始。\n"
-                  "5. **轉牌圈 (Turn)**: 桌上發出第4張公共牌，第三輪下注開始。\n"
-                  "6. **河牌圈 (River)**: 桌上發出第5張公共牌，最終輪下注。\n"
-                  "7. **攤牌 (Showdown)**: 所有剩餘玩家開牌，持有最強牌組的玩家贏得所有籌碼！",
-            inline=False
-        )
-
-        embed.add_field(
-            name="💪 玩家操作",
-            value="- **跟注 (Call)**: 跟隨前一位玩家的下注額。\n"
-                  "- **加注 (Raise)**: 提高當前的下注額。\n"
-                  "- **蓋牌 (Fold)**: 放棄這一手牌，輸掉已下注的籌碼。\n"
-                  "- **過牌 (Check)**: 在無人下注的情況下，將行動權交給下一位。\n"
-                  "- **全下 (All-in)**: 將你剩下的所有籌碼全部下注。",
-            inline=False
-        )
-
-        embed.add_field(
-            name="👑 牌型大小 (由大到小)",
-            value=(
-                "**皇家同花順 > 同花順 > 四條 > 葫蘆 > 同花 > 順子 > 三條 > 兩對 > 一對 > 高牌**\n\n"
-                "- **皇家同花順 (Royal Flush)**: A, K, Q, J, 10 同花色。\n"
-                "  `例: ♥A ♥K ♥Q ♥J ♥10`\n"
-                "- **同花順 (Straight Flush)**: 連續的五張牌，且花色相同。\n"
-                "  `例: ♦9 ♦8 ♦7 ♦6 ♦5`\n"
-                "- **四條 (Four of a Kind)**: 四張點數相同的牌。\n"
-                "  `例: ♠A ♥A ♦A ♣A ♠K`\n"
-                "- **葫蘆 (Full House)**: 一組三條加上一組對子。\n"
-                "  `例: ♥K ♠K ♦K ♥7 ♠7`\n"
-                "- **同花 (Flush)**: 五張花色相同但不連續的牌。\n"
-                "  `例: ♣A ♣Q ♣9 ♣5 ♣2`\n"
-                "- **順子 (Straight)**: 五張點數連續但花色不同的牌。\n"
-                "  `例: ♥A ♠K ♦Q ♣J ♥10`\n"
-                "- **三條 (Three of a Kind)**: 三張點數相同的牌。\n"
-                "  `例: ♥Q ♠Q ♦Q ♥9 ♠3`\n"
-                "- **兩對 (Two Pair)**: 兩組不同的對子。\n"
-                "  `例: ♥J ♠J ♥8 ♠8 ♦K`\n"
-                "- **一對 (One Pair)**: 兩張點數相同的牌。\n"
-                "  `例: ♦A ♥A ♠Q ♦J ♣5`\n"
-                "- **高牌 (High Card)**: 不符合以上任何牌型的牌，由最大的一張牌決定大小。\n"
-                "  `例: ♠A ♦Q ♥9 ♣5 ♥2`"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="🚪 結束遊戲",
-            value=f"- `{prefix}stopgame`: 由遊戲發起人使用，可強制結束該頻道正在進行的撲克遊戲。",
-            inline=False
-        )
-
-        embed.set_footer(text="祝您在牌桌上無往不利！")
+    def _get_game_help_embed(self, prefix: str) -> discord.Embed:
+        embed = discord.Embed(title='🎮 遊戲指令', description="點擊下方按鈕開始遊戲，或使用 `!help [遊戲名稱]` 查看詳細玩法。", color=0x3498DB)
+        embed.add_field(name=f'{prefix}start_guess | {prefix}stop_guess', value='🔢 **猜數字**: 啟動或結束一個猜數字遊戲。', inline=False)
+        embed.add_field(name=f'{prefix}poker [大盲注]', value='♠️ **德州撲克**: 開設一局德州撲克。可使用 `!help poker` 查看完整規則。', inline=False)
+        embed.add_field(name=f'{prefix}blackjack [賭注]', value='🃏 **21點**: 開始一局21點遊戲，並指定你的賭注。', inline=False)
+        embed.add_field(name=f'{prefix}slots [賭注]', value='🎰 **拉霸機**: 玩一次拉霸機，並指定你的賭注。', inline=False)
         return embed
 
-    # --- help 指令保持不變 ---
-    @commands.command(name='help', help='顯示互動式幫助選單，或特定遊戲的玩法。用法: !help [主題]')
-    async def help_command(self, ctx: commands.Context, *, topic: str = None):
+    # --- 關鍵修改：help 指令現在會向 Poker cog 請求教學內容 ---
+    @commands.command(name='help', help='顯示互動式幫助選單')
+    async def help_command(self, ctx: commands.Context, *, topic: Optional[str] = None):
         prefix = self.bot.command_prefix if isinstance(self.bot.command_prefix, str) else '!'
 
         if topic and topic.lower() == 'poker':
-            embed = self._get_poker_help_embed(prefix)
-            await ctx.send(embed=embed)
+            poker_cog = self.bot.get_cog('Poker')
+            if poker_cog and hasattr(poker_cog, 'get_poker_help_embed'):
+                embed = poker_cog.get_poker_help_embed(prefix)
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send(f"錯誤：找不到 `poker` 的教學內容或 `Poker` 插件未載入。")
         else:
             embed = self._get_main_help_embed(prefix, self.bot.user)
             view = HelpView(self)
