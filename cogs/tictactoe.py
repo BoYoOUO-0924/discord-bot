@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 from typing import Dict, Optional, List
+import random  # <--- 引入 random 模組
 
 # 遊戲邏輯核心，儲存每個遊戲的狀態
 class TicTacToeGame:
@@ -8,7 +9,8 @@ class TicTacToeGame:
         self.player1 = player1  # X
         self.player2 = player2  # O
         self.board = [0] * 9  # 0: empty, 1: X, 2: O
-        self.current_turn = player1
+        # --- 核心改動：隨機決定先手 --- #
+        self.current_turn = random.choice([player1, player2])
         self.winner = None  # None: in progress, 1: P1 wins, 2: P2 wins, 3: Draw
 
     def make_move(self, player: discord.User, position: int) -> bool:
@@ -118,20 +120,16 @@ class GameBoardView(discord.ui.View):
 
     async def on_timeout(self):
         # 超時處理
-        channel_id = self.game.player1.dm_channel.id if self.game.player1.dm_channel else list(self.cog.games.keys())[list(self.cog.games.values()).index(self.game)]
-        if channel_id in self.cog.games:
-             del self.cog.games[channel_id]
+        if self.game and hasattr(self, 'message') and self.message:
+             if self.message.channel.id in self.cog.games:
+                del self.cog.games[self.message.channel.id]
 
-        # 停用所有按鈕
-        for item in self.children:
-            item.disabled = True
+             # 停用所有按鈕
+             for item in self.children:
+                item.disabled = True
 
-        embed = discord.Embed(title="井字遊戲超時", description="遊戲因長時間無動作已自動結束。", color=discord.Color.orange())
-        # 這裡需要一個 channel 對象來發送訊息，但 view 沒有直接的 channel 參考
-        # 更好的做法是在 start_game 傳入 message 對象，然後用 message.edit
-        # 這裡我們只能假設有一個 interaction 可以用，但 on_timeout 沒有
-        # 所以我們將無法編輯原始訊息，只能放棄
-
+             embed = discord.Embed(title="井字遊戲超時", description="遊戲因長時間無動作已自動結束。", color=discord.Color.orange())
+             await self.message.edit(embed=embed, view=self)
 
 class TicTacToe(commands.Cog):
     """井字遊戲功能"""
@@ -161,35 +159,39 @@ class TicTacToe(commands.Cog):
 
         embed = discord.Embed(
             title="井字遊戲開始！",
-            description=f"{player1.mention} (X) vs {player2.mention} (O)\n\n輪到 {game.current_turn.mention}！",
+            description=f"{player1.mention} (X) vs {player2.mention} (O)\n\n**由 {game.current_turn.mention} 先手！**",
             color=discord.Color.blue()
         )
         embed.set_footer(text="直接點擊下方按鈕即可下棋。")
         
-        await ctx.send(embed=embed, view=view)
-
-    # 移除 !move 指令，因為不再需要
+        message = await ctx.send(embed=embed, view=view)
+        view.message = message # 儲存 message 以便於超時中使用
 
     @commands.command(name="stoptictactoe", aliases=['sttt', '結束井字遊戲'], help="強制結束目前的井字遊戲。")
     @commands.has_permissions(manage_messages=True)
     async def stop_game(self, ctx: commands.Context):
         if ctx.channel.id in self.games:
+            # 找到對應的 message 並停用 view
+            game_to_stop = self.games[ctx.channel.id]
+            # This is a bit tricky without a message reference. We assume the game view has a message.
+            # This part is still weak, but let's try to find the message.
+            async for message in ctx.channel.history(limit=50):
+                if message.author == self.bot.user and message.embeds and "井字遊戲" in message.embeds[0].title:
+                    if f"{game_to_stop.player1.mention}" in message.embeds[0].description:
+                        try:
+                            view = GameBoardView.from_message(message)
+                            for item in view.children:
+                                item.disabled = True
+                            embed = message.embeds[0]
+                            embed.title = "遊戲已強制結束"
+                            embed.color = discord.Color.red()
+                            await message.edit(embed=embed, view=view)
+                            await ctx.send("遊戲已由管理員強制結束。")
+                            break
+                        except Exception:
+                            continue # Not a view message or already timed out
+            
             del self.games[ctx.channel.id]
-            await ctx.send("遊戲已由管理員強制結束。正在尋找並移除舊的遊戲面板...")
-            # 理想情況下，我們會儲存 message ID 來直接編輯它
-            # 這裡我們只能遍歷最近的訊息
-            async for message in ctx.channel.history(limit=20):
-                if message.author == self.bot.user and message.components:
-                    view = discord.ui.View.from_message(message)
-                    if view and any("tictactoe" in child.custom_id for child in view.children if hasattr(child, 'custom_id')):
-                        for item in view.children:
-                            item.disabled = True
-                        embed = message.embeds[0]
-                        embed.title = "遊戲已強制結束"
-                        embed.color = discord.Color.red()
-                        await message.edit(embed=embed, view=view)
-                        await ctx.send("已停用遊戲面板。")
-                        break
         else:
             await ctx.send("這個頻道沒有正在進行的遊戲。")
 
