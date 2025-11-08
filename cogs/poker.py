@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from typing import Dict
+from typing import Dict, Optional
 
 from .poker_utils.game_room import GameRoom
 from .poker_utils.views import LobbyView
@@ -10,14 +10,12 @@ class Poker(commands.Cog):
         self.bot = bot
         self.lobbies: Dict[int, Dict] = {}
         self.game_rooms: Dict[int, GameRoom] = {}
-        self.player_hands: Dict = {} # <--- THE FIX
-        self.points_cog = None
+        self.player_hands: Dict = {}
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        self.points_cog = self.bot.get_cog('Points')
-        if not self.points_cog:
-            print("Error: PointsCog not found in Poker. Make sure it is loaded.")
+    @property
+    def points_cog(self) -> Optional[commands.Cog]:
+        """透過屬性即時、安全地獲取 Points cog。"""
+        return self.bot.get_cog('Points')
 
     @commands.command(name="poker", help="創建一個帶有互動按鈕的德州撲克大廳。")
     @commands.guild_only()
@@ -81,17 +79,13 @@ class Poker(commands.Cog):
     @commands.guild_only()
     async def stopgame(self, ctx: commands.Context):
         if ctx.channel.id in self.lobbies:
-            # Try to find the original message to disable the view
-            # This is complex, so for now we just delete data and send a message.
             del self.lobbies[ctx.channel.id]
             await ctx.send("遊戲大廳已由管理員強制關閉。")
             return
             
         room = self.game_rooms.get(ctx.channel.id)
         if room and room.is_active:
-            await room.stop_game("遊戲已由管理員強制結束。") # stop_game is not a method in GameRoom
-            # We should probably call _end_game here
-            await room._end_game()
+            await room._end_game(reason=f"遊戲已由 {ctx.author.mention} 強制結束。")
         else:
             await ctx.send("這個頻道沒有正在進行的遊戲或等待中的大廳。")
 

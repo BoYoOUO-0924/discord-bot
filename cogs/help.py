@@ -68,12 +68,12 @@ class HelpCog(commands.Cog):
         embed = discord.Embed(title='🎮 遊戲指令 (Game)', description="與朋友們一起同樂！", color=0xE67E22)
         embed.add_field(
             name='猜數字 (Guess Number)',
-            value=f'`{prefix}guess [數字]`: 開始遊戲或猜一個數字。\n`{prefix}guess_giveup`: 放棄當前遊戲。',
+            value=f'`{prefix}start_guess`: 開始一場新的猜數字遊戲。\n`{prefix}stop_guess`: 放棄當前的遊戲。\n*提示：遊戲開始後，直接在頻道輸入數字即可猜測！*',
             inline=False
         )
         embed.add_field(
-            name='德州撲克 (Texas Hold\'em) (目前不可用)',
-            value=f'`{prefix}poker [大盲注]`: 創建大廳\n`{prefix}join`: 加入大廳\n`{prefix}startpoker`: 開始遊戲\n`{prefix}stopgame`: 結束遊戲',
+            name='德州撲克 (Texas Hold\'em)',
+            value=f'`{prefix}poker [大盲注]`: 創建一個撲克遊戲大廳，玩家可透過按鈕加入或開始。\n`{prefix}stopgame`: 強制結束遊戲或關閉大廳。',
             inline=False
         )
         embed.add_field(

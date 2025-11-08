@@ -7,7 +7,7 @@ import discord
 
 from .cards import Card, generate_shuffled_deck
 from .evaluate import evaluate_hand
-from .views import ActionView
+from .views import ActionView, NextHandView
 
 if TYPE_CHECKING:
     from ..poker import Poker
@@ -21,6 +21,7 @@ class GameRoom:
         self.channel_id: int = channel_id
         self.initial_players: List[discord.Member] = players
         self.player_ids: List[int] = [p.id for p in players]
+        self.host_id: int = players[0].id
         self.initial_chips: Dict[int, int] = chips.copy()
         self.chips: Dict[int, int] = chips
         self.is_active: bool = True
@@ -69,7 +70,7 @@ class GameRoom:
         self.deck = generate_shuffled_deck()
         self.pot = 0
         self.community_cards = []
-        self.bets = {p_id: 0 for p_id in self.player_ids}
+        self.bets = {p_id: 0 for p_id in self.player_ids} # BUG FIX: Corrected variable name
         self.current_bet = 0
         self.last_raiser = None
         self.hand_over = False
@@ -77,7 +78,7 @@ class GameRoom:
         self.active_players = [p_id for p_id in self.player_ids if self.chips.get(p_id, 0) > 0]
 
         if len(self.active_players) < 2:
-            await self._end_game()
+            await self._end_game(reason="沒有足夠的玩家可以繼續遊戲。")
             return
 
         self.dealer_button_pos = self._get_next_active_player_idx(self.dealer_button_pos)
@@ -165,9 +166,7 @@ class GameRoom:
                 self.players_acted_this_round = {player_id} # Reset acting history
             await channel.send(f"{player.display_name} All-in ({all_in_amount})！")
         
-        # This check is crucial and must be after the action logic
         if len(self.active_players) <= 1:
-            self.hand_over = True
             await self._end_hand()
             return
 
@@ -188,18 +187,15 @@ class GameRoom:
 
         contenders = [p_id for p_id in self.active_players if self.chips.get(p_id, 0) > 0]
         if not contenders:
-            return True # All remaining players are all-in
+            return True
 
-        # Have all contenders acted?
         if not all(p_id in self.players_acted_this_round for p_id in contenders):
             return False
 
-        # Are all contenders' bets equal?
         first_bet = self.bets.get(contenders[0], 0)
         if not all(self.bets.get(p_id, 0) == first_bet for p_id in contenders):
             return False
         
-        # Is the current bet matched?
         if first_bet != self.current_bet:
             return False
             
@@ -209,15 +205,12 @@ class GameRoom:
         channel = await self.get_channel()
         if not channel or self.hand_over: return
         
-        # Reset for next betting round
         self.last_raiser = None
         self.players_acted_this_round.clear()
         
-        # Set starting player for post-flop
-        if len(self.community_cards) > 0: # If not pre-flop
+        if len(self.community_cards) > 0:
              self.current_player_idx = self._get_next_active_player_idx(self.dealer_button_pos)
         
-        # Deal community cards
         if len(self.community_cards) == 0:
             self.community_cards.extend([self.deck.pop() for _ in range(3)])
             await channel.send(f"--- 翻牌圈 ---\n`{' '.join(map(str, self.community_cards))}`")
@@ -227,16 +220,15 @@ class GameRoom:
         elif len(self.community_cards) == 4:
             self.community_cards.append(self.deck.pop())
             await channel.send(f"--- 河牌圈 ---\n`{' '.join(map(str, self.community_cards))}`")
-        else: # River betting is over
+        else:
             await self._handle_showdown()
             return
         
         await self._update_game_state_message()
 
-        # If only one player is not all-in, they don't need to bet against themselves.
         non_all_in_players = [p for p in self.active_players if self.chips.get(p, 0) > 0]
         if len(non_all_in_players) <= 1:
-            await asyncio.sleep(1.5) # Pause to show the card
+            await asyncio.sleep(1.5)
             await self._progress_to_next_stage()
         else:
             await self._prompt_for_action()
@@ -263,22 +255,18 @@ class GameRoom:
             await channel.send(f"{player.display_name} 的手牌: `{hand_str}` ({hand_name}) - 最佳五張: `{sorted_best_hand}`")
             await asyncio.sleep(1)
 
-        # Group players by hand strength (rank and kickers)
         hand_groups = defaultdict(list)
         for p_id, data in final_hands.items():
             rank_tuple = (data[0], tuple(data[1]))
             hand_groups[rank_tuple].append(p_id)
 
-        # Sort groups from best to worst
         sorted_ranks = sorted(hand_groups.keys(), reverse=True)
         
-        # Simple pot splitting (no side pots yet)
         if sorted_ranks:
             best_rank_tuple = sorted_ranks[0]
             winner_ids = hand_groups[best_rank_tuple]
             
             if len(winner_ids) > 1:
-                # Split pot
                 split_amount = self.pot // len(winner_ids)
                 remainder = self.pot % len(winner_ids)
                 winner_names = []
@@ -288,26 +276,24 @@ class GameRoom:
                     winner_names.append(self.get_player_from_id(winner_id).display_name)
                 await channel.send(f"**平手！ {'、'.join(winner_names)} 平分底池 ({self.pot})！** 每人獲得 {split_amount}。")
             else:
-                # Single winner
                 winner_id = winner_ids[0]
                 display_name = final_hands[winner_id][4]
                 self.chips[winner_id] = self.chips.get(winner_id, 0) + self.pot
                 await channel.send(f"**{display_name} 贏得底池 ({self.pot})！**")
 
-        await self._end_hand(start_next=True)
+        await self._settle_points()
+        await self._prompt_for_next_hand()
 
     async def _prompt_for_action(self):
         if self.hand_over: return
 
         player_id_to_act = self.initial_players[self.current_player_idx].id
         
-        # If the player to act is not active or has no chips, skip them
         if player_id_to_act not in self.active_players or self.chips.get(player_id_to_act, 0) == 0:
             self._move_to_next_player()
-            # This can happen if players are all-in. Check if the round is over.
             if self._is_betting_round_over():
                  await self._progress_to_next_stage()
-            else: # Recursively find the next actual player
+            else:
                  await self._prompt_for_action()
             return
 
@@ -334,7 +320,7 @@ class GameRoom:
             chip_count = self.chips.get(p.id, 0)
             bet_amount = self.bets.get(p.id, 0)
             status_icons = []
-            if i == self.dealer_button_pos: status_icons.append("🔘") # Dealer Button
+            if i == self.dealer_button_pos: status_icons.append("🔘")
             
             player_line = ""
             if p.id in self.active_players:
@@ -373,15 +359,14 @@ class GameRoom:
         except discord.NotFound:
             self.game_state_message = await channel.send(embed=embed)
 
-    async def _end_hand(self, start_next: bool = False):
+    async def _end_hand(self):
         if not self.hand_over:
-            self.hand_over = True # Ensure hand is marked as over
-            
+            self.hand_over = True
+
         channel = await self.get_channel()
         if not channel: return
 
-        # If the hand ended because all but one folded
-        if not start_next and len(self.active_players) == 1:
+        if len(self.active_players) == 1:
             winner_id = self.active_players[0]
             winner = self.get_player_from_id(winner_id)
             if winner:
@@ -389,47 +374,67 @@ class GameRoom:
                 await channel.send(f"其他人都棄牌了！**{winner.display_name}** 贏得底池 ({self.pot})。")
 
         await self._update_game_state_message(show_all=True)
+        await self._settle_points()
+        await self._prompt_for_next_hand()
 
-        # Cleanup for next hand
+    async def _prompt_for_next_hand(self):
+        channel = await self.get_channel()
+        if not channel: return
+
         for p_id in list(self.cog.player_hands.keys()):
             if p_id in self.player_ids:
                 del self.cog.player_hands[p_id]
-        
-        alive_players = [p_id for p_id in self.player_ids if self.chips.get(p_id, 0) > 0]
-        if start_next and len(alive_players) >= 2:
-            await channel.send("5 秒後將開始下一手牌...", delete_after=4)
-            await asyncio.sleep(5)
-            await self._start_hand()
-        else:
-            # End the game if not starting next hand or not enough players
-            await self._end_game()
 
-    async def _end_game(self):
-        if not self.is_active: return
-        self.is_active = False
-        
+        alive_players = [p_id for p_id in self.player_ids if self.chips.get(p_id, 0) > 0]
+        if len(alive_players) < 2:
+            await self._end_game(reason="沒有足夠的玩家可以繼續遊戲。")
+            return
+
+        view = NextHandView(self)
+        await channel.send("牌局結束。要開始下一手牌嗎？", view=view)
+
+    async def _settle_points(self):
         channel = await self.get_channel()
-        if channel:
-            await channel.send("**遊戲結束！** 正在結算積分...")
+        if not channel: return
 
         if not self.cog.points_cog:
             if channel: await channel.send("錯誤：積分系統未連接，無法儲存遊戲結果。")
             return
         
-        final_report_lines = ["**積分結算完畢：**"]
+        report_lines = ["**積分即時結算：**"]
+        something_to_update = False
         for p in self.initial_players:
+            if p.id not in self.player_ids: continue
+
             initial_chip_count = self.initial_chips.get(p.id, 0)
             final_chip_count = self.chips.get(p.id, 0)
             delta = final_chip_count - initial_chip_count
+
             if delta != 0:
+                something_to_update = True
                 self.cog.points_cog.update_points(p.id, delta)
             
             display_name = p.display_name
-            final_report_lines.append(f"{display_name}: {initial_chip_count} -> {final_chip_count} ({delta:+})")
+            report_lines.append(f"{display_name}: {initial_chip_count} -> {final_chip_count} ({delta:+})")
+
+        if something_to_update and channel:
+            await channel.send("\n".join(report_lines))
+
+        self.initial_chips = self.chips.copy()
+
+    async def _end_game(self, reason: Optional[str] = None):
+        if not self.is_active: return
+        self.is_active = False
+
+        channel = await self.get_channel()
+        
+        if channel:
+            await channel.send("**遊戲即將結束...** 正在進行最終結算。")
+        await self._settle_points()
 
         if channel:
-            await channel.send("\n".join(final_report_lines))
+            end_message = reason if reason else "**遊戲結束！** 感謝您的參與。"
+            await channel.send(end_message)
 
-        # Remove the game room
         if self.channel_id in self.cog.game_rooms:
             del self.cog.game_rooms[self.channel_id]
