@@ -1,3 +1,4 @@
+
 import discord
 from discord.ext import commands
 from discord import ui
@@ -140,6 +141,13 @@ class GameHelpView(CategoryBaseView):
         modal = CommandModal(self.cog, "blackjack", "您的賭注", f"執行 {prefix}blackjack")
         await interaction.response.send_modal(modal)
 
+    # --- 關鍵新增：拉霸機按鈕 ---
+    @ui.button(label="拉霸機", style=discord.ButtonStyle.success, emoji="🎰", row=3)
+    async def execute_slots(self, interaction: discord.Interaction, button: ui.Button):
+        prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
+        modal = CommandModal(self.cog, "slots", "您的賭注", f"執行 {prefix}slots")
+        await interaction.response.send_modal(modal)
+
 # --- The Main Cog ---
 
 class HelpCog(commands.Cog):
@@ -160,20 +168,83 @@ class HelpCog(commands.Cog):
         embed.add_field(name=f'{prefix}clear [數量]', value='🧹 **清除訊息**: 清除頻道訊息(預設10則)，僅限管理員。', inline=False)
         return embed
 
-    def _get_game_help_embed(self, prefix: str) -> discord.Embed:
-        embed = discord.Embed(title='🎮 遊戲指令', description="點擊下方對應的中文指令按鈕來快速執行。", color=0xE67E22)
-        embed.add_field(name=f'猜數字 (Guess Number)', value=f'`{prefix}start_guess`: 開始一場新的猜數字遊戲。\n`{prefix}stop_guess`: 放棄當前的遊戲。\n*提示：遊戲開始後，直接在頻道輸入數字即可猜測！*', inline=False)
-        embed.add_field(name='德州撲克 (Texas Hold\'em)', value=f'`{prefix}poker [大盲注]`: 創建一個撲克遊戲大廳。\n`{prefix}stopgame`: 強制結束遊戲或關閉大廳。', inline=False)
-        embed.add_field(name='21點 (Blackjack)', value=f'`{prefix}blackjack [賭注]`: 開始一局21點。\n*遊戲中可透過按鈕進行互動。*', inline=False)
-        embed.add_field(name='井字遊戲 (Tic-Tac-Toe)', value=f'`{prefix}tictactoe @對手`: 開始一場井字遊戲，透過按鈕互動。', inline=False)
+  # --- 關鍵修改：德州撲克教學 Embed，加入範例 ---
+    def _get_poker_help_embed(self, prefix: str) -> discord.Embed:
+        embed = discord.Embed(title="♠️♥️ 德州撲克 (Texas Hold'em) 遊戲教學 ♦️♣️",
+                              description="目標：用你的 **2張底牌** 和 **5張公共牌**，組合出最強的5張牌組，贏得底池！",
+                              color=0xC41E3A) # Poker Red
+
+        embed.add_field(
+            name="➡️ 遊戲流程",
+            value="1. **發起遊戲**: 玩家用 `!poker [大盲注]` 指令開局。\n"
+                  "2. **盲注 (Blinds)**: 遊戲開始時，兩位玩家需強制下注（小盲注和大盲注）。\n"
+                  "3. **翻牌前 (Pre-flop)**: 每位玩家拿到2張底牌，第一輪下注開始。\n"
+                  "4. **翻牌圈 (Flop)**: 桌上發出3張公共牌，第二輪下注開始。\n"
+                  "5. **轉牌圈 (Turn)**: 桌上發出第4張公共牌，第三輪下注開始。\n"
+                  "6. **河牌圈 (River)**: 桌上發出第5張公共牌，最終輪下注。\n"
+                  "7. **攤牌 (Showdown)**: 所有剩餘玩家開牌，持有最強牌組的玩家贏得所有籌碼！",
+            inline=False
+        )
+
+        embed.add_field(
+            name="💪 玩家操作",
+            value="- **跟注 (Call)**: 跟隨前一位玩家的下注額。\n"
+                  "- **加注 (Raise)**: 提高當前的下注額。\n"
+                  "- **蓋牌 (Fold)**: 放棄這一手牌，輸掉已下注的籌碼。\n"
+                  "- **過牌 (Check)**: 在無人下注的情況下，將行動權交給下一位。\n"
+                  "- **全下 (All-in)**: 將你剩下的所有籌碼全部下注。",
+            inline=False
+        )
+
+        embed.add_field(
+            name="👑 牌型大小 (由大到小)",
+            value=(
+                "**皇家同花順 > 同花順 > 四條 > 葫蘆 > 同花 > 順子 > 三條 > 兩對 > 一對 > 高牌**\n\n"
+                "- **皇家同花順 (Royal Flush)**: A, K, Q, J, 10 同花色。\n"
+                "  `例: ♥A ♥K ♥Q ♥J ♥10`\n"
+                "- **同花順 (Straight Flush)**: 連續的五張牌，且花色相同。\n"
+                "  `例: ♦9 ♦8 ♦7 ♦6 ♦5`\n"
+                "- **四條 (Four of a Kind)**: 四張點數相同的牌。\n"
+                "  `例: ♠A ♥A ♦A ♣A ♠K`\n"
+                "- **葫蘆 (Full House)**: 一組三條加上一組對子。\n"
+                "  `例: ♥K ♠K ♦K ♥7 ♠7`\n"
+                "- **同花 (Flush)**: 五張花色相同但不連續的牌。\n"
+                "  `例: ♣A ♣Q ♣9 ♣5 ♣2`\n"
+                "- **順子 (Straight)**: 五張點數連續但花色不同的牌。\n"
+                "  `例: ♥A ♠K ♦Q ♣J ♥10`\n"
+                "- **三條 (Three of a Kind)**: 三張點數相同的牌。\n"
+                "  `例: ♥Q ♠Q ♦Q ♥9 ♠3`\n"
+                "- **兩對 (Two Pair)**: 兩組不同的對子。\n"
+                "  `例: ♥J ♠J ♥8 ♠8 ♦K`\n"
+                "- **一對 (One Pair)**: 兩張點數相同的牌。\n"
+                "  `例: ♦A ♥A ♠Q ♦J ♣5`\n"
+                "- **高牌 (High Card)**: 不符合以上任何牌型的牌，由最大的一張牌決定大小。\n"
+                "  `例: ♠A ♦Q ♥9 ♣5 ♥2`"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="🚪 結束遊戲",
+            value=f"- `{prefix}stopgame`: 由遊戲發起人使用，可強制結束該頻道正在進行的撲克遊戲。",
+            inline=False
+        )
+
+        embed.set_footer(text="祝您在牌桌上無往不利！")
         return embed
 
-    @commands.command(name='help', help='顯示互動式幫助選單。')
-    async def help_command(self, ctx: commands.Context):
+    # --- help 指令保持不變 ---
+    @commands.command(name='help', help='顯示互動式幫助選單，或特定遊戲的玩法。用法: !help [主題]')
+    async def help_command(self, ctx: commands.Context, *, topic: str = None):
         prefix = self.bot.command_prefix if isinstance(self.bot.command_prefix, str) else '!'
-        embed = self._get_main_help_embed(prefix, self.bot.user)
-        view = HelpView(self)
-        view.message = await ctx.send(embed=embed, view=view)
+
+        if topic and topic.lower() == 'poker':
+            embed = self._get_poker_help_embed(prefix)
+            await ctx.send(embed=embed)
+        else:
+            embed = self._get_main_help_embed(prefix, self.bot.user)
+            view = HelpView(self)
+            view.message = await ctx.send(embed=embed, view=view)
 
 async def setup(bot):
     original_help = bot.get_command('help')

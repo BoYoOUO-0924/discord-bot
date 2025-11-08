@@ -3,7 +3,7 @@ from typing import List
 
 class Card:
     SUITS = ["♠", "♥", "♦", "♣"]
-    RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
+    RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
     RANK_VALUES = {rank: idx for idx, rank in enumerate(RANKS)}
 
     def __init__(self, rank: str, suit: str) -> None:
