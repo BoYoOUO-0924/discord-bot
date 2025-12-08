@@ -61,6 +61,27 @@ class PollModal(ui.Modal, title='發起投票'):
         else:
             await interaction.response.send_message("錯誤：找不到 `poll` 指令。", ephemeral=True)
 
+class RemindModal(ui.Modal, title='設定提醒'):
+    time_input = ui.TextInput(label='時間 (例如: 10m, 1h)', placeholder='10m', required=True, max_length=10)
+    content_input = ui.TextInput(label='提醒內容', placeholder='例如：泡麵好了', required=True, style=discord.TextStyle.paragraph)
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
+        fake_message = copy.copy(interaction.message)
+        fake_message.author = interaction.user
+        fake_message.content = f"{prefix}remind {self.time_input.value} {self.content_input.value}"
+        
+        ctx = await self.cog.bot.get_context(fake_message)
+        if ctx.command:
+            await interaction.response.send_message(f"▶️ 正在設定鬧鐘...", ephemeral=True, delete_after=5)
+            await self.cog.bot.invoke(ctx)
+        else:
+            await interaction.response.send_message("錯誤：找不到 `remind` 指令。", ephemeral=True)
+
 # --- Main Help Navigation View ---
 
 class HelpView(discord.ui.View):
@@ -145,6 +166,10 @@ class GeneralHelpView(CategoryBaseView):
     async def execute_poll(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(PollModal(self.cog))
 
+    @ui.button(label="設定提醒", style=discord.ButtonStyle.success, emoji="⏰", row=0)
+    async def execute_remind(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(RemindModal(self.cog))
+
     @ui.button(label="清除訊息", style=discord.ButtonStyle.danger, emoji="🧹", row=2)
     async def execute_clear(self, interaction: discord.Interaction, button: ui.Button):
         prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
@@ -204,6 +229,7 @@ class HelpCog(commands.Cog):
         embed.add_field(name=f'{prefix}checkin', value='✨ **每日簽到**: 獲取每日積分獎勵，連續簽到有加成！', inline=False)
         embed.add_field(name=f'{prefix}point', value='💰 **查詢積分**: 查詢你目前擁有的積分總額。', inline=False)
         embed.add_field(name=f'{prefix}poll', value='📊 **投票系統**: 發起一個即時互動投票。', inline=False)
+        embed.add_field(name=f'{prefix}remind [時間] [事項]', value='⏰ **提醒事項**: 設定倒數計時鬧鐘 (例: 10m)。', inline=False)
         embed.add_field(name=f'{prefix}clear [數量]', value='🧹 **清除訊息**: 清除頻道訊息(預設10則)，僅限管理員。', inline=False)
         return embed
 
