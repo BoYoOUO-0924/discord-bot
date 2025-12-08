@@ -148,6 +148,10 @@ class GameHelpView(CategoryBaseView):
         modal = CommandModal(self.cog, "slots", "您的賭注", f"執行 {prefix}slots")
         await interaction.response.send_modal(modal)
 
+    @ui.button(label="海龜湯", style=discord.ButtonStyle.success, emoji="🐢", row=3)
+    async def execute_seatortoise(self, interaction: discord.Interaction, button: ui.Button):
+        await self._execute_command(interaction, "seatortoise")
+
 # --- The Main Cog ---
 
 class HelpCog(commands.Cog):
@@ -174,6 +178,7 @@ class HelpCog(commands.Cog):
         embed.add_field(name=f'{prefix}poker [大盲注]', value='♠️ **德州撲克**: 開設一局德州撲克。可使用 `!help poker` 查看完整規則。', inline=False)
         embed.add_field(name=f'{prefix}blackjack [賭注]', value='🃏 **21點**: 開始一局21點遊戲，並指定你的賭注。', inline=False)
         embed.add_field(name=f'{prefix}slots [賭注]', value='🎰 **拉霸機**: 玩一次拉霸機，並指定你的賭注。', inline=False)
+        embed.add_field(name=f'{prefix}seatortoise', value='🐢 **海龜湯**: 啟動一局 AI 生成的海龜湯推理遊戲。', inline=False)
         return embed
 
     # --- 關鍵修改：help 指令現在會向 Poker cog 請求教學內容 ---
