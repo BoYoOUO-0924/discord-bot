@@ -31,6 +31,36 @@ class CommandModal(ui.Modal):
         else:
             await interaction.response.send_message(f"錯誤：找不到指令 `{self.command_name}`", ephemeral=True)
 
+class PollModal(ui.Modal, title='發起投票'):
+    question = ui.TextInput(label='投票題目', placeholder='例如：嘎蛙今天吃什麼?？', required=True)
+    option1 = ui.TextInput(label='選項 1', placeholder='例如：越南河粉', required=True)
+    option2 = ui.TextInput(label='選項 2', placeholder='例如：韓式炸雞', required=True)
+    option3 = ui.TextInput(label='選項 3 (選填)', placeholder='選填', required=False)
+    option4 = ui.TextInput(label='選項 4 (選填)', placeholder='選填', required=False)
+
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # 收集非空選項
+        opts = [self.option1.value, self.option2.value, self.option3.value, self.option4.value]
+        valid_opts = [f'"{opt}"' for opt in opts if opt] # 包裹引號
+        
+        args = f'"{self.question.value}" ' + " ".join(valid_opts)
+        
+        prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
+        fake_message = copy.copy(interaction.message)
+        fake_message.author = interaction.user
+        fake_message.content = f"{prefix}poll {args}"
+        
+        ctx = await self.cog.bot.get_context(fake_message)
+        if ctx.command:
+            await interaction.response.send_message(f"▶️ 正在建立投票...", ephemeral=True, delete_after=5)
+            await self.cog.bot.invoke(ctx)
+        else:
+            await interaction.response.send_message("錯誤：找不到 `poll` 指令。", ephemeral=True)
+
 # --- Main Help Navigation View ---
 
 class HelpView(discord.ui.View):
@@ -111,6 +141,10 @@ class GeneralHelpView(CategoryBaseView):
     async def execute_point(self, interaction: discord.Interaction, button: ui.Button):
         await self._execute_command(interaction, "point")
 
+    @ui.button(label="投票", style=discord.ButtonStyle.primary, emoji="📊", row=1)
+    async def execute_poll(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(PollModal(self.cog))
+
     @ui.button(label="清除訊息", style=discord.ButtonStyle.danger, emoji="🧹", row=2)
     async def execute_clear(self, interaction: discord.Interaction, button: ui.Button):
         prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
@@ -169,6 +203,7 @@ class HelpCog(commands.Cog):
         embed = discord.Embed(title='🔧 通用指令', description="點擊下方對應的中文指令按鈕來快速執行。", color=0x2ECC71)
         embed.add_field(name=f'{prefix}checkin', value='✨ **每日簽到**: 獲取每日積分獎勵，連續簽到有加成！', inline=False)
         embed.add_field(name=f'{prefix}point', value='💰 **查詢積分**: 查詢你目前擁有的積分總額。', inline=False)
+        embed.add_field(name=f'{prefix}poll', value='📊 **投票系統**: 發起一個即時互動投票。', inline=False)
         embed.add_field(name=f'{prefix}clear [數量]', value='🧹 **清除訊息**: 清除頻道訊息(預設10則)，僅限管理員。', inline=False)
         return embed
 
