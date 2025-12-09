@@ -1,0 +1,174 @@
+import discord
+from discord.ext import commands
+import random
+
+# --- Food Data ---
+FOOD_MENU = {
+    "1": {"name": "早餐店奶茶", "price": 20, "heal": 20, "satiety": 10, "buff": None},
+    "2": {"name": "小李便當", "price": 100, "heal": 100, "satiety": 40, "buff": None},
+    "3": {"name": "越南河粉", "price": 120, "heal": 30, "satiety": 80, "buff": "invincible"}, # High Satiety
+    "4": {"name": "韓式炸雞", "price": 250, "heal": 999, "satiety": 50, "buff": "2x_exp"} # Buff: Next Train 2x EXP
+}
+
+class RenameModal(discord.ui.Modal, title='幫嘎蛙取新名字'):
+    name = discord.ui.TextInput(label='新名字', placeholder='例如：呱呱', required=True, max_length=10)
+
+    def __init__(self, cog, user_id):
+        super().__init__()
+        self.cog = cog
+        self.user_id = user_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        data = self.cog._load_data()
+        pet = data.get(str(self.user_id))
+        
+        if not pet:
+            await interaction.response.send_message("找不到你的嘎蛙！", ephemeral=True)
+            return
+            
+        new_name = self.name.value
+        pet['nickname'] = new_name
+        data[str(self.user_id)] = pet
+        self.cog._save_data(data)
+        
+        embed, file = self.cog.get_pet_embed(self.user_id)
+        
+        await interaction.response.edit_message(content=f"✅ 改名成功！現在他是 **{new_name}** 了！", embed=embed, attachments=[file])
+
+class FeedSelect(discord.ui.Select):
+    def __init__(self, cog, user_id):
+        self.cog = cog
+        self.user_id = user_id
+        options = []
+        for pid, item in FOOD_MENU.items():
+            desc = f"${item['price']} | ❤️+{item['heal']} 🍖+{item['satiety']}"
+            if item['buff']: desc += " [BUFF]"
+            options.append(discord.SelectOption(label=item['name'], value=pid, description=desc, emoji="🍱"))
+            
+        super().__init__(placeholder="🍽️ 選擇食物餵食...", min_values=1, max_values=1, options=options, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id: return
+        item_id = self.values[0]
+        
+        item = FOOD_MENU.get(item_id)
+        points_cog = self.cog.bot.get_cog("Points")
+        if not points_cog: return await interaction.response.send_message("積分系統維護中", ephemeral=True)
+        
+        user_points = points_cog.get_points(self.user_id)
+        if user_points < item['price']:
+            return await interaction.response.send_message(f"💸 積分不足！(需 ${item['price']})", ephemeral=True)
+
+        data = self.cog._load_data()
+        pet = data.get(str(self.user_id))
+        
+        if not pet: return await interaction.response.send_message("沒有寵物！", ephemeral=True)
+        
+        if pet['stats']['hp'] >= pet['stats']['max_hp'] and pet['stats'].get('satiety',0) >= 100:
+             return await interaction.response.send_message("🤢 吃太飽了！", ephemeral=True)
+
+        points_cog.update_points(self.user_id, -item['price'])
+        
+        # Heal HP & Satiety
+        old_hp = pet['stats']['hp']
+        heal = item['heal']
+        if heal >= 999: pet['stats']['hp'] = pet['stats']['max_hp']
+        else: pet['stats']['hp'] = min(pet['stats']['max_hp'], old_hp + heal)
+        
+        old_sat = pet['stats'].get('satiety', 50)
+        max_sat = pet['stats'].get('max_satiety', 100)
+        pet['stats']['satiety'] = min(max_sat, old_sat + item['satiety'])
+        
+        actual_heal = pet['stats']['hp'] - old_hp
+        actual_sat = pet['stats']['satiety'] - old_sat
+
+        if item['buff']: pet['buff'] = item['buff']
+        
+        self.cog._save_data(data)
+        
+        embed, file = self.cog.get_pet_embed(self.user_id)
+        msg = f"😋 吃了 **{item['name']}**！\n(HP +{actual_heal} | 飽食 +{actual_sat})"
+        await interaction.response.edit_message(content=msg, embed=embed, attachments=[file], view=self.view)
+
+class PetDashboardView(discord.ui.View):
+    def __init__(self, cog, user_id):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.user_id = user_id
+        self.add_item(FeedSelect(cog, user_id))
+        
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("這不是你的介面！", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="特訓", style=discord.ButtonStyle.danger, emoji="⚔️", row=0)
+    async def train_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = self.cog._load_data()
+        pet = data.get(str(self.user_id))
+        if not pet: return
+        
+        if pet['stats']['hp'] < 10 or pet['stats'].get('satiety', 0) < 5:
+             return await interaction.response.send_message("🚫 狀態不佳！請先餵食或休息。", ephemeral=True)
+             
+        # Train Logic
+        base_exp = random.randint(10, 20)
+        cost_satiety = 5
+        buff_type = pet.get('buff')
+        gain_exp = base_exp * 2 if buff_type == "2x_exp" else base_exp
+        cost_hp = 0 if buff_type == "invincible" else random.randint(5, 15)
+        
+        if buff_type: pet['buff'] = None
+        
+        pet['exp'] += gain_exp
+        pet['stats']['hp'] -= cost_hp
+        pet['stats']['satiety'] -= cost_satiety
+        
+        # Level Up Logic
+        msg_extra = ""
+        req_exp = pet['level'] * 100
+        if pet['exp'] >= req_exp:
+            pet['level'] += 1
+            pet['exp'] -= req_exp
+            pet['stats']['max_hp'] += 10
+            pet['stats']['hp'] = pet['stats']['max_hp']
+            pet['stats']['atk'] += 2
+            pet['stats']['def'] += 1
+            msg_extra = "\n🎊 **升級了！**"
+
+        self.cog._save_data(data)
+        embed, file = self.cog.get_pet_embed(self.user_id)
+        msg = f"⚔️ 特訓完成！EXP +{gain_exp} / HP -{cost_hp}{msg_extra}"
+        await interaction.response.edit_message(content=msg, embed=embed, attachments=[file], view=self)
+
+    @discord.ui.button(label="休息", style=discord.ButtonStyle.success, emoji="💤", row=0)
+    async def rest_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = self.cog._load_data()
+        pet = data.get(str(self.user_id))
+        if not pet: return
+
+        if pet['stats'].get('satiety', 0) < 30:
+            return await interaction.response.send_message("🚫 太餓了！需要 30 飽食度。", ephemeral=True)
+        if pet['stats']['hp'] >= pet['stats']['max_hp']:
+            return await interaction.response.send_message("💤 精神很好不用睡。", ephemeral=True)
+            
+        pet['stats']['satiety'] -= 30
+        old_hp = pet['stats']['hp']
+        pet['stats']['hp'] = min(pet['stats']['max_hp'], old_hp + 60)
+        
+        self.cog._save_data(data)
+        embed, file = self.cog.get_pet_embed(self.user_id)
+        msg = f"💤 休息好了！HP +{pet['stats']['hp']-old_hp} / 飽食 -30"
+        await interaction.response.edit_message(content=msg, embed=embed, attachments=[file], view=self)
+
+    @discord.ui.button(label="技能", style=discord.ButtonStyle.primary, emoji="📚", row=0)
+    async def skills_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = self.cog._load_data()
+        pet = data.get(str(self.user_id))
+        meta = self.cog.pet_types[pet['type']]
+        await interaction.response.send_message(f"📚 **{pet['name']} 的技能**:\n" + "\n".join(meta['skills']), ephemeral=True)
+
+    @discord.ui.button(label="改名", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
+    async def rename_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(RenameModal(self.cog, self.user_id))

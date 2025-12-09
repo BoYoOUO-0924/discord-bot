@@ -1,0 +1,102 @@
+{
+    "🔥 火花": {
+        "id": "fire_ember",
+        "name": "火花",
+        "element": "fire",
+        "category": "magic",
+        "power": 40,
+        "accuracy": 100,
+        "cost": 1,
+        "description": "向對手發射小火苗攻擊。有機會造成燒傷。"
+    },
+    "👊 烈焰拳": {
+        "id": "fire_punch",
+        "name": "烈焰拳",
+        "element": "fire",
+        "category": "physical",
+        "power": 75,
+        "accuracy": 100,
+        "cost": 3,
+        "description": "用附帶火焰的拳頭攻擊對手。"
+    },
+    "💧 水槍": {
+        "id": "water_gun",
+        "name": "水槍",
+        "element": "water",
+        "category": "magic",
+        "power": 40,
+        "accuracy": 100,
+        "cost": 1,
+        "description": "向對手噴射水流進行攻擊。"
+    },
+    "🌊 波浪": {
+        "id": "water_wave",
+        "name": "波浪",
+        "element": "water",
+        "category": "magic",
+        "power": 60,
+        "accuracy": 100,
+        "cost": 2,
+        "description": "召喚波浪衝擊對手。有機會使對手混亂。"
+    },
+    "🍃 飛葉快刀": {
+        "id": "leaf_razor",
+        "name": "飛葉快刀",
+        "element": "forest",
+        "category": "physical",
+        "power": 55,
+        "accuracy": 95,
+        "cost": 2,
+        "description": "發射銳利的葉片攻擊。容易擊中要害。"
+    },
+    "🛡️ 藤鞭": {
+        "id": "leaf_whip",
+        "name": "藤鞭",
+        "element": "forest",
+        "category": "physical",
+        "power": 45,
+        "accuracy": 100,
+        "cost": 1,
+        "description": "用細長的藤蔓鞭打對手。"
+    },
+    "👻 影子球": {
+        "id": "ghost_ball",
+        "name": "影子球",
+        "element": "ghost",
+        "category": "magic",
+        "power": 80,
+        "accuracy": 100,
+        "cost": 3,
+        "description": "投擲一團黑影進行攻擊。有機會降低對手特防。"
+    },
+    "👅 舌舔": {
+        "id": "ghost_lick",
+        "name": "舌舔",
+        "element": "ghost",
+        "category": "physical",
+        "power": 30,
+        "accuracy": 100,
+        "cost": 1,
+        "description": "用長舌頭舔對手。有機會使對手麻痺。"
+    },
+    "👊 撞擊": {
+        "id": "normal_tackle",
+        "name": "撞擊",
+        "element": "normal",
+        "category": "physical",
+        "power": 40,
+        "accuracy": 100,
+        "cost": 0,
+        "description": "用整個身體撞向對手攻擊。"
+    },
+    "💤 睡覺": {
+        "id": "normal_rest",
+        "name": "睡覺",
+        "element": "normal",
+        "category": "status",
+        "power": 0,
+        "accuracy": 100,
+        "cost": 6,
+        "description": "睡著並恢復全部體力。"
+    }
+}
