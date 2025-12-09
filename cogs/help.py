@@ -119,6 +119,12 @@ class HelpView(discord.ui.View):
         embed = self.cog._get_game_help_embed(prefix)
         await interaction.response.edit_message(embed=embed, view=GameHelpView(self.cog, self))
 
+    @discord.ui.button(label="嘎蛙 RPG", style=discord.ButtonStyle.secondary, emoji="🐸", row=0)
+    async def gawa_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
+        embed = self.cog._get_gawa_help_embed(prefix)
+        await interaction.response.edit_message(embed=embed, view=GawaHelpView(self.cog, self))
+
 # --- Base View for Categories ---
 
 class CategoryBaseView(ui.View):
@@ -170,11 +176,14 @@ class GeneralHelpView(CategoryBaseView):
     async def execute_remind(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_modal(RemindModal(self.cog))
 
-    @ui.button(label="清除訊息", style=discord.ButtonStyle.danger, emoji="🧹", row=2)
+    @ui.button(label="清除訊息", style=discord.ButtonStyle.danger, emoji="🧹", row=1)
     async def execute_clear(self, interaction: discord.Interaction, button: ui.Button):
         prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
         modal = CommandModal(self.cog, "clear", "要清除的訊息數量 (預設10)", f"執行 {prefix}clear")
         await interaction.response.send_modal(modal)
+
+    # --- Pet Button Removed (Moved to dedicated view) ---
+
 
 class GameHelpView(CategoryBaseView):
     @ui.button(label="開始猜數字", style=discord.ButtonStyle.success, emoji="🔢", row=0)
@@ -211,6 +220,29 @@ class GameHelpView(CategoryBaseView):
     async def execute_seatortoise(self, interaction: discord.Interaction, button: ui.Button):
         await self._execute_command(interaction, "seatortoise")
 
+class GawaHelpView(CategoryBaseView):
+    @ui.button(label="領養嘎蛙", style=discord.ButtonStyle.success, emoji="🥚", row=0)
+    async def execute_adopt(self, interaction: discord.Interaction, button: ui.Button):
+        await self._execute_command(interaction, "adopt")
+
+    @ui.button(label="查看狀態", style=discord.ButtonStyle.primary, emoji="🐸", row=0)
+    async def execute_pet(self, interaction: discord.Interaction, button: ui.Button):
+        await self._execute_command(interaction, "pet")
+
+    @ui.button(label="特訓", style=discord.ButtonStyle.danger, emoji="⚔️", row=0)
+    async def execute_train(self, interaction: discord.Interaction, button: ui.Button):
+        await self._execute_command(interaction, "train")
+
+    @ui.button(label="嘎蛙食堂", style=discord.ButtonStyle.secondary, emoji="🍽️", row=1)
+    async def execute_shop(self, interaction: discord.Interaction, button: ui.Button):
+        await self._execute_command(interaction, "shop")
+
+    @ui.button(label="餵食", style=discord.ButtonStyle.success, emoji="🍖", row=1)
+    async def execute_feed(self, interaction: discord.Interaction, button: ui.Button):
+        prefix = self.cog.bot.command_prefix if isinstance(self.cog.bot.command_prefix, str) else '!'
+        modal = CommandModal(self.cog, "feed", "輸入食物編號 (例如: 3)", f"執行 {prefix}feed")
+        await interaction.response.send_modal(modal)
+
 # --- The Main Cog ---
 
 class HelpCog(commands.Cog):
@@ -220,7 +252,7 @@ class HelpCog(commands.Cog):
     def _get_main_help_embed(self, prefix: str, bot_user: discord.ClientUser) -> discord.Embed:
         embed = discord.Embed(title=f'{bot_user.name} 指令選單', description=f"歡迎！點擊下方按鈕瀏覽指令分類，或使用 `{prefix}help [主題]` 尋求特定幫助 (例如: `{prefix}help poker`)。", color=discord.Color.blurple())
         if bot_user.avatar: embed.set_thumbnail(url=bot_user.avatar.url)
-        embed.add_field(name="導覽", value="- `🏠 首頁`: 回到主畫面\n- `🔧 通用`: 日常實用指令\n- `🎮 遊戲`: 所有可玩的遊戲", inline=False)
+        embed.add_field(name="導覽", value="- `🏠 首頁`: 回到主畫面\n- `🔧 通用`: 日常實用指令\n- `🎮 遊戲`: 所有可玩的遊戲\n- `🐸 嘎蛙 RPG`: 專屬寵物養成系統", inline=False)
         embed.set_footer(text=f"指令前綴: {prefix} | 選單將在3分鐘後失效")
         return embed
 
@@ -240,6 +272,15 @@ class HelpCog(commands.Cog):
         embed.add_field(name=f'{prefix}blackjack [賭注]', value='🃏 **21點**: 開始一局21點遊戲，並指定你的賭注。', inline=False)
         embed.add_field(name=f'{prefix}slots [賭注]', value='🎰 **拉霸機**: 玩一次拉霸機，並指定你的賭注。', inline=False)
         embed.add_field(name=f'{prefix}seatortoise', value='🐢 **海龜湯**: 啟動一局 AI 生成的海龜湯推理遊戲。', inline=False)
+        return embed
+
+    def _get_gawa_help_embed(self, prefix: str) -> discord.Embed:
+        embed = discord.Embed(title='🐸 嘎蛙 RPG 指令', description="專屬你的養成遊戲！點擊下方按鈕或使用指令。", color=0xE91E63)
+        embed.add_field(name=f'{prefix}adopt', value='🥚 **領養**: 三選一，挑選你的命定夥伴。', inline=False)
+        embed.add_field(name=f'{prefix}pet', value='🐸 **狀態**: 查看嘎蛙的能力值、屬性、技能。', inline=False)
+        embed.add_field(name=f'{prefix}train', value='⚔️ **特訓**: 消耗體力，獲得經驗與成長。', inline=False)
+        embed.add_field(name=f'{prefix}shop', value='🍽️ **食堂**: 查看食物價目表。', inline=False)
+        embed.add_field(name=f'{prefix}feed [編號]', value='🍖 **餵食**: 花費積分恢復體力 (例如 `!feed 1`)。', inline=False)
         return embed
 
     # --- 關鍵修改：help 指令現在會向 Poker cog 請求教學內容 ---
