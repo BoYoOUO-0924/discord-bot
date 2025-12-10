@@ -7,7 +7,17 @@
         "power": 40,
         "accuracy": 100,
         "cost": 1,
-        "description": "向對手發射小火苗攻擊。有機會造成燒傷。"
+        "description": "發射小火苗。20% 機率造成燒傷。",
+        "effects": [
+            {
+                "type": "status",
+                "target": "enemy",
+                "status_id": "burn",
+                "chance": 20,
+                "duration": 3,
+                "value": 5
+            }
+        ]
     },
     "👊 烈焰拳": {
         "id": "fire_punch",
@@ -15,9 +25,92 @@
         "element": "fire",
         "category": "physical",
         "power": 75,
+        "accuracy": 95,
+        "cost": 3,
+        "description": "附帶火焰的重拳。10% 機率造成燒傷。",
+        "effects": [
+            {
+                "type": "status",
+                "target": "enemy",
+                "status_id": "burn",
+                "chance": 10,
+                "duration": 3,
+                "value": 5
+            }
+        ]
+    },
+    "🔥 大字爆炎": {
+        "id": "fire_blast",
+        "name": "大字爆炎",
+        "element": "fire",
+        "category": "magic",
+        "power": 110,
+        "accuracy": 85,
+        "cost": 4,
+        "description": "強烈的大字型火焰。30% 機率造成燒傷。",
+        "effects": [
+            {
+                "type": "status",
+                "target": "enemy",
+                "status_id": "burn",
+                "chance": 30,
+                "duration": 3,
+                "value": 5
+            }
+        ]
+    },
+    "🔥 噴射火焰": {
+        "id": "fire_thrower",
+        "name": "噴射火焰",
+        "element": "fire",
+        "category": "magic",
+        "power": 90,
         "accuracy": 100,
         "cost": 3,
-        "description": "用附帶火焰的拳頭攻擊對手。"
+        "description": "噴射炙熱的火焰攻擊敵人。",
+        "effects": []
+    },
+    "👊 火焰踢": {
+        "id": "blaze_kick",
+        "name": "火焰踢",
+        "element": "fire",
+        "category": "physical",
+        "power": 85,
+        "accuracy": 90,
+        "cost": 3,
+        "description": "容易擊中要害的火焰踢擊。",
+        "effects": []
+    },
+    "👑 煉獄焦土": {
+        "id": "fire_inferno",
+        "name": "煉獄焦土",
+        "element": "fire",
+        "category": "magic",
+        "power": 130,
+        "accuracy": 80,
+        "cost": 5,
+        "description": "召喚來自煉獄的火焰，將戰場化為焦土。必中燒傷。",
+        "effects": [
+            {
+                "type": "status",
+                "target": "enemy",
+                "status_id": "burn",
+                "chance": 100,
+                "duration": 5,
+                "value": 8
+            }
+        ]
+    },
+    "👊 炎帝之怒": {
+        "id": "fire_emperor_rage",
+        "name": "炎帝之怒",
+        "element": "fire",
+        "category": "physical",
+        "power": 120,
+        "accuracy": 90,
+        "cost": 5,
+        "description": "如炎帝般憤怒的全力一擊。",
+        "effects": []
     },
     "💧 水槍": {
         "id": "water_gun",
@@ -27,7 +120,8 @@
         "power": 40,
         "accuracy": 100,
         "cost": 1,
-        "description": "向對手噴射水流進行攻擊。"
+        "description": "噴射水流攻擊。",
+        "effects": []
     },
     "🌊 波浪": {
         "id": "water_wave",
@@ -37,7 +131,61 @@
         "power": 60,
         "accuracy": 100,
         "cost": 2,
-        "description": "召喚波浪衝擊對手。有機會使對手混亂。"
+        "description": "召喚波浪衝擊。20% 機率造成混亂(未實作)。",
+        "effects": []
+    },
+    "🌊 海嘯": {
+        "id": "tsunami",
+        "name": "海嘯",
+        "element": "water",
+        "category": "magic",
+        "power": 110,
+        "accuracy": 80,
+        "cost": 4,
+        "description": "召喚巨大的海嘯。攻擊全體(如果有多人)。",
+        "effects": []
+    },
+    "🛡️ 水流環": {
+        "id": "aqua_ring",
+        "name": "水流環",
+        "element": "water",
+        "category": "status",
+        "power": 0,
+        "accuracy": 100,
+        "cost": 2,
+        "description": "用水流環繞身體。每回合回復些許 HP。",
+        "effects": [
+            {
+                "type": "status",
+                "target": "self",
+                "status_id": "regen",
+                "chance": 100,
+                "duration": 5,
+                "value": 10
+            }
+        ]
+    },
+    "🔱 絕對零度": {
+        "id": "absolute_zero",
+        "name": "絕對零度",
+        "element": "water",
+        "category": "magic",
+        "power": 999,
+        "accuracy": 30,
+        "cost": 6,
+        "description": "極度寒冷的攻擊。一擊必殺(命中極低)。",
+        "effects": []
+    },
+    "🌊 亞特蘭提斯之怒": {
+        "id": "atlantis_rage",
+        "name": "亞特蘭提斯之怒",
+        "element": "water",
+        "category": "magic",
+        "power": 140,
+        "accuracy": 90,
+        "cost": 5,
+        "description": "來自深海古文明的憤怒。",
+        "effects": []
     },
     "🍃 飛葉快刀": {
         "id": "leaf_razor",
@@ -47,7 +195,8 @@
         "power": 55,
         "accuracy": 95,
         "cost": 2,
-        "description": "發射銳利的葉片攻擊。容易擊中要害。"
+        "description": "發射銳利的葉片。",
+        "effects": []
     },
     "🛡️ 藤鞭": {
         "id": "leaf_whip",
@@ -57,7 +206,78 @@
         "power": 45,
         "accuracy": 100,
         "cost": 1,
-        "description": "用細長的藤蔓鞭打對手。"
+        "description": "用藤蔓鞭打。",
+        "effects": []
+    },
+    "🌳 能量球": {
+        "id": "energy_ball",
+        "name": "能量球",
+        "element": "forest",
+        "category": "magic",
+        "power": 90,
+        "accuracy": 100,
+        "cost": 3,
+        "description": "發射自然能量球。10% 機率降特防。",
+        "effects": [
+            {
+                "type": "debuff",
+                "target": "enemy",
+                "stat": "def",
+                "chance": 10,
+                "duration": 3,
+                "value": 1
+            }
+        ]
+    },
+    "☀️ 陽光烈焰": {
+        "id": "solar_beam",
+        "name": "陽光烈焰",
+        "element": "forest",
+        "category": "magic",
+        "power": 120,
+        "accuracy": 100,
+        "cost": 5,
+        "description": "吸收陽光後發射強烈光束(需蓄力)。",
+        "effects": []
+    },
+    "🌲 世界樹之守護": {
+        "id": "world_tree_guard",
+        "name": "世界樹之守護",
+        "element": "forest",
+        "category": "status",
+        "power": 0,
+        "accuracy": 100,
+        "cost": 4,
+        "description": "大幅提升防禦力，並持續回血。",
+        "effects": [
+            {
+                "type": "buff",
+                "target": "self",
+                "stat": "def",
+                "chance": 100,
+                "duration": 5,
+                "value": 3
+            },
+            {
+                "type": "status",
+                "target": "self",
+                "status_id": "regen",
+                "chance": 100,
+                "duration": 5,
+                "value": 15
+            }
+        ]
+    },
+    "🍃 萬象森羅": {
+        "id": "forest_all_creation",
+        "name": "萬象森羅",
+        "element": "forest",
+        "category": "magic",
+        "power": 150,
+        "accuracy": 95,
+        "cost": 6,
+        "description": "召喚森林萬象之力進行審判。",
+        "effects": []
     },
     "👻 影子球": {
         "id": "ghost_ball",
@@ -67,7 +287,17 @@
         "power": 80,
         "accuracy": 100,
         "cost": 3,
-        "description": "投擲一團黑影進行攻擊。有機會降低對手特防。"
+        "description": "投擲黑影。20% 機率降特防。",
+        "effects": [
+            {
+                "type": "debuff",
+                "target": "enemy",
+                "stat": "def",
+                "chance": 20,
+                "duration": 3,
+                "value": 1
+            }
+        ]
     },
     "👅 舌舔": {
         "id": "ghost_lick",
@@ -77,7 +307,17 @@
         "power": 30,
         "accuracy": 100,
         "cost": 1,
-        "description": "用長舌頭舔對手。有機會使對手麻痺。"
+        "description": "舔對手。30% 機率麻痺。",
+        "effects": [
+            {
+                "type": "status",
+                "target": "enemy",
+                "status_id": "paralysis",
+                "chance": 30,
+                "duration": 3,
+                "value": 0
+            }
+        ]
     },
     "👊 撞擊": {
         "id": "normal_tackle",
@@ -87,7 +327,8 @@
         "power": 40,
         "accuracy": 100,
         "cost": 0,
-        "description": "用整個身體撞向對手攻擊。"
+        "description": "用身體撞擊。",
+        "effects": []
     },
     "💤 睡覺": {
         "id": "normal_rest",
@@ -97,6 +338,21 @@
         "power": 0,
         "accuracy": 100,
         "cost": 6,
-        "description": "睡著並恢復全部體力。"
+        "description": "睡著並恢復全部體力。",
+        "effects": [
+            {
+                "type": "heal",
+                "target": "self",
+                "value": 999
+            },
+            {
+                "type": "status",
+                "target": "self",
+                "status_id": "sleep",
+                "chance": 100,
+                "duration": 2,
+                "value": 0
+            }
+        ]
     }
 }
