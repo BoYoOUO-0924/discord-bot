@@ -4,6 +4,7 @@ import os
 import json
 import random
 import time
+from datetime import datetime
 from typing import Dict, Optional, Any, Tuple
 import google.generativeai as genai
 import asyncio
@@ -42,13 +43,24 @@ DATA_FILE = os.path.join(PROJECT_ROOT, 'data', 'pet.json')
 CONFIG_FILE = os.path.join(PROJECT_ROOT, 'configs', 'pet_types.json')
 ASSETS_DIR = os.path.join(PROJECT_ROOT, 'assets', 'pets')
 MAX_LEVEL = 100
+SKILLS_FILE = os.path.join(PROJECT_ROOT, 'configs', 'skills.json')
 
 class PetCog(commands.Cog):
     """Gawa-mon RPG System"""
     def __init__(self, bot):
         self.bot = bot
         self._ensure_data_file()
-        self.pet_types = self._load_pet_config()
+        self.pet_types = self._load_json(CONFIG_FILE)
+        self.skills_data = self._load_json(SKILLS_FILE)
+
+    def _load_json(self, filepath: str) -> Dict:
+        """Load JSON config safely"""
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading {filepath}: {e}")
+            return {}
 
     async def generate_content_safe(self, prompt: str) -> str:
         """Safe wrapper for Gemini API"""
@@ -101,23 +113,49 @@ class PetCog(commands.Cog):
             "name": name or base["name"],
             "level": 1,
             "exp": 0,
+            "ap": 6, # Added
+            "max_ap": 6, # Added
             "stats": {
                 "max_hp": int(base["base_stats"]["hp"] * iv_mult),
                 "hp": int(base["base_stats"]["hp"] * iv_mult), # Current HP
                 "atk": int(base["base_stats"]["atk"] * iv_mult),
                 "def": int(base["base_stats"]["def"] * iv_mult),
-                "satiety": 50, # Initial hunger
+                "satiety": 100, # Changed from 50
                 "max_satiety": 100
             },
-            "adopted_at": time.time(),
-            "last_interaction": time.time(),
-            "nickname": None
+            "skills": self.pet_types[p_type].get("learnset", {}).get("1", []), # Added
+            "adopted_at": datetime.now().timestamp(), # Changed to datetime
+            "last_interaction": datetime.now().timestamp(), # Changed to datetime
+            "nickname": None,
+            "buff": None # Added
         }
         
         data = self._load_data()
         data[str(user_id)] = pet_data
         self._save_data(data)
         return pet_data
+
+    def _migrate_pet_data(self, pet: Dict) -> Dict:
+        """Ensures pet data has all necessary fields for older saves."""
+        if "ap" not in pet:
+            pet["ap"] = 6
+        if "max_ap" not in pet:
+            pet["max_ap"] = 6
+        if "skills" not in pet:
+            pet["skills"] = []
+        # Ensure skills is a list (migration fix)
+        if isinstance(pet.get("skills"), str):
+             pet["skills"] = []
+        if "buff" not in pet: # Added buff migration
+            pet["buff"] = None
+        return pet
+
+    def _get_pet(self, user_id: int) -> Optional[Dict]:
+        data = self._load_data()
+        pet = data.get(str(user_id))
+        if pet:
+            return self._migrate_pet_data(pet) # Apply migration when loading pet
+        return None
 
     def get_pet_embed(self, user_id: int) -> Tuple[Optional[discord.Embed], Optional[discord.File]]:
         """Helper to generate pet embed and file for dashboard updates"""
@@ -135,9 +173,9 @@ class PetCog(commands.Cog):
             
         file = discord.File(imgPath, filename="pet.png")
         
-        embed = discord.Embed(title=f"{meta['emoji']} {pet.get('nickname') or pet['name']} (Lv.{pet['level']})", color=meta['color'])
+        embed = discord.Embed(title=f"{meta['emoji']} {pet.get('nickname') or meta['name']} (Lv.{pet['level']})", color=meta['color'])
         if pet.get('nickname'):
-            embed.description = f"種族: {pet['name']}"
+            embed.description = f"種族: {meta['name']}"
         embed.set_thumbnail(url="attachment://pet.png")
         
         # Stats Bar visual
@@ -147,13 +185,22 @@ class PetCog(commands.Cog):
         sat_per = pet['stats'].get('satiety', 50) / pet['stats'].get('max_satiety', 100)
         sat_bar = "🍖" * int(sat_per * 10) + "⬛" * (10 - int(sat_per * 10))
         
+        # AP Bar (Blue) - 1:1 mapping for 6 AP
+        cur_ap = pet.get('ap', 0)
+        max_ap = pet.get('max_ap', 6)
+        ap_bar = "🟦" * cur_ap + "⬛" * (max_ap - cur_ap)
+        
         embed.add_field(name="體力 (HP)", value=f"{hp_bar} {pet['stats']['hp']}/{pet['stats']['max_hp']}", inline=False)
-        embed.add_field(name="飽食 (Satiety)", value=f"{sat_bar} {pet['stats'].get('satiety', 50)}/{pet['stats'].get('max_satiety', 100)}", inline=False)
+        embed.add_field(name="飽食 (Sat)", value=f"{sat_bar} {pet['stats'].get('satiety', 50)}/{pet['stats'].get('max_satiety', 100)}", inline=False)
+        
+        # Stats Row (AP, ATK, DEF)
+        embed.add_field(name="行動力 (AP)", value=f"{ap_bar} {cur_ap}/{max_ap}", inline=True)
         embed.add_field(name="攻擊 (ATK)", value=f"{pet['stats']['atk']}", inline=True)
         embed.add_field(name="防禦 (DEF)", value=f"{pet['stats']['def']}", inline=True)
         
-        if 'skills' in meta:
-             embed.add_field(name="技能", value="\n".join([f"• {s}" for s in meta['skills']]), inline=True)
+        # Display skills
+        if pet.get('skills'):
+             embed.add_field(name="技能", value="\n".join([f"• {s}" for s in pet['skills']]), inline=True)
         else:
              embed.add_field(name="技能", value="無", inline=True)
         
@@ -165,77 +212,108 @@ class PetCog(commands.Cog):
         
         return embed, file
 
-    def train_pet(self, user_id: int) -> Dict[str, Any]:
+    def _learn_skills(self, pet_data: Dict) -> list[str]:
+        """Checks and learns new skills based on level."""
+        pet_type = pet_data["type"]
+        level = pet_data["level"]
+        learnset = self.pet_types.get(pet_type, {}).get("learnset", {})
+        
+        learned_something = False
+        new_skills = []
+
+        # Check all levels up to current (in case of multi-level jump)
+        for req_level_str, skills in learnset.items():
+            req_level = int(req_level_str)
+            if req_level <= level:
+                for skill in skills:
+                    if skill not in pet_data["skills"]:
+                        pet_data["skills"].append(skill)
+                        new_skills.append(skill)
+                        learned_something = True
+        
+        return new_skills
+
+    async def train_pet(self, user_id: int) -> Tuple[Optional[Dict], Optional[str]]:
         """Handles pet training logic: EXP cost, Level Up, Stat Growth"""
         pet = self._get_pet(user_id)
-        if not pet: return {"status": "error", "msg": "沒有寵物"}
+        if not pet:
+            return None, "你要先領養一隻寵物！輸入 `!adopt` 開始。"
+
+        # Check HP
+        if pet["stats"]["hp"] <= 10:
+             return None, "你的寵物體力透支了！請先休息 (`!rest`) 或餵食 (`!feed`)。"
         
-        # Check Stats
-        if pet['stats']['hp'] < 10 or pet['stats'].get('satiety', 0) < 5:
-            return {"status": "fail", "msg": "🚫 狀態不佳！請先餵食或休息。"}
-            
-        # Cost
-        cost_satiety = 5
-        buff_type = pet.get('buff')
-        base_exp = random.randint(10, 20)
-        gain_exp = base_exp * 2 if buff_type == "2x_exp" else base_exp
-        cost_hp = 0 if buff_type == "invincible" else random.randint(5, 15)
+        # Check Satiety
+        if pet["stats"]["satiety"] <= 5:
+             return None, "你的寵物肚子餓扁了！請先餵食 (`!feed`)。"
+             
+        # Check AP (New)
+        if pet.get("ap", 0) < 1:
+             return None, "你的寵物累了(AP不足)！請休息 (`!rest`) 來恢復體力。"
+
+        # EXP Calculation (Exponential Curve)
+        req_exp = (pet['level'] ** 2) * 50
         
-        if buff_type: pet['buff'] = None
+        # Base EXP Gain
+        gain_exp = random.randint(15, 25)
         
-        # Apply Cost
-        pet['stats']['hp'] -= cost_hp
-        pet['stats']['satiety'] -= cost_satiety
+        # Apply Buff (if any)
+        buff_msg = ""
+        if pet.get("buff") == "2x_exp":
+            gain_exp *= 2
+            pet["buff"] = None # consume buff
+            buff_msg = " (雙倍經驗生效！)"
+
         pet['exp'] += gain_exp
+        pet['stats']['hp'] -= 10
+        pet['stats']['satiety'] -= 5
+        pet['ap'] -= 1 # Consume AP
         
-        # Level Up Check
+        # Level Up Logic
         leveled_up = False
-        evolution_ready = False
-        msg_extra = ""
+        level_msg = ""
         
-        # Exponential Curve: Level^2 * 50
-        # Exponential Curve: Level^2 * 50
-        while pet['level'] < MAX_LEVEL:
-            req_exp = (pet['level'] ** 2) * 50
-            if pet['exp'] >= req_exp:
-                pet['exp'] -= req_exp
-                pet['level'] += 1
-                leveled_up = True
-                
-                # Stat Growth
-                p_type = pet['type']
-                growth = self.pet_types[p_type].get('growth_rate', {"hp": 10, "atk": 2, "def": 1})
-                
-                pet['stats']['max_hp'] += growth['hp']
-                pet['stats']['hp'] = pet['stats']['max_hp'] # Full heal on Level Up
-                pet['stats']['atk'] += growth['atk']
-                pet['stats']['def'] += growth['def']
-                
-                msg_extra += f"\n🎊 **升級了！(Lv.{pet['level']})** (ATK+{growth['atk']} DEF+{growth['def']})"
-            else:
+        while pet['exp'] >= req_exp:
+            if pet['level'] >= MAX_LEVEL:
+                pet['exp'] = req_exp # Cap at max
                 break
-        
-        if pet['level'] >= MAX_LEVEL:
-             pet['exp'] = 0 # Cap EXP
                 
-        # Check Evolution
-        p_type = pet['type']
-        evo_data = self.pet_types[p_type].get('evolution')
-        if evo_data and pet['level'] >= evo_data['min_level']:
-            evolution_ready = True
+            pet['exp'] -= req_exp
+            pet['level'] += 1
+            leveled_up = True
             
+            # Stat Growth
+            p_type = self.pet_types.get(pet['type'])
+            growth = p_type.get('growth_rate', {'hp': 5, 'atk': 2, 'def': 1})
+            
+            pet['stats']['max_hp'] += growth['hp']
+            pet['stats']['hp'] = pet['stats']['max_hp'] # Full heal on level up
+            pet['stats']['atk'] += growth['atk']
+            pet['stats']['def'] += growth['def']
+            pet['ap'] = pet['max_ap'] # Restore AP on level up
+            
+            # Recalculate next req_exp for the loop
+            req_exp = (pet['level'] ** 2) * 50
+
+            # Learn Skills
+            new_skills = self._learn_skills(pet)
+            if new_skills:
+                level_msg += f"\n💡 領悟了新技能：{'、'.join(new_skills)}！"
+
+            # Check Evolution
+            if 'evolution' in p_type and p_type['evolution']:
+                evo_data = p_type['evolution']
+                if pet['level'] >= evo_data['min_level']:
+                    # Just notify, user needs to click button
+                    level_msg += f"\n✨ **寵物可以進化了！** 請點擊下方的進化按鈕！"
+
         self._save_data({str(user_id): pet})
         
-        return {
-            "status": "success",
-            "gain_exp": gain_exp,
-            "cost_hp": cost_hp,
-            "cost_satiety": cost_satiety,
-            "leveled_up": leveled_up,
-            "evolution_ready": evolution_ready,
-            "msg_extra": msg_extra,
-            "pet": pet
-        }
+        msg = f"特訓完成！獲得 {gain_exp} 經驗值{buff_msg}。"
+        if leveled_up:
+            msg += f"\n🎉 **升級了！目前等級 Lv.{pet['level']}**！{level_msg}"
+            
+        return pet, msg
 
     def evolve_pet(self, user_id: int) -> Dict[str, Any]:
         """Handles pet evolution logic"""

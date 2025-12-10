@@ -133,50 +133,79 @@ class PetDashboardView(discord.ui.View):
 
     @discord.ui.button(label="特訓", style=discord.ButtonStyle.danger, emoji="⚔️", row=0)
     async def train_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        res = self.cog.train_pet(self.user_id)
+        # res is now a Tuple[Optional[Dict], Optional[str]]
+        pet, msg = await self.cog.train_pet(self.user_id)
         
-        if res['status'] == 'fail':
-             return await interaction.response.send_message(res['msg'], ephemeral=True)
-             
-        if res['status'] == 'error':
-             return await interaction.response.send_message("❌ 系統錯誤", ephemeral=True)
+        if not pet:
+             # msg contains error message
+             return await interaction.response.send_message(msg, ephemeral=True)
 
         # Dynamic Button Update
-        if res['evolution_ready']:
+        # Check Evolution
+        p_type = pet['type']
+        evo_data = self.cog.pet_types.get(p_type, {}).get('evolution')
+        if evo_data and pet['level'] >= evo_data['min_level']:
              # Check if button exists
              if not any(isinstance(x, EvolveButton) for x in self.children):
                   self.add_item(EvolveButton(self.cog, self.user_id))
 
         embed, file = self.cog.get_pet_embed(self.user_id)
-        msg = f"⚔️ 特訓完成！EXP +{res['gain_exp']} / HP -{res['cost_hp']}{res['msg_extra']}"
         await interaction.response.edit_message(content=msg, embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="休息", style=discord.ButtonStyle.success, emoji="💤", row=0)
     async def rest_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         data = self.cog._load_data()
         pet = data.get(str(self.user_id))
-        if not pet: return
+        if not pet: return 
 
-        if pet['stats'].get('satiety', 0) < 30:
-            return await interaction.response.send_message("🚫 太餓了！需要 30 飽食度。", ephemeral=True)
-        if pet['stats']['hp'] >= pet['stats']['max_hp']:
+        if pet['stats']['hp'] >= pet['stats']['max_hp'] and pet.get('ap', 0) >= pet.get('max_ap', 6):
             return await interaction.response.send_message("💤 精神很好不用睡。", ephemeral=True)
             
+        if pet['stats'].get('satiety', 0) < 30:
+            return await interaction.response.send_message("🚫 太餓了！需要 30 飽食度。", ephemeral=True)
+
         pet['stats']['satiety'] -= 30
         old_hp = pet['stats']['hp']
         pet['stats']['hp'] = min(pet['stats']['max_hp'], old_hp + 60)
         
+        # Restore AP
+        pet['ap'] = pet.get('max_ap', 6)
+        
         self.cog._save_data(data)
         embed, file = self.cog.get_pet_embed(self.user_id)
-        msg = f"💤 休息好了！HP +{pet['stats']['hp']-old_hp} / 飽食 -30"
+        msg = f"💤 休息好了！HP +{pet['stats']['hp']-old_hp} / AP 補滿 / 飽食 -30"
         await interaction.response.edit_message(content=msg, embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="技能", style=discord.ButtonStyle.primary, emoji="📚", row=0)
     async def skills_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         data = self.cog._load_data()
         pet = data.get(str(self.user_id))
-        meta = self.cog.pet_types[pet['type']]
-        await interaction.response.send_message(f"📚 **{pet['name']} 的技能**:\n" + "\n".join(meta['skills']), ephemeral=True)
+        # Use skills_data from Cog
+        skill_db = self.cog.skills_data
+        
+        if not pet.get('skills'):
+            return await interaction.response.send_message("尚未學會任何技能！", ephemeral=True)
+            
+        desc = ""
+        for s_name in pet['skills']:
+            s_data = skill_db.get(s_name)
+            if s_data:
+                emoji = "🔮" if s_data['category'] == 'magic' else "👊"
+                if s_data['category'] == 'status': emoji = "✨"
+                
+                desc += f"### {s_name} {emoji}\n"
+                desc += f"**威力**: {s_data['power']} | **AP消耗**: {s_data['cost']} | **命中**: {s_data['accuracy']}%\n"
+                desc += f"_{s_data['description']}_\n"
+            else:
+                desc += f"### {s_name}\n(資料缺失)\n"
+            desc += "──────────────\n"
+            
+        # Get Metadata for correct name
+        meta = self.cog.pet_types.get(pet['type'], {})
+        display_name = pet.get('nickname') or meta.get('name', pet['name'])
+            
+        embed = discord.Embed(title=f"📚 {display_name} 的技能書", description=desc, color=0x3498DB)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(label="改名", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
     async def rename_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
