@@ -41,6 +41,7 @@ PROJECT_ROOT = os.path.dirname(COG_DIR)
 DATA_FILE = os.path.join(PROJECT_ROOT, 'data', 'pet.json')
 CONFIG_FILE = os.path.join(PROJECT_ROOT, 'configs', 'pet_types.json')
 ASSETS_DIR = os.path.join(PROJECT_ROOT, 'assets', 'pets')
+MAX_LEVEL = 100
 
 class PetCog(commands.Cog):
     """Gawa-mon RPG System"""
@@ -128,6 +129,10 @@ class PetCog(commands.Cog):
         if not meta: return None, None
 
         imgPath = os.path.join(ASSETS_DIR, meta['image'])
+        if not os.path.exists(imgPath):
+            print(f"Warning: Image not found {imgPath}, using default.")
+            imgPath = os.path.join(ASSETS_DIR, "嘎蛙寶寶.png")
+            
         file = discord.File(imgPath, filename="pet.png")
         
         embed = discord.Embed(title=f"{meta['emoji']} {pet.get('nickname') or pet['name']} (Lv.{pet['level']})", color=meta['color'])
@@ -152,10 +157,135 @@ class PetCog(commands.Cog):
         else:
              embed.add_field(name="技能", value="無", inline=True)
         
-        exp_next = pet['level'] * 100
+        if pet['level'] >= MAX_LEVEL:
+             exp_next = "MAX"
+        else:
+             exp_next = (pet['level'] ** 2) * 50
         embed.set_footer(text=f"經驗值: {pet['exp']}/{exp_next} | 屬性: {meta['element']}")
         
         return embed, file
+
+    def train_pet(self, user_id: int) -> Dict[str, Any]:
+        """Handles pet training logic: EXP cost, Level Up, Stat Growth"""
+        pet = self._get_pet(user_id)
+        if not pet: return {"status": "error", "msg": "沒有寵物"}
+        
+        # Check Stats
+        if pet['stats']['hp'] < 10 or pet['stats'].get('satiety', 0) < 5:
+            return {"status": "fail", "msg": "🚫 狀態不佳！請先餵食或休息。"}
+            
+        # Cost
+        cost_satiety = 5
+        buff_type = pet.get('buff')
+        base_exp = random.randint(10, 20)
+        gain_exp = base_exp * 2 if buff_type == "2x_exp" else base_exp
+        cost_hp = 0 if buff_type == "invincible" else random.randint(5, 15)
+        
+        if buff_type: pet['buff'] = None
+        
+        # Apply Cost
+        pet['stats']['hp'] -= cost_hp
+        pet['stats']['satiety'] -= cost_satiety
+        pet['exp'] += gain_exp
+        
+        # Level Up Check
+        leveled_up = False
+        evolution_ready = False
+        msg_extra = ""
+        
+        # Exponential Curve: Level^2 * 50
+        # Exponential Curve: Level^2 * 50
+        while pet['level'] < MAX_LEVEL:
+            req_exp = (pet['level'] ** 2) * 50
+            if pet['exp'] >= req_exp:
+                pet['exp'] -= req_exp
+                pet['level'] += 1
+                leveled_up = True
+                
+                # Stat Growth
+                p_type = pet['type']
+                growth = self.pet_types[p_type].get('growth_rate', {"hp": 10, "atk": 2, "def": 1})
+                
+                pet['stats']['max_hp'] += growth['hp']
+                pet['stats']['hp'] = pet['stats']['max_hp'] # Full heal on Level Up
+                pet['stats']['atk'] += growth['atk']
+                pet['stats']['def'] += growth['def']
+                
+                msg_extra += f"\n🎊 **升級了！(Lv.{pet['level']})** (ATK+{growth['atk']} DEF+{growth['def']})"
+            else:
+                break
+        
+        if pet['level'] >= MAX_LEVEL:
+             pet['exp'] = 0 # Cap EXP
+                
+        # Check Evolution
+        p_type = pet['type']
+        evo_data = self.pet_types[p_type].get('evolution')
+        if evo_data and pet['level'] >= evo_data['min_level']:
+            evolution_ready = True
+            
+        self._save_data({str(user_id): pet})
+        
+        return {
+            "status": "success",
+            "gain_exp": gain_exp,
+            "cost_hp": cost_hp,
+            "cost_satiety": cost_satiety,
+            "leveled_up": leveled_up,
+            "evolution_ready": evolution_ready,
+            "msg_extra": msg_extra,
+            "pet": pet
+        }
+
+    def evolve_pet(self, user_id: int) -> Dict[str, Any]:
+        """Handles pet evolution logic"""
+        data = self._load_data()
+        pet = data.get(str(user_id))
+        if not pet: return {"status": "error", "msg": "沒有寵物"}
+        
+        p_type = pet['type']
+        meta = self.pet_types[p_type]
+        evo_data = meta.get('evolution')
+        
+        if not evo_data:
+            return {"status": "fail", "msg": "此寵物無法再進化或是條件未滿足"}
+            
+        if pet['level'] < evo_data['min_level']:
+            return {"status": "fail", "msg": f"等級不足！需要 Lv.{evo_data['min_level']}"}
+            
+        next_form_id = evo_data['next_form']
+        next_meta = self.pet_types.get(next_form_id)
+        
+        if not next_meta:
+             return {"status": "error", "msg": "進化型態資料缺失"}
+             
+        # Apply Evolution
+        # 1. Stat Boost (Difference between Base Stats)
+        old_base = meta['base_stats']
+        new_base = next_meta['base_stats']
+        
+        diff_hp = new_base['hp'] - old_base['hp']
+        diff_atk = new_base['atk'] - old_base['atk']
+        diff_def = new_base['def'] - old_base['def']
+        
+        pet['stats']['max_hp'] += diff_hp
+        pet['stats']['hp'] = pet['stats']['max_hp'] # Full heal
+        pet['stats']['atk'] += diff_atk
+        pet['stats']['def'] += diff_def
+        
+        # 2. Change Type
+        pet['type'] = next_form_id
+        
+        self._save_data(data)
+        
+        return {
+            "status": "success",
+            "msg": evo_data.get('msg', "進化成功！"),
+            "new_name": next_meta['name'],
+            "diff_hp": diff_hp,
+            "diff_atk": diff_atk,
+            "diff_def": diff_def
+        }
 
     # --- Commands ---
 
