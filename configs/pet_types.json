@@ -10,9 +10,66 @@
             "atk": 25,
             "def": 10
         },
+        "growth_rate": {
+            "hp": 5,
+            "atk": 3,
+            "def": 1
+        },
+        "evolution": {
+            "min_level": 30,
+            "next_form": "fire_evo",
+            "msg": "🔥 身體變得更加壯碩，準備迎接第一次進化！"
+        },
         "skills": [
             "🔥 火花",
             "👊 烈焰拳"
+        ]
+    },
+    "fire_evo": {
+        "name": "烈焰蛙",
+        "element": "火",
+        "emoji": "🌋",
+        "color": 16711680,
+        "image": "fire_evo.png",
+        "base_stats": {
+            "hp": 150,
+            "atk": 50,
+            "def": 25
+        },
+        "growth_rate": {
+            "hp": 8,
+            "atk": 5,
+            "def": 2
+        },
+        "evolution": {
+            "min_level": 60,
+            "next_form": "fire_final",
+            "msg": "🌋 體內的火焰核心開始躁動，即將展現真正的力量！"
+        },
+        "skills": [
+            "🔥 大字爆炎",
+            "👊 火焰踢"
+        ]
+    },
+    "fire_final": {
+        "name": "爆炎蛙王",
+        "element": "火",
+        "emoji": "👑",
+        "color": 10040115,
+        "image": "fire_final.png",
+        "base_stats": {
+            "hp": 250,
+            "atk": 80,
+            "def": 40
+        },
+        "growth_rate": {
+            "hp": 12,
+            "atk": 8,
+            "def": 4
+        },
+        "skills": [
+            "👑 煉獄焦土",
+            "👊 炎帝之怒"
         ]
     },
     "water": {
@@ -26,9 +83,66 @@
             "atk": 18,
             "def": 15
         },
+        "growth_rate": {
+            "hp": 6,
+            "atk": 2,
+            "def": 2
+        },
+        "evolution": {
+            "min_level": 30,
+            "next_form": "water_evo",
+            "msg": "💧 周圍的水流變得更加湍急... 身體正在發生變化！"
+        },
         "skills": [
             "💧 水槍",
             "🌊 波浪"
+        ]
+    },
+    "water_evo": {
+        "name": "巨浪蛙",
+        "element": "水",
+        "emoji": "🌊",
+        "color": 255,
+        "image": "water_evo.png",
+        "base_stats": {
+            "hp": 180,
+            "atk": 40,
+            "def": 30
+        },
+        "growth_rate": {
+            "hp": 10,
+            "atk": 4,
+            "def": 4
+        },
+        "evolution": {
+            "min_level": 60,
+            "next_form": "water_final",
+            "msg": "🌊 已經能駕馭海嘯的力量... 王者即將降臨！"
+        },
+        "skills": [
+            "🌊 海嘯",
+            "🛡️ 水流環"
+        ]
+    },
+    "water_final": {
+        "name": "深海蛙皇",
+        "element": "水",
+        "emoji": "🔱",
+        "color": 126691,
+        "image": "water_final.png",
+        "base_stats": {
+            "hp": 300,
+            "atk": 65,
+            "def": 60
+        },
+        "growth_rate": {
+            "hp": 15,
+            "atk": 6,
+            "def": 8
+        },
+        "skills": [
+            "🔱 絕對零度",
+            "🌊 亞特蘭提斯之怒"
         ]
     },
     "forest": {
@@ -42,9 +156,66 @@
             "atk": 15,
             "def": 20
         },
+        "growth_rate": {
+            "hp": 8,
+            "atk": 2,
+            "def": 3
+        },
+        "evolution": {
+            "min_level": 30,
+            "next_form": "forest_evo",
+            "msg": "🍃 背上的植物開始迅速生長... 大地的氣息匯聚於此！"
+        },
         "skills": [
             "🍃 飛葉快刀",
             "🛡️ 藤鞭"
+        ]
+    },
+    "forest_evo": {
+        "name": "神木蛙",
+        "element": "草",
+        "emoji": "🌳",
+        "color": 65280,
+        "image": "forest_evo.png",
+        "base_stats": {
+            "hp": 220,
+            "atk": 35,
+            "def": 50
+        },
+        "growth_rate": {
+            "hp": 15,
+            "atk": 4,
+            "def": 6
+        },
+        "evolution": {
+            "min_level": 60,
+            "next_form": "forest_final",
+            "msg": "🌳 根系早已深入地底... 森林之主覺醒！"
+        },
+        "skills": [
+            "🌳 能量球",
+            "☀️ 陽光烈焰"
+        ]
+    },
+    "forest_final": {
+        "name": "遠古森蛙",
+        "element": "草",
+        "emoji": "🌲",
+        "color": 2063399,
+        "image": "forest_final.png",
+        "base_stats": {
+            "hp": 400,
+            "atk": 55,
+            "def": 80
+        },
+        "growth_rate": {
+            "hp": 20,
+            "atk": 5,
+            "def": 10
+        },
+        "skills": [
+            "🌲 世界樹之守護",
+            "🍃 萬象森羅"
         ]
     },
     "ghost": {

@@ -90,12 +90,40 @@ class FeedSelect(discord.ui.Select):
         msg = f"😋 吃了 **{item['name']}**！\n(HP +{actual_heal} | 飽食 +{actual_sat})"
         await interaction.response.edit_message(content=msg, embed=embed, attachments=[file], view=self.view)
 
+class EvolveButton(discord.ui.Button):
+    def __init__(self, cog, user_id):
+        super().__init__(label="✨ 進化", style=discord.ButtonStyle.primary, row=2)
+        self.cog = cog
+        self.user_id = user_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id: return
+        
+        res = self.cog.evolve_pet(self.user_id)
+        if res['status'] == 'fail':
+             return await interaction.response.send_message(res['msg'], ephemeral=True)
+        
+        # Success
+        embed, file = self.cog.get_pet_embed(self.user_id)
+        self.view.remove_item(self) # Remove button after use
+        await interaction.response.edit_message(content=f"🎆 **{res['msg']}**\n(HP+{res['diff_hp']} / ATK+{res['diff_atk']} / DEF+{res['diff_def']})", embed=embed, attachments=[file], view=self.view)
+
 class PetDashboardView(discord.ui.View):
     def __init__(self, cog, user_id):
         super().__init__(timeout=180)
         self.cog = cog
         self.user_id = user_id
         self.add_item(FeedSelect(cog, user_id))
+        
+        # Check Evolution
+        pet = self.cog._get_pet(user_id)
+        if pet:
+             p_type = pet['type']
+             # Important: Ensure config exists (might be missing if config file changed but bot didn't reload config fully? No, cog loads config on init)
+             meta = self.cog.pet_types.get(p_type, {})
+             evo_data = meta.get('evolution')
+             if evo_data and pet['level'] >= evo_data['min_level']:
+                  self.add_item(EvolveButton(cog, user_id))
         
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -105,41 +133,22 @@ class PetDashboardView(discord.ui.View):
 
     @discord.ui.button(label="特訓", style=discord.ButtonStyle.danger, emoji="⚔️", row=0)
     async def train_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        data = self.cog._load_data()
-        pet = data.get(str(self.user_id))
-        if not pet: return
+        res = self.cog.train_pet(self.user_id)
         
-        if pet['stats']['hp'] < 10 or pet['stats'].get('satiety', 0) < 5:
-             return await interaction.response.send_message("🚫 狀態不佳！請先餵食或休息。", ephemeral=True)
+        if res['status'] == 'fail':
+             return await interaction.response.send_message(res['msg'], ephemeral=True)
              
-        # Train Logic
-        base_exp = random.randint(10, 20)
-        cost_satiety = 5
-        buff_type = pet.get('buff')
-        gain_exp = base_exp * 2 if buff_type == "2x_exp" else base_exp
-        cost_hp = 0 if buff_type == "invincible" else random.randint(5, 15)
-        
-        if buff_type: pet['buff'] = None
-        
-        pet['exp'] += gain_exp
-        pet['stats']['hp'] -= cost_hp
-        pet['stats']['satiety'] -= cost_satiety
-        
-        # Level Up Logic
-        msg_extra = ""
-        req_exp = pet['level'] * 100
-        if pet['exp'] >= req_exp:
-            pet['level'] += 1
-            pet['exp'] -= req_exp
-            pet['stats']['max_hp'] += 10
-            pet['stats']['hp'] = pet['stats']['max_hp']
-            pet['stats']['atk'] += 2
-            pet['stats']['def'] += 1
-            msg_extra = "\n🎊 **升級了！**"
+        if res['status'] == 'error':
+             return await interaction.response.send_message("❌ 系統錯誤", ephemeral=True)
 
-        self.cog._save_data(data)
+        # Dynamic Button Update
+        if res['evolution_ready']:
+             # Check if button exists
+             if not any(isinstance(x, EvolveButton) for x in self.children):
+                  self.add_item(EvolveButton(self.cog, self.user_id))
+
         embed, file = self.cog.get_pet_embed(self.user_id)
-        msg = f"⚔️ 特訓完成！EXP +{gain_exp} / HP -{cost_hp}{msg_extra}"
+        msg = f"⚔️ 特訓完成！EXP +{res['gain_exp']} / HP -{res['cost_hp']}{res['msg_extra']}"
         await interaction.response.edit_message(content=msg, embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="休息", style=discord.ButtonStyle.success, emoji="💤", row=0)
