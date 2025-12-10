@@ -307,7 +307,10 @@ class PetCog(commands.Cog):
                     # Just notify, user needs to click button
                     level_msg += f"\n✨ **寵物可以進化了！** 請點擊下方的進化按鈕！"
 
-        self._save_data({str(user_id): pet})
+        # Load full data to prevent overwriting other users
+        data = self._load_data()
+        data[str(user_id)] = pet
+        self._save_data(data)
         
         msg = f"特訓完成！獲得 {gain_exp} 經驗值{buff_msg}。"
         if leveled_up:
