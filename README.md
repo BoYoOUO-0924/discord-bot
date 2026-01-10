@@ -19,20 +19,24 @@
 
 ## 環境設定與啟動
 
-這個專案是為 Nix-based 的環境（例如 Firebase Project IDX）所設定。
+這是一個通用的 Python Discord Bot 專案。
 
-1.  **設定環境與安裝套件**
-    專案的相依套件定義在 `.idx/dev.nix` 中。當您在 IDX 環境中開啟此專案時，`discord.py` 和 `google-generativeai` 等必要的函式庫將會被自動安裝。
+1.  **安裝相依套件**
+    請確保您已安裝 Python，然後執行：
+    ```bash
+    pip install -r requirements.txt
+    ```
 
 2.  **設定 API 金鑰**
     - 複製範例設定檔：
       ```bash
       cp config.example.py config.py
       ```
+      (Windows 用戶請手動複製改名，或使用 `copy config.example.py config.py`)
     - 編輯 `config.py`，並填入你的真實金鑰：
       ```python
       # config.py
-      TOKEN = "YOUR_DISCORD_BOT_TOKEN"
+      DISCORD_TOKEN = "YOUR_DISCORD_BOT_TOKEN"
       GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
       ```
     - **重要**: `config.py` 已被加入 `.gitignore`，不會被上傳到 Git。
@@ -46,11 +50,9 @@
 
 ```
 discord-bot/
-├── .idx/
-│   └── dev.nix         # Nix 環境設定檔
 ├── bot.py              # Bot 主程式
 ├── config.example.py   # 設定檔範本
-├── requirements.txt    # 相依套件列表 (主要由 dev.nix 管理)
+├── requirements.txt    # 相依套件列表
 ├── README.md           # 就是你現在在看的這個檔案
 └── cogs/                 # 功能模組 (Cogs)
     ├── __init__.py

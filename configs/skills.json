@@ -8,6 +8,7 @@
         "accuracy": 100,
         "cost": 1,
         "description": "發射小火苗。20% 機率造成燒傷。",
+        "image_url": "https://media.tenor.com/-p8I6yw5eNwAAAAM/fire-blast-fire.gif",
         "effects": [
             {
                 "type": "status",

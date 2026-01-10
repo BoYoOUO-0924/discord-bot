@@ -368,6 +368,48 @@ class PetCog(commands.Cog):
             "diff_def": diff_def
         }
 
+    def generate_wild_pet(self, level: int) -> Dict:
+        """Generates a temporary wild pet for PVE."""
+        # Filter out 'invalid' types if necessary, currently taking all
+        p_type = random.choice(list(self.pet_types.keys()))
+        base = self.pet_types[p_type]
+        
+        # Calculate stats based on level
+        growth = base.get('growth_rate', {'hp': 5, 'atk': 2, 'def': 1})
+        base_stats = base['base_stats']
+        
+        # Simple formula: Base + (Growth * (Level - 1))
+        hp = base_stats['hp'] + (growth['hp'] * (level - 1))
+        atk = base_stats['atk'] + (growth['atk'] * (level - 1))
+        def_ = base_stats['def'] + (growth['def'] * (level - 1))
+        
+        # Create a dummy pet dict to use reused logic
+        dummy_pet = {
+            "type": p_type,
+            "level": level,
+            "skills": []
+        }
+        steps_skills = self._learn_skills(dummy_pet)
+        
+        return {
+            "type": p_type,
+            "name": f"野生 {base['name']}",
+            "level": level,
+            "exp": 0,
+            "ap": 6,
+            "max_ap": 6,
+            "stats": {
+                "max_hp": hp,
+                "hp": hp,
+                "atk": atk,
+                "def": def_,
+                "satiety": 100
+            },
+            "skills": dummy_pet["skills"],
+            "element": base['element'],
+            "buff": None
+        }
+
     # --- Commands ---
 
     @commands.group(invoke_without_command=True)
@@ -412,7 +454,7 @@ class PetCog(commands.Cog):
         不要 Markdown，只要純 JSON。
         """
         
-        waiting_msg = await ctx.send("🔮 正在感應蛋的能量 (AI 生成謎題中)...")
+        waiting_msg = await ctx.send("🔮 正在感應蛋的能量 ...")
         
         riddle_json = await self.generate_content_safe(prompt)
         
