@@ -2,8 +2,65 @@ import discord
 from discord.ext import commands
 
 class Utils(commands.Cog):
+
+    @commands.command(name="eval", aliases=["exec", "py"], hidden=True)
+    @commands.is_owner()
+    async def _eval(self, ctx, *, body: str):
+        """Executes a code block."""
+        import io
+        import sys
+        import textwrap
+        from contextlib import redirect_stdout
+
+        # Clean up code block
+        if body.startswith("```") and body.endswith("```"):
+            body = "\n".join(body.split("\n")[1:-1])
+        else:
+            body = body.strip("` \n")
+
+        env = {
+            'bot': self.bot,
+            'ctx': ctx,
+            'channel': ctx.channel,
+            'author': ctx.author,
+            'guild': ctx.guild,
+            'message': ctx.message,
+            '_': self._last_result
+        }
+        env.update(globals())
+
+        stdout = io.StringIO()
+        
+        to_compile = f'async def func():\n{textwrap.indent(body, "  ")}'
+
+        try:
+            exec(to_compile, env)
+        except Exception as e:
+            return await ctx.send(f'```py\n{e.__class__.__name__}: {e}\n```')
+
+        func = env['func']
+        try:
+            with redirect_stdout(stdout):
+                ret = await func()
+        except Exception as e:
+            value = stdout.getvalue()
+            await ctx.send(f'```py\n{value}{e.__class__.__name__}: {e}\n```')
+        else:
+            value = stdout.getvalue()
+            try:
+                await ctx.message.add_reaction('\u2705')
+            except: pass
+
+            if ret is None:
+                if value:
+                    await ctx.send(f'```py\n{value}\n```')
+            else:
+                self._last_result = ret
+                await ctx.send(f'```py\n{value}{ret}\n```')
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._last_result = None
 
     @commands.command(name="clear", help="清除指定數量的訊息（預設10）。需要管理訊息權限。")
     @commands.has_permissions(manage_messages=True)
