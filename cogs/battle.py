@@ -11,6 +11,26 @@ from .ui.battle_views import ChallengeView, PVPBattleView, BattleSkillView
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILLS_FILE = os.path.join(PROJECT_ROOT, 'configs', 'skills.json')
 
+# Type Effectiveness Chart
+# Attacker -> Defender -> Modifier
+TYPE_CHART = {
+    "fire": {"forest": 1.5, "water": 0.5, "fire": 0.5},
+    "water": {"fire": 1.5, "forest": 0.5, "water": 0.5},
+    "forest": {"water": 1.5, "fire": 0.5, "forest": 0.5},
+    "ghost": {"ghost": 2.0, "normal": 0.0},
+    "normal": {"ghost": 0.0}
+    # Add more as needed
+}
+
+# Map Chinese Element Names to Keys
+ELEMENT_MAP = {
+    "火": "fire",
+    "水": "water",
+    "草": "forest",
+    "幽靈": "ghost",
+    "一般": "normal"
+}
+
 class BattleCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -44,31 +64,53 @@ class BattleCog(commands.Cog):
         view = ChallengeView(self, ctx.author.id, target.id)
         await ctx.send(embed=embed, view=view)
 
-    async def start_battle(self, interaction, p1_id, p2_id):
+    @commands.command(name="adventure")
+    async def adventure(self, ctx):
+        """開始單人冒險 (PVE)"""
+        pet_cog = self.bot.get_cog("PetCog")
+        if not pet_cog: return await ctx.send("寵物系統維護中。")
+
+        p1_pet = pet_cog._get_pet(ctx.author.id)
+        if not p1_pet:
+            return await ctx.send("你還沒有領養寵物！輸入 `!adopt` 開始。")
+
+        # Calculate Wild Level
+        level = p1_pet['level']
+        wild_level = max(1, level + random.randint(-2, 2))
+        
+        # Start Battle with CPU
+        await self.start_battle(ctx, ctx.author.id, "cpu", wild_level=wild_level)
+
+    async def start_battle(self, interaction, p1_id, p2_id, wild_level=None):
         battle_id = self.battle_counter
         self.battle_counter += 1
         
         pet_cog = self.bot.get_cog("PetCog")
         p1_pet = pet_cog._get_pet(p1_id)
-        p2_pet = pet_cog._get_pet(p2_id)
-
-        # Fetch User Names
-        p1_user = self.bot.get_user(p1_id)
-        if not p1_user:
-            try:
-                p1_user = await self.bot.fetch_user(p1_id)
-            except:
-                pass
         
-        p1_name = p1_user.display_name if p1_user else f"User({p1_id})"
-        p2_name = interaction.user.display_name
+        if p2_id == "cpu":
+             # Generate Wild Pet
+             p2_pet = pet_cog.generate_wild_pet(wild_level or 1)
+             p2_name = "野生怪物"
+             p1_user = interaction.author if isinstance(interaction, discord.ext.commands.Context) else interaction.user
+             p1_name = p1_user.display_name
+        else:
+             p2_pet = pet_cog._get_pet(p2_id)
+             # Fetch User Names
+             p1_user = self.bot.get_user(p1_id)
+             if not p1_user:
+                 try:
+                     p1_user = await self.bot.fetch_user(p1_id)
+                 except: pass
+             p1_name = p1_user.display_name if p1_user else f"User({p1_id})"
+             p2_name = interaction.user.display_name
 
         # Snapshot State
         state = {
             "id": battle_id,
             "players": {
-                p1_id: {"name": p1_name, "pet": p1_pet, "hp": p1_pet['stats']['hp'], "max_hp": p1_pet['stats']['max_hp'], "ap": 6},
-                p2_id: {"name": p2_name, "pet": p2_pet, "hp": p2_pet['stats']['hp'], "max_hp": p2_pet['stats']['max_hp'], "ap": 6} 
+                p1_id: {"name": p1_name, "pet": p1_pet, "hp": p1_pet['stats']['hp'], "max_hp": p1_pet['stats']['max_hp'], "ap": 6, "status_effects": []},
+                p2_id: {"name": p2_name, "pet": p2_pet, "hp": p2_pet['stats']['hp'], "max_hp": p2_pet['stats']['max_hp'], "ap": 6, "status_effects": []} 
             },
             "turn_order": [p1_id, p2_id],
             "turn_index": 0 if random.random() < 0.5 else 1, # Coin Flip
@@ -80,12 +122,15 @@ class BattleCog(commands.Cog):
 
         first_player = state['turn_order'][state['turn_index']]
         state["log"].append(f"👉 **{state['players'][first_player]['name']}** 獲得先攻！")
+        
+        # Store message for external updates
+        state['message'] = interaction.message
 
         self.battles[battle_id] = state
         
         await self._update_battle_ui(interaction, battle_id)
 
-    async def _update_battle_ui(self, interaction, battle_id):
+    async def _update_battle_ui(self, interaction, battle_id, animation_url=None):
         battle = self.battles.get(battle_id)
         if not battle: return
 
@@ -93,64 +138,283 @@ class BattleCog(commands.Cog):
         p1 = battle['players'][p1_id]
         p2 = battle['players'][p2_id]
         
-        # Helper for HP Bar
+        # Helper for HP Bar (Dynamic Color)
         def get_bar(cur, max_val, length=10):
             pct = cur / max_val
-            return "🟩" * int(pct * length) + "⬛" * (length - int(pct * length))
+            emoji = "🟩"
+            if pct <= 0.2: emoji = "🟥"
+            elif pct <= 0.5: emoji = "🟨"
+            
+            return emoji * int(pct * length) + "⬛" * (length - int(pct * length))
 
-        desc = "**戰鬥紀錄**\n" + "\n".join(battle['log'][-5:]) # Show last 5 logs
+        # ANSI Color Logs
+        # Wraps logs in ansi code block
+        formatted_logs = []
+        for log in battle['log'][-5:]:
+            # Remove Markdown Bold
+            log = log.replace("**", "")
+            
+            # Simple keyword highlighting (Fragile but works for now)
+            if "造成" in log and "點傷害" in log:
+                 # Highlight damage in Red
+                 # \u001b is the Escape character required for ANSI
+                 log = log.replace("造成", "\u001b[0;31m造成").replace("點傷害", "點傷害\u001b[0m")
+            formatted_logs.append(log)
+
+        desc = "**戰鬥紀錄**\n```ansi\n" + "\n".join(formatted_logs) + "\n```" # Show last 5 logs
         
         embed = discord.Embed(title="⚔️ 嘎蛙大戰 (PVP)", description=desc, color=0xF39C12)
         
+        if animation_url:
+            embed.set_image(url=animation_url)
+        
         # Player 1 Field
         embed.add_field(name=f"🔴 {p1['name']} ({p1['pet']['name']})", 
-                        value=f"HP: {get_bar(p1['hp'], p1['max_hp'])} {p1['hp']}/{p1['max_hp']}\nAP: {'🟦'*p1['ap']}", inline=True)
+                        value=f"HP: {get_bar(p1['hp'], p1['max_hp'])} {p1['hp']}/{p1['max_hp']}\nAP: **{p1['ap']}** {'🟦'*p1['ap']}", inline=True)
         
         embed.add_field(name="VS", value="⚡", inline=True)
 
         # Player 2 Field
         embed.add_field(name=f"🔵 {p2['name']} ({p2['pet']['name']})", 
-                        value=f"HP: {get_bar(p2['hp'], p2['max_hp'])} {p2['hp']}/{p2['max_hp']}\nAP: {'🟦'*p2['ap']}", inline=True)
+                        value=f"HP: {get_bar(p2['hp'], p2['max_hp'])} {p2['hp']}/{p2['max_hp']}\nAP: **{p2['ap']}** {'🟦'*p2['ap']}", inline=True)
 
         current_player = battle['turn_order'][battle['turn_index']]
         embed.set_footer(text=f"現在是 {battle['players'][current_player]['name']} 的回合")
 
+        # Determine if Buttons should be disabled
+        # In PVE, player is always p1. 
+        # If current_player is 'cpu', view buttons should be disabled?
+        # The view itself checks interaction.user.id.
+        # But visually, we can maybe disable them.
+        # Currently PVPBattleView just renders.
+        
         view = PVPBattleView(self, battle_id)
         
-        if interaction.type == discord.InteractionType.component:
+        # Check if interaction is from the main battle message
+        is_main_interaction = False
+        if hasattr(interaction, 'message') and interaction.message:
+            if battle.get('message') and interaction.message.id == battle['message'].id:
+                is_main_interaction = True
+        
+        if is_main_interaction:
             await interaction.response.edit_message(content=None, embed=embed, view=view)
         else:
-            await interaction.response.send_message(embed=embed, view=view) # Should not happen often
+            # External interaction (e.g. Skill Menu)
+            # Edit the main message directly
+            if battle.get('message'):
+                await battle['message'].edit(content=None, embed=embed, view=view)
+            
+            # Acknowledge the ephemeral interaction
+            if not interaction.response.is_done():
+                await interaction.response.send_message("✅ 技能施放成功！", ephemeral=True)
 
     async def handle_action(self, interaction, battle_id, action_type):
         battle = self.battles.get(battle_id)
         if not battle: return
-        
+
         attacker_id = interaction.user.id
-        attacker = battle['players'][attacker_id]
+        attacker = battle['players'][attacker_id] # Should validation be here?
         
         # Determine Defender
         defender_id = [pid for pid in battle['turn_order'] if pid != attacker_id][0]
         defender = battle['players'][defender_id]
 
         if action_type == "attack":
-            dmg = int(attacker['pet']['stats']['atk'] * 0.5) # Simple formula
-            dmg = max(1, dmg - int(defender['pet']['stats']['def'] * 0.1))
+            # For Basic Attack, use Pet's Element
+            atk_elem_key = ELEMENT_MAP.get(attacker['pet']['element'], 'normal')
+            def_elem_key = ELEMENT_MAP.get(defender['pet']['element'], 'normal')
+            
+            dmg, effectiveness = self._calculate_damage(attacker, defender, power=50, 
+                                                        category="physical", 
+                                                        atk_element=atk_elem_key,
+                                                        def_element=def_elem_key)
+            
+            eff_msg = self._get_effectiveness_msg(effectiveness)
             
             defender['hp'] = max(0, defender['hp'] - dmg)
-            battle['log'].append(f"⚔️ **{attacker['name']}** 攻擊了！造成 **{dmg}** 點傷害！")
+            battle['log'].append(f"⚔️ **{attacker['name']}** 攻擊了！ \u001b[0;31m造成 **{dmg}** 點傷害\u001b[0m {eff_msg}！")
             
             if defender['hp'] <= 0:
                 return await self.end_battle(interaction, battle_id, winner_id=attacker_id)
 
+        await self._next_turn(interaction, battle_id)
+
+    async def _next_turn(self, interaction, battle_id, animation_url=None):
+        battle = self.battles.get(battle_id)
+        if not battle: return
+
+        # End of Turn Processing for the Current Player
+        current_pid = battle['turn_order'][battle['turn_index']]
+        current_player = battle['players'][current_pid]
+
+        # Process Status Effects (Burn, Poison, etc.)
+        status_logs = self._process_status_effects(battle, current_pid)
+        battle['log'].extend(status_logs)
+        
+        # Check if current player died from status effects
+        if current_player['hp'] <= 0:
+            # The opponent wins
+            winner_id = [pid for pid in battle['turn_order'] if pid != current_pid][0]
+            return await self.end_battle(interaction, battle_id, winner_id=winner_id)
+
         # Basic Turn Switch
         battle['turn_index'] = (battle['turn_index'] + 1) % 2
         
-        # AP Restore for next player
+        # Start of Turn for Next Player
         next_pid = battle['turn_order'][battle['turn_index']]
+        
+        # Restore AP
         battle['players'][next_pid]['ap'] = min(6, battle['players'][next_pid]['ap'] + 1)
 
-        await self._update_battle_ui(interaction, battle_id)
+        await self._update_battle_ui(interaction, battle_id, animation_url=animation_url)
+
+        # Trigger AI if needed
+        next_pid = battle['turn_order'][battle['turn_index']]
+        if next_pid == "cpu":
+             self.bot.loop.create_task(self._ai_turn(interaction, battle_id))
+
+    async def _ai_turn(self, interaction, battle_id):
+        """Handles CPU turn logic"""
+        await asyncio.sleep(1.5) # Simulate thinking
+        
+        battle = self.battles.get(battle_id)
+        if not battle: return
+        
+        cpu_player = battle['players']['cpu']
+        
+        # AI Logic:
+        # 1. Simple heuristic or Random
+        skills = cpu_player['pet'].get('skills', [])
+        valid_skills = []
+        
+        # Check AP
+        current_ap = cpu_player['ap']
+        
+        for s_name in skills:
+             s_data = self.skills_db.get(s_name)
+             if s_data and s_data['cost'] <= current_ap:
+                 valid_skills.append(s_name)
+        
+        if valid_skills:
+             # 50% chance to pick random skill, 50% weighted logic could be added here
+             # For now, totally random among valid
+             skill_to_use = random.choice(valid_skills)
+             await self.execute_skill(interaction, battle_id, skill_to_use)
+        else:
+             # AP not enough for any skill, perform basic attack if AP >= 0 (Basic attacks might cost 0 or be fallback)
+             # Our system currently doesn't have a specific "Basic Attack" scaling with AP in the skill list usually?
+             # But let's assume if AP=0, we can't do much. 
+             # Wait, `handle_action` handles 'attack'. Does it need AP?
+             # Logic implies regular attack is just a fallback.
+             # Let's say CPU rests if < 2 AP? OR basic attack.
+             
+             # Currently handle_action('attack') doesn't cost AP.
+             await self.handle_action(interaction, battle_id, "attack")
+    
+    def _calculate_damage(self, attacker, defender, power, category="physical", atk_element='normal', def_element='normal'):
+        # Base Stats
+        atk = attacker['pet']['stats']['atk']
+        defense = defender['pet']['stats']['def']
+        
+        # Apply Buffs/Debuffs
+        atk_mod = sum(e['value'] for e in attacker['status_effects'] if e['type'] in ['buff'] and e['stat'] == 'atk')
+        atk_mod -= sum(e['value'] for e in attacker['status_effects'] if e['type'] in ['debuff'] and e['stat'] == 'atk')
+        
+        def_mod = sum(e['value'] for e in defender['status_effects'] if e['type'] in ['buff'] and e['stat'] == 'def')
+        def_mod -= sum(e['value'] for e in defender['status_effects'] if e['type'] in ['debuff'] and e['stat'] == 'def')
+        
+        final_atk = max(1, atk + atk_mod)
+        final_def = max(1, defense + def_mod)
+        
+        # Damage Formula
+        # Input: Power (Skill Power). Basic Attack = 50.
+        # Logic: (ATK * Power% * 2) - (DEF * 0.2)
+        dmg = int( (final_atk * power / 100) * 2 )
+        dmg = max(1, dmg - int(final_def * 0.2))
+        
+        # Type Effectiveness
+        effectiveness = TYPE_CHART.get(atk_element, {}).get(def_element, 1.0)
+        dmg = int(dmg * effectiveness)
+        
+        return dmg, effectiveness
+
+    def _get_effectiveness_msg(self, value):
+        if value > 1.0: return "\u001b[0;33m(效果絕佳!)\u001b[0m" # Yellow
+        if value == 0: return "\u001b[1;30m(沒有效果...)\u001b[0m" # Grey
+        if value < 1.0: return "\u001b[0;34m(效果不好...)\u001b[0m" # Blue
+        return ""
+
+    def _apply_status_effect(self, battle, target_id, effect_data):
+        target = battle['players'][target_id]
+        
+        status_id = effect_data.get('status_id')
+        effect_type = effect_data.get('type') # status, buff, debuff
+        
+        # Construct Name and ID
+        if effect_type == 'status':
+            effect_id = status_id
+            if status_id == 'burn': name = "🔥 燒傷"
+            elif status_id == 'regen': name = "🛡️ 再生"
+            else: name = status_id
+        else:
+            # Buff/Debuff
+            stat = effect_data.get('stat')
+            effect_id = f"{effect_type}_{stat}" # e.g. buff_def
+            stat_map = {"atk": "攻擊", "def": "防禦", "spd": "速度"}
+            sign = "提升" if effect_type == 'buff' else "下降"
+            name = f"{stat_map.get(stat, stat)}{sign}"
+            
+        # Check if status already exists (Refresh)
+        existing = next((e for e in target['status_effects'] if e['id'] == effect_id), None)
+        
+        if existing:
+            existing['duration'] = effect_data['duration'] # Refresh duration
+            return f"🔄 **{target['name']}** 的 **{name}** 狀態持續時間刷新了！"
+        else:
+            new_effect = {
+                "id": effect_id,
+                "type": effect_type,
+                "duration": effect_data['duration'],
+                "value": effect_data.get('value', 0),
+                "name": name
+            }
+            if effect_type in ['buff', 'debuff']:
+                new_effect['stat'] = effect_data.get('stat')
+            
+            target['status_effects'].append(new_effect)
+            return f"⚠️ **{target['name']}** 獲得了 **{name}** 狀態！"
+
+    def _process_status_effects(self, battle, player_id):
+        player = battle['players'][player_id]
+        logs = []
+        
+        remaining_effects = []
+        for effect in player['status_effects']:
+
+            # Burn
+            if effect['id'] == 'burn':
+                dmg = int(player['max_hp'] * (effect['value'] / 100))
+                dmg = max(1, dmg)
+                player['hp'] = max(0, player['hp'] - dmg)
+                logs.append(f"🔥 **{player['name']}** 受到燒傷傷害 \u001b[0;31m-{dmg}\u001b[0m！")
+            
+            # Regen (Heal)
+            elif effect['id'] == 'regen':
+                 heal = int(effect['value'])
+                 old_hp = player['hp']
+                 player['hp'] = min(player['max_hp'], player['hp'] + heal)
+                 actual_heal = player['hp'] - old_hp
+                 if actual_heal > 0:
+                     logs.append(f"💧 **{player['name']}** 回復了 \u001b[0;32m+{actual_heal}\u001b[0m 點 HP！")
+
+            effect['duration'] -= 1
+            if effect['duration'] > 0:
+                remaining_effects.append(effect)
+            else:
+                logs.append(f"✨ **{player['name']}** 的 **{effect['name']}** 狀態結束了。")
+        
+        player['status_effects'] = remaining_effects
+        return logs
 
     async def handle_surrender(self, interaction, battle_id):
         battle = self.battles.get(battle_id)
@@ -198,30 +462,42 @@ class BattleCog(commands.Cog):
         # Calculate Damage
         power = skill_data['power']
         
-        if skill_data['category'] == 'status':
+        if skill_data.get('category') == 'status':
              dmg = 0
-             msg = f"✨ **{attacker['name']}** 使用了 **{skill_name}**！\n(狀態效果尚未實裝)"
+             msg = f"✨ **{attacker['name']}** 使用了 **{skill_name}**！"
         else:
-             # Simpler Calc
-             dmg = int( (attacker['pet']['stats']['atk'] * power / 100) * 2 )
-             dmg = max(1, dmg - int(defender['pet']['stats']['def'] * 0.2))
+             atk_elem_key = skill_data.get('element', 'normal')
+             def_elem_key = ELEMENT_MAP.get(defender['pet']['element'], 'normal')
+             
+             dmg, effectiveness = self._calculate_damage(attacker, defender, power, 
+                                                         category=skill_data.get('category', 'magic'),
+                                                         atk_element=atk_elem_key,
+                                                         def_element=def_elem_key)
+             
+             eff_msg = self._get_effectiveness_msg(effectiveness)
              
              defender['hp'] = max(0, defender['hp'] - dmg)
-             msg = f"🔮 **{attacker['name']}** 使用了 **{skill_name}**！造成 **{dmg}** 點傷害！"
+             msg = f"🔮 **{attacker['name']}** 使用了 **{skill_name}**！ \u001b[0;31m造成 **{dmg}** 點傷害\u001b[0m {eff_msg}！"
 
         battle['log'].append(msg)
         
+        # Apply Effects
+        if 'effects' in skill_data:
+            for effect in skill_data['effects']:
+                # Roll Chance
+                if random.randint(1, 100) <= effect['chance']:
+                    target_id = defender_id if effect['target'] == 'enemy' else attacker_id
+                    effect_log = self._apply_status_effect(battle, target_id, effect)
+                    battle['log'].append(effect_log)
+
         if defender['hp'] <= 0:
             return await self.end_battle(interaction, battle_id, winner_id=attacker_id)
 
-        # Switch Turn
-        battle['turn_index'] = (battle['turn_index'] + 1) % 2
-        
-        # Restore AP
-        next_pid = battle['turn_order'][battle['turn_index']]
-        battle['players'][next_pid]['ap'] = min(6, battle['players'][next_pid]['ap'] + 1)
+        # Get Animation URL
+        anim_url = skill_data.get('image_url')
 
-        await self._update_battle_ui(interaction, battle_id)
+        # Proceed to Next Turn with Animation
+        await self._next_turn(interaction, battle_id, animation_url=anim_url)
 
     async def end_battle(self, interaction, battle_id, winner_id):
         battle = self.battles.pop(battle_id, None)
@@ -239,7 +515,13 @@ class BattleCog(commands.Cog):
             # Update Winner
             w_pet = data.get(str(winner_id))
             if w_pet:
-                w_pet['exp'] += 20
+                if loser_id == "cpu":
+                     # PVE Reward
+                     pve_exp = loser['pet']['level'] * 20
+                     w_pet['exp'] += pve_exp
+                else:
+                     w_pet['exp'] += 20
+                     
                 if w_pet['exp'] >= (w_pet['level']**2)*50 and w_pet['level'] < 100:
                     w_pet['exp'] -= (w_pet['level']**2)*50
                     w_pet['level'] += 1
@@ -251,17 +533,43 @@ class BattleCog(commands.Cog):
                     w_pet['ap'] = 6
 
             # Update Loser
-            l_pet = data.get(str(loser_id))
-            if l_pet:
-                l_pet['exp'] += 5
-                # l_pet['stats']['hp'] = 1 # No penalty requested by user
+            if loser_id != "cpu":
+                l_pet = data.get(str(loser_id))
+                if l_pet:
+                    l_pet['exp'] += 5
+                    # l_pet['stats']['hp'] = 1 # No penalty requested by user
             
             pet_cog._save_data(data)
             
-        embed = discord.Embed(title="🏆 戰鬥結束！", description=f"🎉 勝利者: **{winner['name']}** (+20 EXP)\n💀 落敗者: {loser['name']} (+5 EXP)", color=0xFFD700)
+        desc = f"🎉 勝利者: **{winner['name']}** (+{20 if loser_id != 'cpu' else winner['pet']['level']*20} EXP)\n💀 落敗者: {loser['name']}"
+        if loser_id != "cpu":
+             desc += " (+5 EXP)"
+             
+        embed = discord.Embed(title="🏆 戰鬥結束！", description=desc, color=0xFFD700)
         embed.add_field(name="戰利品", value="戰鬥資料已儲存！")
         
-        await interaction.response.edit_message(embed=embed, view=None)
+        # Determine if we should edit result into the interaction or the separate message
+        # Ideally, we ALWAYS edit the main message to announce the result publicly
+        if battle.get('message'):
+            try:
+                await battle['message'].edit(content=None, embed=embed, view=None)
+            except discord.NotFound:
+                # Fallback if message deleted
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(embed=embed, view=None)
+        
+        # If the interaction that triggered this was ephemeral (e.g. Skill Menu)
+        # We should just satisfy it or tell user to look at board
+        if not interaction.response.is_done():
+            # If it's the main interaction (e.g. Surrender from main view), the above edit might be enough if we handled it right?
+            # Actually if interaction is component, we must respond to it or we get "Interaction failed"
+            # But if we edited the message via interaction, it's done. 
+            pass  
+            
+        # If interaction was NOT the main message update (e.g. Skill), we need to close that ephemeral
+        if hasattr(interaction, 'message') and battle.get('message') and interaction.message.id != battle['message'].id:
+             if not interaction.response.is_done():
+                 await interaction.response.send_message("🏆 戰鬥結束！請查看公共戰報。", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(BattleCog(bot))

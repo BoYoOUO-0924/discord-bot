@@ -82,9 +82,7 @@ class PVPBattleView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="攻擊", style=discord.ButtonStyle.danger, emoji="⚔️")
-    async def attack(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.handle_action(interaction, self.battle_id, "attack")
+
 
     @discord.ui.button(label="技能", style=discord.ButtonStyle.primary, emoji="📚")
     async def skill(self, interaction: discord.Interaction, button: discord.ui.Button):

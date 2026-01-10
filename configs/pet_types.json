@@ -38,7 +38,7 @@
         "element": "火",
         "emoji": "🌋",
         "color": 16711680,
-        "image": "fire_evo.png",
+        "image": "烈焰蛙.png",
         "base_stats": {
             "hp": 150,
             "atk": 50,
@@ -69,7 +69,7 @@
         "element": "火",
         "emoji": "👑",
         "color": 10040115,
-        "image": "fire_final.png",
+        "image": "爆炎蛙王.png",
         "base_stats": {
             "hp": 250,
             "atk": 80,
@@ -126,7 +126,7 @@
         "element": "水",
         "emoji": "🌊",
         "color": 255,
-        "image": "water_evo.png",
+        "image": "巨浪蛙.png",
         "base_stats": {
             "hp": 180,
             "atk": 40,
@@ -156,7 +156,7 @@
         "element": "水",
         "emoji": "🔱",
         "color": 126691,
-        "image": "water_final.png",
+        "image": "深海蛙皇.png",
         "base_stats": {
             "hp": 300,
             "atk": 65,
@@ -213,7 +213,7 @@
         "element": "草",
         "emoji": "🌳",
         "color": 65280,
-        "image": "forest_evo.png",
+        "image": "神木蛙.png",
         "base_stats": {
             "hp": 220,
             "atk": 35,
@@ -243,7 +243,7 @@
         "element": "草",
         "emoji": "🌲",
         "color": 2063399,
-        "image": "forest_final.png",
+        "image": "遠古森蛙.png",
         "base_stats": {
             "hp": 400,
             "atk": 55,
