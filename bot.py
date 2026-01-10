@@ -42,6 +42,10 @@ async def load_cogs():
     """自動載入所有在 cogs 資料夾底下的 .py 檔案"""
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py') and filename != '__init__.py':
+            # 排除非 Cog 檔案
+            if filename in ['battle_logic.py']:
+                continue
+                
             # 格式會是 cogs.games, cogs.dice
             extension_name = f'cogs.{filename[:-3]}'
             try:

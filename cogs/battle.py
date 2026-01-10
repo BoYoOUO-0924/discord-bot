@@ -5,31 +5,10 @@ import asyncio
 import os
 import json
 from .ui.battle_views import ChallengeView, PVPBattleView, BattleSkillView
-
-
+from .battle_logic import calculate_damage, get_effectiveness_msg, ELEMENT_MAP
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILLS_FILE = os.path.join(PROJECT_ROOT, 'configs', 'skills.json')
-
-# Type Effectiveness Chart
-# Attacker -> Defender -> Modifier
-TYPE_CHART = {
-    "fire": {"forest": 1.5, "water": 0.5, "fire": 0.5},
-    "water": {"fire": 1.5, "forest": 0.5, "water": 0.5},
-    "forest": {"water": 1.5, "fire": 0.5, "forest": 0.5},
-    "ghost": {"ghost": 2.0, "normal": 0.0},
-    "normal": {"ghost": 0.0}
-    # Add more as needed
-}
-
-# Map Chinese Element Names to Keys
-ELEMENT_MAP = {
-    "火": "fire",
-    "水": "water",
-    "草": "forest",
-    "幽靈": "ghost",
-    "一般": "normal"
-}
 
 class BattleCog(commands.Cog):
     def __init__(self, bot):
@@ -79,7 +58,12 @@ class BattleCog(commands.Cog):
         wild_level = max(1, level + random.randint(-2, 2))
         
         # Start Battle with CPU
-        await self.start_battle(ctx, ctx.author.id, "cpu", wild_level=wild_level)
+        try:
+            await self.start_battle(ctx, ctx.author.id, "cpu", wild_level=wild_level)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            await ctx.send(f"冒險模式啟動失敗: {e}")
 
     async def start_battle(self, interaction, p1_id, p2_id, wild_level=None):
         battle_id = self.battle_counter
@@ -105,7 +89,7 @@ class BattleCog(commands.Cog):
              p1_name = p1_user.display_name if p1_user else f"User({p1_id})"
              p2_name = interaction.user.display_name
 
-        # Snapshot State
+        # 初始化戰鬥狀態快照
         state = {
             "id": battle_id,
             "players": {
@@ -113,22 +97,33 @@ class BattleCog(commands.Cog):
                 p2_id: {"name": p2_name, "pet": p2_pet, "hp": p2_pet['stats']['hp'], "max_hp": p2_pet['stats']['max_hp'], "ap": 6, "status_effects": []} 
             },
             "turn_order": [p1_id, p2_id],
-            "turn_index": 0 if random.random() < 0.5 else 1, # Coin Flip
+            "turn_index": 0 if random.random() < 0.5 else 1, # 擲硬幣決定先攻
             "log": ["📢 戰鬥開始！擲硬幣決定先攻..."]
         }
         
-        # Names already set in state
-
+        # 名稱已設定
 
         first_player = state['turn_order'][state['turn_index']]
         state["log"].append(f"👉 **{state['players'][first_player]['name']}** 獲得先攻！")
         
-        # Store message for external updates
-        state['message'] = interaction.message
+        if isinstance(interaction, commands.Context):
+             # 如果是 Context (冒險模式)，發送新訊息作為戰鬥板
+             message = await interaction.send("⚔️ **遭遇野生怪物！** 戰鬥載入中...")
+             state['message'] = message
+             self.battles[battle_id] = state
+             # Context 沒有 interaction.response，所以直接更新訊息
+             await self._update_battle_ui(interaction, battle_id)
+        else:
+             # 如果是 Interaction (PVP 接受挑戰)
+             # 儲存訊息物件以便更新
+             state['message'] = interaction.message
+             self.battles[battle_id] = state
+             await self._update_battle_ui(interaction, battle_id)
 
-        self.battles[battle_id] = state
-        
-        await self._update_battle_ui(interaction, battle_id)
+        # Trigger AI if it's CPU's turn (Coin flip result)
+        first_player = state['turn_order'][state['turn_index']]
+        if first_player == "cpu":
+             self.bot.loop.create_task(self._ai_turn(interaction, battle_id))
 
     async def _update_battle_ui(self, interaction, battle_id, animation_url=None):
         battle = self.battles.get(battle_id)
@@ -138,7 +133,7 @@ class BattleCog(commands.Cog):
         p1 = battle['players'][p1_id]
         p2 = battle['players'][p2_id]
         
-        # Helper for HP Bar (Dynamic Color)
+        # 血條顯示輔助函式
         def get_bar(cur, max_val, length=10):
             pct = cur / max_val
             emoji = "🟩"
@@ -190,8 +185,16 @@ class BattleCog(commands.Cog):
         
         view = PVPBattleView(self, battle_id)
         
-        # Check if interaction is from the main battle message
+        # 檢查是否為主要互動 (決定是否使用 response.edit_message)
         is_main_interaction = False
+        
+        # 如果是 Context (adventure)，interaction 就是 Context，沒有 response
+        if isinstance(interaction, commands.Context):
+             # 直接編輯訊息
+             if battle.get('message'):
+                 await battle['message'].edit(content=None, embed=embed, view=view)
+             return # 結束
+
         if hasattr(interaction, 'message') and interaction.message:
             if battle.get('message') and interaction.message.id == battle['message'].id:
                 is_main_interaction = True
@@ -220,16 +223,17 @@ class BattleCog(commands.Cog):
         defender = battle['players'][defender_id]
 
         if action_type == "attack":
-            # For Basic Attack, use Pet's Element
+            # 獲取屬性 Key (Basic Attack 視為物理攻擊，使用寵物屬性)
             atk_elem_key = ELEMENT_MAP.get(attacker['pet']['element'], 'normal')
             def_elem_key = ELEMENT_MAP.get(defender['pet']['element'], 'normal')
             
-            dmg, effectiveness = self._calculate_damage(attacker, defender, power=50, 
+            # 使用新的計算邏輯
+            dmg, effectiveness = calculate_damage(attacker, defender, power=50, 
                                                         category="physical", 
                                                         atk_element=atk_elem_key,
                                                         def_element=def_elem_key)
             
-            eff_msg = self._get_effectiveness_msg(effectiveness)
+            eff_msg = get_effectiveness_msg(effectiveness)
             
             defender['hp'] = max(0, defender['hp'] - dmg)
             battle['log'].append(f"⚔️ **{attacker['name']}** 攻擊了！ \u001b[0;31m造成 **{dmg}** 點傷害\u001b[0m {eff_msg}！")
@@ -237,112 +241,11 @@ class BattleCog(commands.Cog):
             if defender['hp'] <= 0:
                 return await self.end_battle(interaction, battle_id, winner_id=attacker_id)
 
+
         await self._next_turn(interaction, battle_id)
 
-    async def _next_turn(self, interaction, battle_id, animation_url=None):
-        battle = self.battles.get(battle_id)
-        if not battle: return
 
-        # End of Turn Processing for the Current Player
-        current_pid = battle['turn_order'][battle['turn_index']]
-        current_player = battle['players'][current_pid]
-
-        # Process Status Effects (Burn, Poison, etc.)
-        status_logs = self._process_status_effects(battle, current_pid)
-        battle['log'].extend(status_logs)
-        
-        # Check if current player died from status effects
-        if current_player['hp'] <= 0:
-            # The opponent wins
-            winner_id = [pid for pid in battle['turn_order'] if pid != current_pid][0]
-            return await self.end_battle(interaction, battle_id, winner_id=winner_id)
-
-        # Basic Turn Switch
-        battle['turn_index'] = (battle['turn_index'] + 1) % 2
-        
-        # Start of Turn for Next Player
-        next_pid = battle['turn_order'][battle['turn_index']]
-        
-        # Restore AP
-        battle['players'][next_pid]['ap'] = min(6, battle['players'][next_pid]['ap'] + 1)
-
-        await self._update_battle_ui(interaction, battle_id, animation_url=animation_url)
-
-        # Trigger AI if needed
-        next_pid = battle['turn_order'][battle['turn_index']]
-        if next_pid == "cpu":
-             self.bot.loop.create_task(self._ai_turn(interaction, battle_id))
-
-    async def _ai_turn(self, interaction, battle_id):
-        """Handles CPU turn logic"""
-        await asyncio.sleep(1.5) # Simulate thinking
-        
-        battle = self.battles.get(battle_id)
-        if not battle: return
-        
-        cpu_player = battle['players']['cpu']
-        
-        # AI Logic:
-        # 1. Simple heuristic or Random
-        skills = cpu_player['pet'].get('skills', [])
-        valid_skills = []
-        
-        # Check AP
-        current_ap = cpu_player['ap']
-        
-        for s_name in skills:
-             s_data = self.skills_db.get(s_name)
-             if s_data and s_data['cost'] <= current_ap:
-                 valid_skills.append(s_name)
-        
-        if valid_skills:
-             # 50% chance to pick random skill, 50% weighted logic could be added here
-             # For now, totally random among valid
-             skill_to_use = random.choice(valid_skills)
-             await self.execute_skill(interaction, battle_id, skill_to_use)
-        else:
-             # AP not enough for any skill, perform basic attack if AP >= 0 (Basic attacks might cost 0 or be fallback)
-             # Our system currently doesn't have a specific "Basic Attack" scaling with AP in the skill list usually?
-             # But let's assume if AP=0, we can't do much. 
-             # Wait, `handle_action` handles 'attack'. Does it need AP?
-             # Logic implies regular attack is just a fallback.
-             # Let's say CPU rests if < 2 AP? OR basic attack.
-             
-             # Currently handle_action('attack') doesn't cost AP.
-             await self.handle_action(interaction, battle_id, "attack")
-    
-    def _calculate_damage(self, attacker, defender, power, category="physical", atk_element='normal', def_element='normal'):
-        # Base Stats
-        atk = attacker['pet']['stats']['atk']
-        defense = defender['pet']['stats']['def']
-        
-        # Apply Buffs/Debuffs
-        atk_mod = sum(e['value'] for e in attacker['status_effects'] if e['type'] in ['buff'] and e['stat'] == 'atk')
-        atk_mod -= sum(e['value'] for e in attacker['status_effects'] if e['type'] in ['debuff'] and e['stat'] == 'atk')
-        
-        def_mod = sum(e['value'] for e in defender['status_effects'] if e['type'] in ['buff'] and e['stat'] == 'def')
-        def_mod -= sum(e['value'] for e in defender['status_effects'] if e['type'] in ['debuff'] and e['stat'] == 'def')
-        
-        final_atk = max(1, atk + atk_mod)
-        final_def = max(1, defense + def_mod)
-        
-        # Damage Formula
-        # Input: Power (Skill Power). Basic Attack = 50.
-        # Logic: (ATK * Power% * 2) - (DEF * 0.2)
-        dmg = int( (final_atk * power / 100) * 2 )
-        dmg = max(1, dmg - int(final_def * 0.2))
-        
-        # Type Effectiveness
-        effectiveness = TYPE_CHART.get(atk_element, {}).get(def_element, 1.0)
-        dmg = int(dmg * effectiveness)
-        
-        return dmg, effectiveness
-
-    def _get_effectiveness_msg(self, value):
-        if value > 1.0: return "\u001b[0;33m(效果絕佳!)\u001b[0m" # Yellow
-        if value == 0: return "\u001b[1;30m(沒有效果...)\u001b[0m" # Grey
-        if value < 1.0: return "\u001b[0;34m(效果不好...)\u001b[0m" # Blue
-        return ""
+    # _calculate_damage and _get_effectiveness_msg removed (moved to battle_logic.py)
 
     def _apply_status_effect(self, battle, target_id, effect_data):
         target = battle['players'][target_id]
@@ -350,7 +253,7 @@ class BattleCog(commands.Cog):
         status_id = effect_data.get('status_id')
         effect_type = effect_data.get('type') # status, buff, debuff
         
-        # Construct Name and ID
+        # 建立名稱和 ID
         if effect_type == 'status':
             effect_id = status_id
             if status_id == 'burn': name = "🔥 燒傷"
@@ -364,11 +267,11 @@ class BattleCog(commands.Cog):
             sign = "提升" if effect_type == 'buff' else "下降"
             name = f"{stat_map.get(stat, stat)}{sign}"
             
-        # Check if status already exists (Refresh)
+        # 檢查是否已存在 (刷新持續時間)
         existing = next((e for e in target['status_effects'] if e['id'] == effect_id), None)
         
         if existing:
-            existing['duration'] = effect_data['duration'] # Refresh duration
+            existing['duration'] = effect_data['duration'] # 刷新回合數
             return f"🔄 **{target['name']}** 的 **{name}** 狀態持續時間刷新了！"
         else:
             new_effect = {
@@ -391,14 +294,14 @@ class BattleCog(commands.Cog):
         remaining_effects = []
         for effect in player['status_effects']:
 
-            # Burn
+            # 燒傷 (Burn)
             if effect['id'] == 'burn':
                 dmg = int(player['max_hp'] * (effect['value'] / 100))
                 dmg = max(1, dmg)
                 player['hp'] = max(0, player['hp'] - dmg)
                 logs.append(f"🔥 **{player['name']}** 受到燒傷傷害 \u001b[0;31m-{dmg}\u001b[0m！")
             
-            # Regen (Heal)
+            # 再生 (Regen/Heal)
             elif effect['id'] == 'regen':
                  heal = int(effect['value'])
                  old_hp = player['hp']
@@ -437,67 +340,75 @@ class BattleCog(commands.Cog):
         await interaction.response.send_message("選擇要使用的技能：", view=view, ephemeral=True)
 
     async def execute_skill(self, interaction, battle_id, skill_name):
-        battle = self.battles.get(battle_id)
-        if not battle: return
+        try:
+            battle = self.battles.get(battle_id)
+            if not battle: return
+    
+            attacker_id = interaction.user.id
+            attacker = battle['players'][attacker_id]
+            
+            # 決定防守方
+            defender_id = [pid for pid in battle['turn_order'] if pid != attacker_id][0]
+            defender = battle['players'][defender_id]
+    
+            skill_data = self.skills_db.get(skill_name)
+            if not skill_data:
+                 return await interaction.response.send_message("技能資料錯誤！", ephemeral=True)
+                 
+            # 檢查 AP (Action Points)
+            cost = skill_data['cost']
+            if attacker['ap'] < cost:
+                 return await interaction.response.send_message(f"AP 不足！需要 {cost} AP。", ephemeral=True)
+    
+            # 消耗 AP
+            attacker['ap'] -= cost
+            
+            # 計算傷害
+            power = skill_data['power']
+            
+            if skill_data.get('category') == 'status':
+                 dmg = 0
+                 msg = f"✨ **{attacker['name']}** 使用了 **{skill_name}**！"
+            else:
+                 atk_elem_key = skill_data.get('element', 'normal')
+                 def_elem_key = ELEMENT_MAP.get(defender['pet'].get('element', '一般'), 'normal')
+                 
+                 dmg, effectiveness = calculate_damage(attacker, defender, power, 
+                                                             category=skill_data.get('category', 'magic'),
+                                                             atk_element=atk_elem_key,
+                                                             def_element=def_elem_key)
+                 
+                 eff_msg = get_effectiveness_msg(effectiveness)
+                 
+                 defender['hp'] = max(0, defender['hp'] - dmg)
+                 msg = f"🔮 **{attacker['name']}** 使用了 **{skill_name}**！ \u001b[0;31m造成 **{dmg}** 點傷害\u001b[0m {eff_msg}！"
+    
+            battle['log'].append(msg)
+            
+            # 狀態效果應用
+            if 'effects' in skill_data:
+                for effect in skill_data['effects']:
+                    # 機率檢定
+                    if random.randint(1, 100) <= effect['chance']:
+                        target_id = defender_id if effect['target'] == 'enemy' else attacker_id
+                        effect_log = self._apply_status_effect(battle, target_id, effect)
+                        battle['log'].append(effect_log)
+    
+            if defender['hp'] <= 0:
+                return await self.end_battle(interaction, battle_id, winner_id=attacker_id)
+    
+            # 獲取動畫 URL
+            anim_url = skill_data.get('image_url')
+    
+            # 進入下一回合
+            await self._next_turn(interaction, battle_id, animation_url=anim_url)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            try:
+                await interaction.response.send_message(f"技能施放發生錯誤: {e}", ephemeral=True)
+            except: pass
 
-        attacker_id = interaction.user.id
-        attacker = battle['players'][attacker_id]
-        
-        # Determine Defender
-        defender_id = [pid for pid in battle['turn_order'] if pid != attacker_id][0]
-        defender = battle['players'][defender_id]
-
-        skill_data = self.skills_db.get(skill_name)
-        if not skill_data:
-             return await interaction.response.send_message("技能資料錯誤！", ephemeral=True)
-             
-        # Check AP
-        cost = skill_data['cost']
-        if attacker['ap'] < cost:
-             return await interaction.response.send_message(f"AP 不足！需要 {cost} AP。", ephemeral=True)
-
-        # Consume AP
-        attacker['ap'] -= cost
-        
-        # Calculate Damage
-        power = skill_data['power']
-        
-        if skill_data.get('category') == 'status':
-             dmg = 0
-             msg = f"✨ **{attacker['name']}** 使用了 **{skill_name}**！"
-        else:
-             atk_elem_key = skill_data.get('element', 'normal')
-             def_elem_key = ELEMENT_MAP.get(defender['pet']['element'], 'normal')
-             
-             dmg, effectiveness = self._calculate_damage(attacker, defender, power, 
-                                                         category=skill_data.get('category', 'magic'),
-                                                         atk_element=atk_elem_key,
-                                                         def_element=def_elem_key)
-             
-             eff_msg = self._get_effectiveness_msg(effectiveness)
-             
-             defender['hp'] = max(0, defender['hp'] - dmg)
-             msg = f"🔮 **{attacker['name']}** 使用了 **{skill_name}**！ \u001b[0;31m造成 **{dmg}** 點傷害\u001b[0m {eff_msg}！"
-
-        battle['log'].append(msg)
-        
-        # Apply Effects
-        if 'effects' in skill_data:
-            for effect in skill_data['effects']:
-                # Roll Chance
-                if random.randint(1, 100) <= effect['chance']:
-                    target_id = defender_id if effect['target'] == 'enemy' else attacker_id
-                    effect_log = self._apply_status_effect(battle, target_id, effect)
-                    battle['log'].append(effect_log)
-
-        if defender['hp'] <= 0:
-            return await self.end_battle(interaction, battle_id, winner_id=attacker_id)
-
-        # Get Animation URL
-        anim_url = skill_data.get('image_url')
-
-        # Proceed to Next Turn with Animation
-        await self._next_turn(interaction, battle_id, animation_url=anim_url)
 
     async def end_battle(self, interaction, battle_id, winner_id):
         battle = self.battles.pop(battle_id, None)
@@ -507,16 +418,16 @@ class BattleCog(commands.Cog):
         winner = battle['players'][winner_id]
         loser = battle['players'][loser_id]
 
-        # Save Results
+        # 儲存戰鬥結果
         pet_cog = self.bot.get_cog("PetCog")
         if pet_cog:
             data = pet_cog._load_data()
             
-            # Update Winner
+            # 更新獲勝者資料
             w_pet = data.get(str(winner_id))
             if w_pet:
                 if loser_id == "cpu":
-                     # PVE Reward
+                     # PVE 獎勵 (單人冒險)
                      pve_exp = loser['pet']['level'] * 20
                      w_pet['exp'] += pve_exp
                 else:
@@ -525,19 +436,19 @@ class BattleCog(commands.Cog):
                 if w_pet['exp'] >= (w_pet['level']**2)*50 and w_pet['level'] < 100:
                     w_pet['exp'] -= (w_pet['level']**2)*50
                     w_pet['level'] += 1
-                    # Simple level up stats
+                    # 簡易數值成長 (升級)
                     w_pet['stats']['max_hp'] += 5
                     w_pet['stats']['hp'] = w_pet['stats']['max_hp']
                     w_pet['stats']['atk'] += 2
                     w_pet['stats']['def'] += 1
                     w_pet['ap'] = 6
 
-            # Update Loser
+            # 更新落敗者資料
             if loser_id != "cpu":
                 l_pet = data.get(str(loser_id))
                 if l_pet:
                     l_pet['exp'] += 5
-                    # l_pet['stats']['hp'] = 1 # No penalty requested by user
+                    # l_pet['stats']['hp'] = 1 # 使用者要求無懲罰
             
             pet_cog._save_data(data)
             
@@ -548,28 +459,137 @@ class BattleCog(commands.Cog):
         embed = discord.Embed(title="🏆 戰鬥結束！", description=desc, color=0xFFD700)
         embed.add_field(name="戰利品", value="戰鬥資料已儲存！")
         
-        # Determine if we should edit result into the interaction or the separate message
-        # Ideally, we ALWAYS edit the main message to announce the result publicly
+        # 決定是否將結果更新到訊息中
+        # 理想情況下，我們總是更新主要訊息以公開戰報
         if battle.get('message'):
             try:
                 await battle['message'].edit(content=None, embed=embed, view=None)
             except discord.NotFound:
-                # Fallback if message deleted
+                # 如果原始訊息被刪除的備案
                 if not interaction.response.is_done():
                     await interaction.response.send_message(embed=embed, view=None)
         
-        # If the interaction that triggered this was ephemeral (e.g. Skill Menu)
-        # We should just satisfy it or tell user to look at board
+        # 如果觸發結束的互動是暫時性訊息 (例如：技能選單)
+        # 我們只需結束它，或提示使用者查看戰報
         if not interaction.response.is_done():
-            # If it's the main interaction (e.g. Surrender from main view), the above edit might be enough if we handled it right?
-            # Actually if interaction is component, we must respond to it or we get "Interaction failed"
-            # But if we edited the message via interaction, it's done. 
+            # 如果是主互動 (例如：投降)，上面的 edit 可能已經處理完了
             pass  
             
-        # If interaction was NOT the main message update (e.g. Skill), we need to close that ephemeral
+        # 如果互動不是來自主要訊息更新 (例如：技能)，我們需要關閉那個暫時性回應
         if hasattr(interaction, 'message') and battle.get('message') and interaction.message.id != battle['message'].id:
              if not interaction.response.is_done():
-                 await interaction.response.send_message("🏆 戰鬥結束！請查看公共戰報。", ephemeral=True)
+                  await interaction.response.send_message("🏆 戰鬥結束！請查看公共戰報。", ephemeral=True)
+
+    async def _next_turn(self, interaction, battle_id, animation_url=None):
+        battle = self.battles.get(battle_id)
+        if not battle: return
+        
+        # Rotates turn
+        battle['turn_index'] = (battle['turn_index'] + 1) % 2
+        
+        # Start of Turn Processing
+        current_player_id = battle['turn_order'][battle['turn_index']]
+        
+        # AP Recovery (Recover 2 AP, max 6)
+        current_player_data = battle['players'][current_player_id]
+        if current_player_data['ap'] < 6:
+             current_player_data['ap'] = min(6, current_player_data['ap'] + 2)
+        
+        # Process Status Effects
+        effect_logs = self._process_status_effects(battle, current_player_id)
+        if effect_logs:
+             battle['log'].extend(effect_logs)
+             
+        # Check if died from status
+        if current_player_data['hp'] <= 0:
+             winner_id = battle['turn_order'][(battle['turn_index'] + 1) % 2]
+             return await self.end_battle(interaction, battle_id, winner_id)
+
+        await self._update_battle_ui(interaction, battle_id, animation_url=animation_url)
+        
+        # AI Logic Triggers
+        if current_player_id == "cpu":
+             self.bot.loop.create_task(self._ai_turn(interaction, battle_id))
+
+    async def _ai_turn(self, interaction, battle_id):
+        """AI 決策邏輯"""
+        await asyncio.sleep(1.5) # 模擬思考時間
+        
+        battle = self.battles.get(battle_id)
+        if not battle: return
+        
+        ai_id = "cpu"
+        ai_data = battle['players'][ai_id]
+        
+        # 尋找對手
+        opponent_id = [pid for pid in battle['turn_order'] if pid != ai_id][0]
+        opponent = battle['players'][opponent_id]
+        
+        # 決策邏輯
+        skills = ai_data['pet'].get('skills', [])
+        available_skills = []
+        
+        for s_name in skills:
+             s_data = self.skills_db.get(s_name)
+             if s_data and ai_data['ap'] >= s_data.get('cost', 1):
+                  available_skills.append(s_data)
+                  
+        action = "attack"
+        chosen_skill = None
+        
+        # 70% 機率使用技能 (如果有的話)
+        if available_skills and random.random() < 0.7:
+             action = "skill"
+             chosen_skill = random.choice(available_skills)
+             
+        if action == "skill" and chosen_skill:
+             s_name = chosen_skill['name']
+             cost = chosen_skill['cost']
+             ai_data['ap'] -= cost
+             
+             power = chosen_skill['power']
+             category = chosen_skill.get('category', 'magic')
+             
+             if category == 'status':
+                  dmg = 0
+                  msg = f"🤖 **野生怪物** 使用了 **{s_name}**！"
+             else:
+                  atk_elem = chosen_skill.get('element', 'normal')
+                  def_elem = ELEMENT_MAP.get(opponent['pet'].get('element', '一般'), 'normal')
+                  
+                  dmg, eff = calculate_damage(ai_data, opponent, power, category, atk_elem, def_elem)
+                  eff_msg = get_effectiveness_msg(eff)
+                  
+                  opponent['hp'] = max(0, opponent['hp'] - dmg)
+                  msg = f"🤖 **野生怪物** 使用了 **{s_name}**！ \u001b[0;31m造成 **{dmg}** 點傷害\u001b[0m {eff_msg}！"
+             
+             battle['log'].append(msg)
+             anim_url = chosen_skill.get('image_url')
+             
+             # Status Effects (AI)
+             if 'effects' in chosen_skill:
+                  for effect in chosen_skill['effects']:
+                       if random.randint(1, 100) <= effect['chance']:
+                            target_id = opponent_id if effect['target'] == 'enemy' else ai_id
+                            eff_log = self._apply_status_effect(battle, target_id, effect)
+                            battle['log'].append(eff_log)
+
+        else:
+             # 普通攻擊
+             atk_elem = ELEMENT_MAP.get(ai_data['pet'].get('element', '一般'), 'normal')
+             def_elem = ELEMENT_MAP.get(opponent['pet'].get('element', '一般'), 'normal')
+             
+             dmg, eff = calculate_damage(ai_data, opponent, 50, "physical", atk_elem, def_elem)
+             eff_msg = get_effectiveness_msg(eff)
+             
+             opponent['hp'] = max(0, opponent['hp'] - dmg)
+             battle['log'].append(f"⚔️ **野生怪物** 攻擊了！ \u001b[0;31m造成 **{dmg}** 點傷害\u001b[0m {eff_msg}！")
+             anim_url = None
+
+        if opponent['hp'] <= 0:
+             return await self.end_battle(interaction, battle_id, winner_id=ai_id)
+             
+        await self._next_turn(interaction, battle_id, animation_url=anim_url)
 
 async def setup(bot):
     await bot.add_cog(BattleCog(bot))

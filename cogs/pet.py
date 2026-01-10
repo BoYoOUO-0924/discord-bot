@@ -92,7 +92,8 @@ class PetCog(commands.Cog):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except:
+        except Exception as e:
+            print(f"Error loading data: {e}")
             return {}
 
     def _save_data(self, data: Dict):
@@ -101,7 +102,14 @@ class PetCog(commands.Cog):
 
     def _get_pet(self, user_id: int) -> Optional[Dict]:
         data = self._load_data()
-        return data.get(str(user_id))
+        uid = str(user_id)
+        
+        pet = data.get(uid)
+        if pet:
+             # Check for migration
+             if self._migrate_pet_data(pet):
+                  self._save_data(data)
+        return pet
 
     def _create_pet(self, user_id: int, p_type: str, name: str = None):
         base = self.pet_types[p_type]
@@ -127,7 +135,8 @@ class PetCog(commands.Cog):
             "adopted_at": datetime.now().timestamp(), # Changed to datetime
             "last_interaction": datetime.now().timestamp(), # Changed to datetime
             "nickname": None,
-            "buff": None # Added
+            "buff": None, # Added
+            "element": base.get("element", "normal") # Added element from config
         }
         
         data = self._load_data()
@@ -135,27 +144,36 @@ class PetCog(commands.Cog):
         self._save_data(data)
         return pet_data
 
-    def _migrate_pet_data(self, pet: Dict) -> Dict:
-        """Ensures pet data has all necessary fields for older saves."""
+    def _migrate_pet_data(self, pet: Dict) -> bool:
+        """Ensures pet data has all necessary fields for older saves. Returns True if updated."""
+        updated = False
         if "ap" not in pet:
             pet["ap"] = 6
+            updated = True
         if "max_ap" not in pet:
             pet["max_ap"] = 6
+            updated = True
         if "skills" not in pet:
             pet["skills"] = []
+            updated = True
         # Ensure skills is a list (migration fix)
         if isinstance(pet.get("skills"), str):
              pet["skills"] = []
-        if "buff" not in pet: # Added buff migration
+             updated = True
+        if "buff" not in pet: 
             pet["buff"] = None
-        return pet
+            updated = True
+        if "element" not in pet:
+            p_type = pet.get("type")
+            if p_type and p_type in self.pet_types:
+                 pet["element"] = self.pet_types[p_type].get("element", "normal")
+            else:
+                 pet["element"] = "normal"
+            updated = True
+            
+        return updated
 
-    def _get_pet(self, user_id: int) -> Optional[Dict]:
-        data = self._load_data()
-        pet = data.get(str(user_id))
-        if pet:
-            return self._migrate_pet_data(pet) # Apply migration when loading pet
-        return None
+
 
     def get_pet_embed(self, user_id: int) -> Tuple[Optional[discord.Embed], Optional[discord.File]]:
         """Helper to generate pet embed and file for dashboard updates"""
