@@ -1,185 +1,111 @@
+"""拉霸機。"""
+import asyncio
+import random
 
 import discord
+from discord import app_commands
 from discord.ext import commands
-from discord import ui # 引入 ui 模組
-import random
-import asyncio
-import traceback
 
-# --- 互動視圖 (View) ---
-class SlotsView(ui.View):
-    def __init__(self, cog, original_author, bet):
-        super().__init__(timeout=180.0)  # 按鈕在 3 分鐘後會自動失效
-        self.cog = cog
-        self.original_author = original_author
-        self.bet = bet
-        self.message = None
+from core.ui import AmountModal, BaseView, Color, fmt_points, fmt_signed, make_embed, respond, send_error
 
-    @ui.button(label="再轉一次", style=discord.ButtonStyle.primary, emoji="🔄")
-    async def spin_again_button(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id != self.original_author.id:
-            await interaction.response.send_message("這不是你的拉霸機！", ephemeral=True)
-            return
+SYMBOLS = ["💎", "7️⃣", "⭐", "🍀", "🔔", "🍇", "🍒", "🍋"]
+WEIGHTS = [2, 4, 6, 8, 10, 15, 25, 30]
+TRIPLE_PAYOUTS = {"💎": 100, "7️⃣": 50, "⭐": 25, "🍀": 15, "🔔": 10, "🍇": 7, "🍒": 5, "🍋": 3}
+DEFAULT_BET = 50
 
-        await interaction.response.defer()
 
-        points_cog = self.cog.bot.get_cog('Points')
-        if not points_cog:
-            await interaction.followup.send("❌ **系統錯誤**：積分模組目前無法使用。", ephemeral=True)
-            return
-        
-        current_points = points_cog.get_points(self.original_author.id)
-        if current_points < self.bet:
-            button.disabled = True
-            await interaction.message.edit(view=self)
-            await interaction.followup.send("💸 **你的積分不足！** 無法再轉一次。", ephemeral=True)
-            return
+def spin() -> list:
+    return random.choices(SYMBOLS, weights=WEIGHTS, k=3)
 
-        await self.cog._play_spin(interaction.message, self.original_author, self.bet, points_cog)
 
-    async def on_timeout(self):
-        for item in self.children:
-            item.disabled = True
-        if self.message:
-            try:
-                await self.message.edit(view=self)
-            except discord.NotFound:
-                pass # 訊息可能已被刪除，忽略即可
+def evaluate(reels: list) -> tuple:
+    """回傳 (賠率倍數, 說明)。"""
+    if reels[0] == reels[1] == reels[2]:
+        multiplier = TRIPLE_PAYOUTS[reels[0]]
+        text = f"三個 {reels[0]}！{multiplier} 倍！"
+        return multiplier, (f"🎉 JACKPOT！{text}" if multiplier >= 50 else text)
+    cherries = reels.count("🍒")
+    if cherries == 2:
+        return 2, "兩顆櫻桃，2 倍！"
+    if cherries == 1:
+        return 1, "一顆櫻桃，退還賭注"
+    return 0, "可惜沒中，再接再厲！"
 
-class SlotsCog(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+
+def payout_table() -> str:
+    lines = [f"{s}{s}{s}　**{m} 倍**" for s, m in TRIPLE_PAYOUTS.items()]
+    lines += ["🍒 任兩顆　**2 倍**", "🍒 任一顆　**退還賭注**"]
+    return "\n".join(lines)
+
+
+class Slots(commands.Cog):
+    def __init__(self, bot):
         self.bot = bot
-        self.symbols = ['💎', '7️⃣', '⭐', '🍀', '🔔', '🍇', '🍒', '🍋']
-        self.weights = [2, 4, 6, 8, 10, 15, 25, 30]
-        self.payouts = {
-            '💎💎💎': 100,
-            '7️⃣7️⃣7️⃣': 50,
-            '⭐⭐⭐': 25,
-            '🍀🍀🍀': 15,
-            '🔔🔔🔔': 10,
-            '🍇🍇🍇': 7,
-            '🍒🍒🍒': 5,
-            '🍋🍋🍋': 3,
-        }
 
-    async def _play_spin(self, message: discord.Message, author: discord.Member, bet: int, points_cog):
-        points_cog.update_points(author.id, -bet)
+    def _frame(self, user, bet: int, reels: list, status: str, color: int) -> discord.Embed:
+        embed = make_embed("🎰 拉霸機", f"# {' │ '.join(reels)}\n{status}", color)
+        embed.set_author(name=f"{user.display_name} 下注 {bet:,} 分", icon_url=user.display_avatar.url)
+        return embed
 
-        embed = discord.Embed(title="[ 🎰 拉霸機 ]", color=discord.Color.blue())
-        embed.set_author(name=f"{author.display_name} 下注了 {bet} 分", icon_url=author.avatar.url if author.avatar else None)
-        embed.description = "### [ ❓ | ❓ | ❓ ]\n*滾輪轉動中...*"
-        
-        try:
-            await message.edit(embed=embed, view=None)
-        except discord.NotFound:
-            # 如果原始訊息被刪，就重新發送一條
-            message = await author.send(embed=embed)
+    async def play(self, interaction: discord.Interaction, bet: int) -> None:
+        user = interaction.user
+        hold_id = await self.bot.db.hold(user.id, bet, "拉霸機")
+        if hold_id is None:
+            balance = await self.bot.db.get_points(user.id)
+            return await send_error(interaction, f"積分不足，你目前有 {fmt_points(balance)}。")
 
-        await asyncio.sleep(0.5)
-        for i in range(3):
-            reels = random.choices(self.symbols, k=3)
-            embed.description = f"### [ {reels[0]} | {reels[1]} | {reels[2]} ]\n*滾輪轉動中... ({i+1}/3)*"
-            await message.edit(embed=embed)
-            await asyncio.sleep(0.6)
+        message = await respond(interaction, embed=self._frame(user, bet, ["❓"] * 3, "*滾輪轉動中…*", Color.GAME))
+        final = spin()
+        # 三個滾輪依序停下，製造一點期待感
+        for stopped in range(3):
+            await asyncio.sleep(0.7)
+            reels = final[:stopped + 1] + [random.choice(SYMBOLS) for _ in range(2 - stopped)]
+            await message.edit(embed=self._frame(user, bet, reels, "*滾輪轉動中…*", Color.GAME))
 
-        final_reels = random.choices(self.symbols, weights=self.weights, k=3)
-        result_key = "".join(final_reels)
-        payout_multiplier = 0
-        win_message = ""
-
-        if result_key in self.payouts:
-            payout_multiplier = self.payouts[result_key]
-            win_message = f"中了三個 {final_reels[0]}！贏得了 {payout_multiplier} 倍獎金！"
-            if payout_multiplier >= 50: win_message = f"🎉🎉🎉 JACKPOT! {win_message} 🎉🎉🎉"
-        elif final_reels.count('🍒') == 2:
-            payout_multiplier = 2
-            win_message = "中了兩顆櫻桃！不錯喔！"
-        elif final_reels.count('🍒') == 1:
-            payout_multiplier = 1
-            win_message = "一顆櫻桃！返還賭注！"
-
-        winnings = int(bet * payout_multiplier)
-
-        if winnings > 0:
-            points_cog.update_points(author.id, winnings)
-        
-        new_total = points_cog.get_points(author.id)
-        net_change = winnings - bet
-
-        if winnings > 0:
-            embed.color = discord.Color.gold()
-            embed.description = f"### [ {final_reels[0]} | {final_reels[1]} | {final_reels[2]} ]\n**{win_message}**"
-        else:
-            embed.color = discord.Color.dark_grey()
-            embed.description = f"### [ {final_reels[0]} | {final_reels[1]} | {final_reels[2]} ]\n**可惜，這次沒中。再接再厲！**"
-
-        embed.set_footer(text=f"賭注: {bet} / 淨損益: {net_change:+} | 目前積分: {new_total}")
-
-        view = SlotsView(self, author, bet)
+        multiplier, text = evaluate(final)
+        payout = bet * multiplier
+        balance = await self.bot.db.settle(hold_id, payout, "拉霸機", game="slots", won=payout > bet)
+        color = Color.GOLD if multiplier >= 10 else Color.SUCCESS if payout > bet else Color.MUTED if payout == bet else Color.DANGER
+        embed = self._frame(user, bet, final, f"**{text}**", color)
+        embed.set_footer(text=f"損益 {fmt_signed(payout - bet)}・餘額 {balance:,} 分")
+        view = SlotsView(self, user.id, bet)
         await message.edit(embed=embed, view=view)
         view.message = message
 
-    @commands.command(name="slots", aliases=["拉霸機"])
-    async def slots(self, ctx: commands.Context, bet: int):
-        points_cog = self.bot.get_cog('Points')
-        if not points_cog: return await ctx.send("❌ **系統錯誤**：積分模組未載入。")
+    async def launch_from_hub(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(AmountModal("🎰 拉霸機", "賭注", self.play, default=DEFAULT_BET, min_value=1))
 
-        if bet <= 0: return await ctx.send("🚫 **賭注必須是正數！**")
+    @app_commands.command(name="slots", description="拉霸機：三個一樣就中獎，最高 100 倍")
+    @app_commands.describe(bet="下注的積分")
+    @app_commands.checks.cooldown(1, 3.0)
+    async def slots(self, interaction: discord.Interaction, bet: app_commands.Range[int, 1, 10_000_000]):
+        await self.play(interaction, bet)
 
-        current_points = points_cog.get_points(ctx.author.id)
-        if current_points < bet: return await ctx.send(f"💸 **你的積分不足！** 你目前只有 **{current_points}** 分。")
-        
-        slot_message = await ctx.send("準備開始...")
-        await self._play_spin(slot_message, ctx.author, bet, points_cog)
 
-    # --- 關鍵改造：將錯誤處理器變成智慧型說明書 ---
-    @slots.error
-    async def slots_error(self, ctx: commands.Context, error):
-        if isinstance(error, commands.MissingRequiredArgument):
-            # 當使用者輸入 !slots 而沒有帶參數時，發送說明書
-            embed = discord.Embed(
-                title="🎰 拉霸機 (Slots) 指令說明",
-                description="體驗刺激的拉霸機遊戲，用你的積分贏得大獎！",
-                color=discord.Color.dark_blue()
-            )
-            if self.bot.user.avatar:
-                 embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar.url)
-            
-            embed.add_field(
-                name="➡️ 如何遊玩",
-                value="```\n!slots [賭注金額]\n```\n**別名:** `!拉霸機`\n**範例:** `!slots 10`",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🔄 互動功能：再轉一次",
-                value="遊戲結束後，訊息下方會出現「再轉一次」按鈕。\n"
-                      "點擊即可用**相同的賭注**立即開始新的一局！\n"
-                      "*(按鈕僅對發起遊戲的玩家有效，3分鐘後自動失效)*",
-                inline=False
-            )
-            
-            payout_table = ""
-            for combo, multi in self.payouts.items():
-                payout_table += f"{combo} : **{multi} 倍**\n"
-            payout_table += "🍒 (任意位置 x2) : **2 倍**\n"
-            payout_table += "🍒 (任意位置 x1) : **1 倍 (回本)**\n"
+class SlotsView(BaseView):
+    owner_denied_message = "這不是你的拉霸機，用 /slots 玩一台吧！"
 
-            embed.add_field(
-                name="💰 獎金賠率表",
-                value=payout_table,
-                inline=False
-            )
-            embed.set_footer(text="祝你好運！ Good Luck!")
+    def __init__(self, cog: Slots, owner_id: int, bet: int):
+        super().__init__(owner_id=owner_id, timeout=180)
+        self.cog, self.bet = cog, bet
+        self.again.label = f"再轉一次（{bet:,} 分）"
 
-            await ctx.send(embed=embed)
+    @discord.ui.button(label="再轉一次", emoji="🔄", style=discord.ButtonStyle.primary)
+    async def again(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(view=None)
+        await self.cog.play(interaction, self.bet)
 
-        elif isinstance(error, commands.BadArgument):
-            await ctx.send("**參數錯誤！** ➡️ `!slots [賭注]`\n您的賭注必須是一個有效的數字。")
-        else:
-            error_details = traceback.format_exc()
-            print(f"--- Slots Command Unexpected Error ---\n{error_details}-------------------------------------")
-            await ctx.send(f"🚨 拉霸機發生未預期錯誤，請查看主控台紀錄。錯誤: `{type(error).__name__}`")
+    @discord.ui.button(label="賠率表", emoji="📋", style=discord.ButtonStyle.secondary)
+    async def table(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=make_embed("📋 拉霸機賠率表", payout_table()), ephemeral=True)
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(SlotsCog(bot))
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # 賠率表大家都能看
+        if interaction.data.get("custom_id") == self.table.custom_id:
+            return True
+        return await super().interaction_check(interaction)
+
+
+async def setup(bot):
+    await bot.add_cog(Slots(bot))

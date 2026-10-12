@@ -1,64 +1,121 @@
-# bot.py
+"""Discord Bot 主程式（斜線指令版）。"""
+import logging
+import os
+
 import discord
+from discord import app_commands
 from discord.ext import commands
-import os         # 用來讀取資料夾
-try:
-    import config  # 嘗試載入本地 config.py（不應上傳到 Git）
-    TOKEN = getattr(config, "DISCORD_TOKEN", None)
-except ImportError:
-    TOKEN = None
 
-# 若沒有 config.py 或其中未設定 TOKEN，改從環境變數取得
-if not TOKEN:
-    TOKEN = os.getenv("DISCORD_TOKEN")
-    if not TOKEN:
-        raise RuntimeError(
-            "找不到 Bot Token，請建立 config.py 設定 TOKEN 或設置環境變數 DISCORD_TOKEN"
-        )
+from core.ai import GeminiClient
+from core.config import load_settings
+from core.db import Database
+from core.i18n import ZhTranslator
+from core.ui import send_error
 
-# --- Bot 設定 ---
+log = logging.getLogger("bot")
 
-# 啟用所有 Intents
-intents = discord.Intents.default()
-intents.message_content = True  # 確保 Message Content Intent 仍然開啟
-
-# 建立 Bot 實例
-# command_prefix='!' 告訴 Bot 我們的指令都是 '!' 開頭；關閉預設 help 以使用自訂版
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+EXTENSIONS = [
+    "cogs.hub",
+    "cogs.economy",
+    "cogs.reminders",
+    "cogs.polls",
+    "cogs.admin",
+    "cogs.blackjack",
+    "cogs.slots",
+    "cogs.guess_number",
+    "cogs.tictactoe",
+    "cogs.poker",
+    "cogs.seatortoise",
+]
 
 
-# --- Bot 事件 ---
+class AppTree(app_commands.CommandTree):
+    """所有斜線指令的共同入口：記錄伺服器成員、統一處理錯誤。"""
 
-@bot.event
-async def on_ready():
-    """當 Bot 準備就緒時"""
-    print(f'我們已經登入為 {bot.user}')
-    print(f'載入了 {len(bot.cogs)} 個 Cogs (功能包)。')
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # 自動完成每打一個字就會觸發一次，不需要記錄
+        if interaction.guild_id and interaction.type is discord.InteractionType.application_command:
+            await interaction.client.db.touch_member(interaction.guild_id, interaction.user.id)
+        return True
+
+    async def on_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.CommandOnCooldown):
+            message = f"指令冷卻中，請 {error.retry_after:.0f} 秒後再試。"
+        elif isinstance(error, app_commands.MissingPermissions):
+            message = "你沒有使用這個指令的權限。"
+        elif isinstance(error, app_commands.BotMissingPermissions):
+            missing = "、".join(error.missing_permissions)
+            message = f"我缺少這些權限：{missing}，請管理員協助設定。"
+        elif isinstance(error, app_commands.NoPrivateMessage):
+            message = "這個指令只能在伺服器裡使用。"
+        elif isinstance(error, app_commands.CheckFailure):
+            message = "目前無法使用這個指令。"
+        else:
+            log.exception("指令 /%s 發生錯誤", interaction.command.name if interaction.command else "?", exc_info=error)
+            message = "執行指令時發生錯誤，請稍後再試。"
+        await send_error(interaction, message)
 
 
-# --- 載入 Cogs 的主要邏輯 ---
+class Bot(commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.message_content = True  # 猜數字、海龜湯要讀取頻道訊息
+        super().__init__(command_prefix=commands.when_mentioned, intents=intents,
+                         help_command=None, tree_cls=AppTree)
+        self.settings = load_settings()
+        self.db = Database(self.settings.database_path)
+        self.ai = GeminiClient(self.settings.gemini_api_key, self.settings.gemini_model)
 
-async def load_cogs():
-    """自動載入所有在 cogs 資料夾底下的 .py 檔案"""
-    for filename in os.listdir('./cogs'):
-        if filename.endswith('.py') and filename != '__init__.py':
-            # 排除非 Cog 檔案
-            if filename in ['battle_logic.py']:
-                continue
-                
-            # 格式會是 cogs.games, cogs.dice
-            extension_name = f'cogs.{filename[:-3]}'
-            try:
-                await bot.load_extension(extension_name)
-                print(f'成功載入 {extension_name}')
-            except Exception as e:
-                print(f'載入 {extension_name} 失敗: {e}')
+    async def setup_hook(self) -> None:
+        await self.db.connect()
+        data_dir = os.path.dirname(self.settings.database_path)
+        imported = await self.db.migrate_legacy_json(data_dir)
+        if imported:
+            log.info("已從舊版 JSON 匯入 %d 位使用者的積分與簽到資料", imported)
+        refunded = await self.db.refund_all_holds()
+        if refunded:
+            log.info("已退還 %d 筆上次未結算的賭注", refunded)
+        if not self.ai.available:
+            log.warning("未設定 GEMINI_API_KEY，海龜湯會停用")
 
-# --- 啟動 Bot ---
-async def main():
-    await load_cogs()
-    await bot.start(TOKEN)
+        await self.tree.set_translator(ZhTranslator())
+        for ext in EXTENSIONS:
+            await self.load_extension(ext)
+
+        if self.settings.dev_guild_id:
+            # 開發用：同步到指定伺服器，指令會立刻出現
+            guild = discord.Object(id=self.settings.dev_guild_id)
+            self.tree.copy_global_to(guild=guild)
+            synced = await self.tree.sync(guild=guild)
+        else:
+            synced = await self.tree.sync()
+        self.command_ids = {command.name: command.id for command in synced}
+        log.info("已同步 %d 個斜線指令", len(synced))
+
+    def mention(self, name: str) -> str:
+        """可點擊的指令連結；還沒同步時退回純文字。"""
+        command_id = getattr(self, "command_ids", {}).get(name)
+        return f"</{name}:{command_id}>" if command_id else f"`/{name}`"
+
+    async def on_message(self, message: discord.Message) -> None:
+        # 只用斜線指令，不處理文字指令（各功能的訊息監聽不受影響）
+        return
+
+    async def on_ready(self) -> None:
+        log.info("已登入為 %s（%d 個伺服器）", self.user, len(self.guilds))
+
+    async def close(self) -> None:
+        await super().close()
+        await self.db.close()
+
+
+def main() -> None:
+    discord.utils.setup_logging()
+    bot = Bot()
+    if not bot.settings.discord_token:
+        raise SystemExit("找不到 Bot Token：請在 config.py 設定 DISCORD_TOKEN，或設定環境變數 DISCORD_TOKEN。")
+    bot.run(bot.settings.discord_token, log_handler=None)
+
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
