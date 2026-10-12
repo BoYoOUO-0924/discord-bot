@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from core.quests import MIN_QUEST_BET
 from core.ui import AmountModal, BaseView, Color, fmt_points, fmt_signed, make_embed, respond, send_error
 
 Card = Tuple[str, str]
@@ -67,6 +68,7 @@ class BlackjackGame:
         self.dealer = [self.deck.pop(), self.deck.pop()]
         self.doubled = False
         self.outcome: Optional[str] = None
+        self.channel_id: Optional[int] = None
         self.lock = asyncio.Lock()
 
     @property
@@ -160,6 +162,7 @@ class Blackjack(commands.Cog):
                 return await send_error(interaction, f"積分不足，你目前有 {fmt_points(balance)}。")
 
         game = BlackjackGame(user.id, bet, hold_id)
+        game.channel_id = interaction.channel_id
         self.games[user.id] = game
         game.check_naturals()
         if game.finished:
@@ -176,7 +179,10 @@ class Blackjack(commands.Cog):
         if game.hold_id is None:
             return await self.bot.db.get_points(game.player_id)
         won = game.outcome in ("blackjack", "win", "dealer_bust")
-        return await self.bot.db.settle(game.hold_id, game.payout, "21點", game="blackjack", won=won)
+        balance = await self.bot.db.settle(game.hold_id, game.payout, "21點", game="blackjack", won=won)
+        if game.bet >= MIN_QUEST_BET:
+            self.bot.dispatch("activity", game.player_id, "game", game.channel_id, {"game": "blackjack", "won": won})
+        return balance
 
     async def launch_from_hub(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_modal(AmountModal(

@@ -196,6 +196,7 @@ class SeaTortoise(commands.Cog):
         game.participants.add(user.id)
         answer = await self.judge_question(game, question)
         game.qa.append((user.display_name, question, answer))
+        self.bot.dispatch("activity", user.id, "soup_question", game.channel_id, {})
         await self.refresh(game)
         return answer
 
@@ -216,6 +217,8 @@ class SeaTortoise(commands.Cog):
             await self.finish(game)
             balance = await self.bot.db.add_points(interaction.user.id, reward, "海龜湯猜中真相")
             await self.bot.db.record_game(interaction.user.id, "seatortoise", True, reward)
+            self.bot.dispatch("activity", interaction.user.id, "game", game.channel_id,
+                              {"game": "seatortoise", "won": True})
             embed = make_embed(f"🎉 {interaction.user.display_name} 猜中了！", f"{quoted}\n\n**湯底**\n{game.answer}", Color.GOLD)
             embed.add_field(name="獎勵", value=f"+{reward} 分（餘額 {balance:,}）")
             embed.add_field(name="共提問", value=f"{len(game.qa)} 題")

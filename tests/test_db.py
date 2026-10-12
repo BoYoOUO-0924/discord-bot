@@ -87,6 +87,28 @@ class DatabaseTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.db.delete_reminder(rid, user_id=2))
         self.assertTrue(await self.db.delete_reminder(rid, user_id=1))
 
+    async def test_work_cooldown(self):
+        ok, next_at, balance = await self.db.try_work(1, 1000.0, 3600, 150, "打工")
+        self.assertEqual((ok, next_at, balance), (True, 4600.0, 150))
+        ok, next_at, balance = await self.db.try_work(1, 2000.0, 3600, 150, "打工")
+        self.assertEqual((ok, next_at, balance), (False, 4600.0, 150))
+        ok, _, balance = await self.db.try_work(1, 4600.0, 3600, 100, "打工")
+        self.assertEqual((ok, balance), (True, 250))
+
+    async def test_chat_reward_daily_cap(self):
+        day = date(2026, 10, 1)
+        granted = [await self.db.add_chat_reward(1, day, 30, 100) for _ in range(5)]
+        self.assertEqual(granted, [30, 30, 30, 10, 0])
+        self.assertEqual(await self.db.add_chat_reward(1, day + timedelta(days=1), 30, 100), 30)
+        self.assertEqual(await self.db.get_points(1), 130)
+
+    async def test_quest_rewards_once(self):
+        day = date(2026, 10, 1)
+        results = [await self.db.advance_quest(1, day, "play3", 1, 3, 150, "任務") for _ in range(5)]
+        self.assertEqual(results, [False, False, True, False, False])
+        self.assertEqual(await self.db.get_points(1), 150)
+        self.assertEqual(await self.db.quest_progress(1, day), {"play3": (3, True)})
+
     async def test_legacy_json_migration(self):
         with open(os.path.join(self.tmp.name, "points.json"), "w", encoding="utf-8") as f:
             json.dump({"111": 1300, "222": 0}, f)

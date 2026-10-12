@@ -12,6 +12,7 @@ from discord.ext import commands
 from core.timeutil import ts
 from core.ui import BaseView, Color, fmt_points, fmt_signed, make_embed, respond, send_error
 
+from .ai import PERSONALITIES, Personality, decide
 from .engine import STREET_NAMES, IllegalAction, PokerTable, Seat
 from .evaluate import evaluate_hand
 
@@ -41,8 +42,31 @@ class Lobby:
         self.buy_in = buy_in
         self.players: Dict[int, discord.Member] = {}
         self.holds: Dict[int, int] = {}
+        self.ai: Dict[int, Personality] = {}   # 電腦玩家用負數當 ID
         self.message = None
         self.closed = False
+
+    @property
+    def seat_count(self) -> int:
+        return len(self.players) + len(self.ai)
+
+    def add_ai(self) -> Personality:
+        used = {p.name for p in self.ai.values()}
+        fresh = [p for p in PERSONALITIES if p.name not in used]
+        if fresh:
+            personality = fresh[0]
+        else:   # 四種個性都用過了，加上編號區分
+            base = PERSONALITIES[len(self.ai) % len(PERSONALITIES)]
+            personality = Personality(f"{base.name} {len(self.ai) // len(PERSONALITIES) + 1}號", base.style,
+                                      base.margin, base.aggression, base.bluff, base.sims)
+        self.ai[-(len(self.ai) + 1)] = personality
+        return personality
+
+    def remove_ai(self) -> bool:
+        if not self.ai:
+            return False
+        del self.ai[min(self.ai)]   # 移除最後加入的（ID 最小）
+        return True
 
 
 class PokerGame:
@@ -52,7 +76,10 @@ class PokerGame:
         self.buy_in = lobby.buy_in
         self.holds = dict(lobby.holds)
         self.bought_in = {uid: lobby.buy_in for uid in lobby.players}
+        self.ai = dict(lobby.ai)
         seats = [Seat(uid, member.display_name, lobby.buy_in) for uid, member in lobby.players.items()]
+        # 電腦的籌碼由莊家提供，牌局結束時不會結算成任何人的積分
+        seats += [Seat(uid, p.name, lobby.buy_in) for uid, p in lobby.ai.items()]
         self.table = PokerTable(seats, lobby.small_blind, lobby.big_blind)
         self.table.dealer_id = random.choice(seats).user_id  # 第一手的莊家隨機
         self.message = None
@@ -63,6 +90,14 @@ class PokerGame:
         self.next_hand_task: Optional[asyncio.Task] = None
         self.turn_id = 0   # 每次狀態改變 +1，讓過期的計時器失效
         self.ended = False
+        self.rng = random.Random()
+
+    def who(self, user_id: int) -> str:
+        """真人顯示成提及，電腦顯示名稱（電腦沒有 Discord 帳號可以提及）。"""
+        if user_id > 0:
+            return f"<@{user_id}>"
+        seat = self.table.seat_of(user_id)
+        return f"**{seat.name if seat else '電腦'}**"
 
 
 class Poker(commands.Cog):
@@ -82,13 +117,18 @@ class Poker(commands.Cog):
         embed = make_embed("♠️ 德州撲克大廳", color=Color.TABLE)
         embed.add_field(name="盲注", value=f"{lobby.small_blind}/{lobby.big_blind}")
         embed.add_field(name="帶入籌碼", value=fmt_points(lobby.buy_in))
-        embed.add_field(name="人數", value=f"{len(lobby.players)}/{MAX_SEATS}")
-        players = "\n".join(f"{'👑' if uid == lobby.host.id else '・'} {m.mention}" for uid, m in lobby.players.items())
-        embed.add_field(name="玩家", value=players, inline=False)
-        embed.set_footer(text="加入時會先扣下帶入籌碼，離開或牌局結束時依剩餘籌碼退回")
+        embed.add_field(name="人數", value=f"{lobby.seat_count}/{MAX_SEATS}")
+        lines = [f"{'👑' if uid == lobby.host.id else '・'} {m.mention}" for uid, m in lobby.players.items()]
+        lines += [f"・{p.name}（{p.style}）" for p in lobby.ai.values()]
+        embed.add_field(name="玩家", value="\n".join(lines), inline=False)
+        footer = "加入時會先扣下帶入籌碼，離開或牌局結束時依剩餘籌碼退回"
+        if lobby.ai:
+            footer += "・電腦的籌碼由莊家提供，從電腦贏來的就是你的"
+        embed.set_footer(text=footer)
         return embed
 
-    async def create_lobby(self, interaction: discord.Interaction, big_blind: int, buy_in: Optional[int]) -> None:
+    async def create_lobby(self, interaction: discord.Interaction, big_blind: int, buy_in: Optional[int],
+                           bots: int = 0) -> None:
         if not interaction.guild:
             return await send_error(interaction, "德州撲克要在伺服器頻道裡玩。")
         if interaction.channel_id in self.lobbies or interaction.channel_id in self.games:
@@ -105,6 +145,8 @@ class Poker(commands.Cog):
         lobby = Lobby(interaction.user, interaction.channel_id, big_blind, buy_in)
         lobby.players[interaction.user.id] = interaction.user
         lobby.holds[interaction.user.id] = hold_id
+        for _ in range(min(bots, MAX_SEATS - 1)):
+            lobby.add_ai()
         self.lobbies[lobby.channel_id] = lobby
         view = LobbyView(self, lobby)
         lobby.message = await respond(interaction, embed=self.lobby_embed(lobby), view=view)
@@ -166,11 +208,13 @@ class Poker(commands.Cog):
         if t.log:
             embed.add_field(name="動態", value="\n".join(f"・{line}" for line in t.log[-5:]), inline=False)
 
-        if current and game.deadline:
+        if current and current.user_id in game.ai:
+            embed.add_field(name="⏳ 等待行動", value=f"{current.name} 思考中…", inline=False)
+        elif current and game.deadline:
             legal = t.legal(current)
             auto = "過牌" if legal.can_check else "棄牌"
             embed.add_field(name="⏳ 等待行動",
-                            value=f"輪到 <@{current.user_id}>，{ts(game.deadline, 'R')}自動{auto}", inline=False)
+                            value=f"輪到 {game.who(current.user_id)}，{ts(game.deadline, 'R')}自動{auto}", inline=False)
         elif t.hand_over and not game.ended:
             embed.set_footer(text=f"下一手將在 {NEXT_HAND_DELAY} 秒後開始・按「看手牌」隨時查看自己的牌")
         return embed
@@ -202,7 +246,7 @@ class Poker(commands.Cog):
         self.lobbies.pop(lobby.channel_id, None)
         game = PokerGame(lobby)
         self.games[game.channel_id] = game
-        players = "、".join(m.mention for m in lobby.players.values())
+        players = "、".join([m.mention for m in lobby.players.values()] + [p.name for p in lobby.ai.values()])
         await interaction.response.edit_message(
             embed=make_embed("♠️ 牌局開始！", f"{players}\n牌桌在下方 👇", Color.TABLE), view=None)
         game.message = await respond(interaction, embed=make_embed("♠️ 德州撲克", "洗牌中…", Color.TABLE))
@@ -219,8 +263,11 @@ class Poker(commands.Cog):
             if seat.stack == 0 or seat.leaving:
                 await self._cash_out(game, seat)
                 t.seats.remove(seat)
-        if game.host_id not in [s.user_id for s in t.seats] and t.seats:
-            game.host_id = t.seats[0].user_id
+        humans = [s for s in t.seats if s.user_id > 0]
+        if not humans:
+            return await self.end_game(game, "真人玩家都離開了，牌局結束。")
+        if game.host_id not in [s.user_id for s in humans]:
+            game.host_id = humans[0].user_id
         if len([s for s in t.seats if s.stack > 0]) < 2:
             return await self.end_game(game, "剩不到兩位玩家，牌局結束。")
         t.start_hand()
@@ -237,11 +284,43 @@ class Poker(commands.Cog):
             game.deadline = None
             await self.refresh(game)
             await self._announce_result(game)
+            self._report_activity(game)
             game.next_hand_task = asyncio.create_task(self._next_hand_later(game, t.hand_number))
+        elif t.current_seat.user_id in game.ai:
+            game.deadline = None
+            await self.refresh(game)
+            game.turn_task = asyncio.create_task(self._ai_turn(game, game.turn_id))
         else:
             game.deadline = time.time() + TURN_SECONDS
             await self.refresh(game)
             game.turn_task = asyncio.create_task(self._turn_timer(game, game.turn_id))
+
+    def _report_activity(self, game: PokerGame) -> None:
+        """每手結束時通知任務系統（只算真人、有拿到牌的玩家）。"""
+        t = game.table
+        if not t.result or not t.result.pots:
+            return
+        for seat in t.order:
+            if seat.user_id > 0:
+                won = t.result.payouts.get(seat.user_id, 0) > seat.contributed
+                self.bot.dispatch("activity", seat.user_id, "game", game.channel_id, {"game": "poker", "won": won})
+
+    async def _ai_turn(self, game: PokerGame, turn_id: int) -> None:
+        await asyncio.sleep(game.rng.uniform(1.2, 2.5))   # 假裝思考，不然電腦動作快到看不清楚
+        async with game.lock:
+            t = game.table
+            seat = t.current_seat
+            if game.ended or game.turn_id != turn_id or not seat or seat.user_id not in game.ai:
+                return
+            personality = game.ai[seat.user_id]
+            # 模擬計算比較花時間，丟到背景執行緒以免卡住 bot
+            action, amount = await asyncio.to_thread(decide, t, seat, personality, game.rng)
+            try:
+                t.act(seat.user_id, action, amount)
+            except IllegalAction:
+                log.warning("電腦做出不合法的動作 %s %s，改為過牌或棄牌", action, amount)
+                t.act(seat.user_id, "check" if t.legal(seat).can_check else "fold")
+            await self._after_change(game)
 
     async def act(self, interaction: discord.Interaction, game: PokerGame, action: str, amount: Optional[int] = None) -> None:
         async with game.lock:
@@ -282,7 +361,7 @@ class Poker(commands.Cog):
         lines = []
         for i, pot in enumerate(result.pots):
             label = "底池" if len(result.pots) == 1 else ("主池" if i == 0 else f"邊池 {i}")
-            winners = "、".join(f"<@{uid}>" for uid in pot.winners)
+            winners = "、".join(game.who(uid) for uid in pot.winners)
             hand = f"（{pot.hand_name}）" if pot.hand_name else ""
             lines.append(f"**{label} {pot.amount:,}** → {winners}{hand}")
         if result.showdown:
@@ -317,6 +396,9 @@ class Poker(commands.Cog):
             t.cancel_hand()   # 中途結束：這手的投入全部退回
         lines = []
         for seat in t.seats:
+            if seat.user_id in game.ai:
+                lines.append(f"{seat.name}　`{seat.stack:,}`")
+                continue
             net = await self._cash_out(game, seat)
             lines.append(f"<@{seat.user_id}>　`{seat.stack:,}`　{fmt_signed(net)}")
         if game.view:
@@ -400,31 +482,36 @@ class Poker(commands.Cog):
     async def launch_from_hub(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_modal(PokerSetupModal(self))
 
-    @app_commands.command(name="poker", description="德州撲克：開一個大廳，2–8 人一起玩")
-    @app_commands.describe(big_blind="大盲注（小盲注是一半）", buy_in="每人帶入的籌碼，預設是大盲注的 50 倍")
+    @app_commands.command(name="poker", description="德州撲克：開一個大廳，可以找朋友或加入電腦對手")
+    @app_commands.describe(big_blind="大盲注（小盲注是一半）", buy_in="每人帶入的籌碼，預設是大盲注的 50 倍",
+                           bots="一開始就加入幾位電腦對手（之後也能在大廳增減）")
     @app_commands.guild_only()
     async def poker(self, interaction: discord.Interaction,
                     big_blind: app_commands.Range[int, 2, 100_000] = 20,
-                    buy_in: Optional[app_commands.Range[int, 20, 10_000_000]] = None):
-        await self.create_lobby(interaction, big_blind, buy_in)
+                    buy_in: Optional[app_commands.Range[int, 20, 10_000_000]] = None,
+                    bots: app_commands.Range[int, 0, MAX_SEATS - 1] = 0):
+        await self.create_lobby(interaction, big_blind, buy_in, bots)
 
 
 # ====================================================================== 介面
 class PokerSetupModal(discord.ui.Modal, title="♠️ 開一桌德州撲克"):
     big_blind = discord.ui.TextInput(label="大盲注（小盲注是一半）", default="20", max_length=6)
     buy_in = discord.ui.TextInput(label="每人帶入籌碼（留空 = 大盲注 × 50）", required=False, max_length=9)
+    bots = discord.ui.TextInput(label=f"電腦對手數量（0–{MAX_SEATS - 1}，自己玩就填 1 以上）", default="0", max_length=1)
 
     def __init__(self, cog: Poker):
         super().__init__()
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        bb_text, buy_text = self.big_blind.value.strip(), self.buy_in.value.strip()
+        bb_text, buy_text, bots_text = self.big_blind.value.strip(), self.buy_in.value.strip(), self.bots.value.strip()
         if not bb_text.isdigit() or not 2 <= int(bb_text) <= 100_000:
             return await send_error(interaction, "大盲注需要是 2 到 100,000 的整數。")
         if buy_text and not buy_text.isdigit():
             return await send_error(interaction, "帶入籌碼需要是整數。")
-        await self.cog.create_lobby(interaction, int(bb_text), int(buy_text) if buy_text else None)
+        if not bots_text.isdigit() or int(bots_text) > MAX_SEATS - 1:
+            return await send_error(interaction, f"電腦對手數量需要是 0 到 {MAX_SEATS - 1}。")
+        await self.cog.create_lobby(interaction, int(bb_text), int(buy_text) if buy_text else None, int(bots_text))
 
 
 class LobbyView(BaseView):
@@ -446,8 +533,10 @@ class LobbyView(BaseView):
         lobby = self.lobby
         if interaction.user.id in lobby.players:
             return await send_error(interaction, "你已經在大廳裡了。")
-        if len(lobby.players) >= MAX_SEATS:
-            return await send_error(interaction, f"大廳已滿（{MAX_SEATS} 人）。")
+        if lobby.seat_count >= MAX_SEATS:
+            if not lobby.ai:
+                return await send_error(interaction, f"大廳已滿（{MAX_SEATS} 人）。")
+            lobby.remove_ai()   # 真人優先，讓出一位電腦的座位
         hold_id = await self.cog.bot.db.hold(interaction.user.id, lobby.buy_in, "德州撲克")
         if hold_id is None:
             balance = await self.cog.bot.db.get_points(interaction.user.id)
@@ -473,10 +562,27 @@ class LobbyView(BaseView):
     async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.lobby.host.id:
             return await send_error(interaction, "只有房主可以開始牌局。")
-        if len(self.lobby.players) < 2:
-            return await send_error(interaction, "至少要兩位玩家才能開始。")
+        if self.lobby.seat_count < 2:
+            return await send_error(interaction, "至少要兩位玩家才能開始，可以按「加入電腦」。")
         self.stop()
         await self.cog.start_game(self.lobby, interaction)
+
+    @discord.ui.button(label="加入電腦", emoji="🤖", style=discord.ButtonStyle.secondary, row=1)
+    async def add_bot(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.lobby.host.id:
+            return await send_error(interaction, "只有房主可以加入電腦。")
+        if self.lobby.seat_count >= MAX_SEATS:
+            return await send_error(interaction, f"大廳已滿（{MAX_SEATS} 人）。")
+        self.lobby.add_ai()
+        await self._update(interaction)
+
+    @discord.ui.button(label="移除電腦", style=discord.ButtonStyle.secondary, row=1)
+    async def remove_bot(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.lobby.host.id:
+            return await send_error(interaction, "只有房主可以移除電腦。")
+        if not self.lobby.remove_ai():
+            return await send_error(interaction, "大廳裡沒有電腦。")
+        await self._update(interaction)
 
     @discord.ui.button(label="取消", style=discord.ButtonStyle.danger)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -513,10 +619,11 @@ class TableView(discord.ui.View):
         self.cog, self.game = cog, game
         t = game.table
         seat = t.current_seat
-        in_progress = seat is not None
+        # 輪到電腦時，動作按鈕先停用
+        in_progress = seat is not None and seat.user_id not in game.ai
 
         call_label, raise_disabled, allin_label, allin_disabled = "過牌 / 跟注", True, "All-in", not in_progress
-        if seat:
+        if in_progress:
             legal = t.legal(seat)
             call_label = "過牌" if legal.can_check else f"跟注 {legal.call_amount:,}"
             raise_disabled = not legal.can_raise

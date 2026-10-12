@@ -15,6 +15,8 @@ COMMAND_NAMES = {
     "profile": "個人資料",
     "leaderboard": "排行榜",
     "give": "轉帳",
+    "work": "打工",
+    "quests": "每日任務",
     "remind": "提醒",
     "reminders": "我的提醒",
     "poll": "投票",
@@ -43,6 +45,7 @@ PARAMETER_NAMES = {
     "difficulty": "難度",
     "big_blind": "大盲注",
     "buy_in": "帶入籌碼",
+    "bots": "電腦對手",
     "theme": "主題",
 }
 

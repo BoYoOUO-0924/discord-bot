@@ -6,6 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from core.quests import MIN_QUEST_BET
 from core.ui import AmountModal, BaseView, Color, fmt_points, fmt_signed, make_embed, respond, send_error
 
 SYMBOLS = ["💎", "7️⃣", "⭐", "🍀", "🔔", "🍇", "🍒", "🍋"]
@@ -65,6 +66,8 @@ class Slots(commands.Cog):
         multiplier, text = evaluate(final)
         payout = bet * multiplier
         balance = await self.bot.db.settle(hold_id, payout, "拉霸機", game="slots", won=payout > bet)
+        if bet >= MIN_QUEST_BET:
+            self.bot.dispatch("activity", user.id, "game", interaction.channel_id, {"game": "slots", "won": payout > bet})
         color = Color.GOLD if multiplier >= 10 else Color.SUCCESS if payout > bet else Color.MUTED if payout == bet else Color.DANGER
         embed = self._frame(user, bet, final, f"**{text}**", color)
         embed.set_footer(text=f"損益 {fmt_signed(payout - bet)}・餘額 {balance:,} 分")

@@ -17,6 +17,7 @@ log = logging.getLogger("bot")
 EXTENSIONS = [
     "cogs.hub",
     "cogs.economy",
+    "cogs.earn",
     "cogs.reminders",
     "cogs.polls",
     "cogs.admin",
