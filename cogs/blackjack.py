@@ -1,199 +1,282 @@
-# cogs/blackjack.py
+"""21 點：每人一局互不干擾，支援加倍下注，Blackjack 賠 3:2。"""
+import asyncio
+import secrets
+from typing import Dict, List, Optional, Tuple
+
 import discord
+from discord import app_commands
 from discord.ext import commands
-import random
-from typing import Union
 
-# --- Helper Functions ---
-def build_shuffled_deck():
-    ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
-    suits = ['♠', '♥', '♦', '♣']
-    return random.sample([(r, s) for s in suits for r in ranks], 52)
+from core.ui import AmountModal, BaseView, Color, fmt_points, fmt_signed, make_embed, respond, send_error
 
-def hand_value(cards):
-    value_map = {'A': 11, 'K': 10, 'Q': 10, 'J': 10, '10': 10, '9': 9, '8': 8, '7': 7, '6': 6, '5': 5, '4': 4, '3': 3, '2': 2}
+Card = Tuple[str, str]
+RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
+SUITS = ["♠", "♥", "♦", "♣"]
+DEFAULT_BET = 100
+
+
+def new_deck() -> List[Card]:
+    deck = [(r, s) for s in SUITS for r in RANKS]
+    for i in range(len(deck) - 1, 0, -1):
+        j = secrets.randbelow(i + 1)
+        deck[i], deck[j] = deck[j], deck[i]
+    return deck
+
+
+def hand_value(cards: List[Card]) -> int:
     total, aces = 0, 0
-    for r, _ in cards:
-        if r == 'A': aces += 1
-        total += value_map[r]
-    while total > 21 and aces > 0:
+    for rank, _ in cards:
+        if rank == "A":
+            aces += 1
+            total += 11
+        elif rank in ("J", "Q", "K"):
+            total += 10
+        else:
+            total += int(rank)
+    while total > 21 and aces:
         total -= 10
         aces -= 1
     return total
 
-def render_cards(cards):
-    return ' '.join([f"{r}{s}" for r, s in cards]) if cards else '(無)'
 
-# --- Views ---
-class BlackjackView(discord.ui.View):
-    def __init__(self, cog: commands.Cog, owner_id: int):
-        super().__init__(timeout=300)
-        self.cog = cog
-        self.owner_id = owner_id
+def is_blackjack(cards: List[Card]) -> bool:
+    return len(cards) == 2 and hand_value(cards) == 21
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message('只有開局者可以操作本局按鈕。', ephemeral=True)
-            return False
-        return True
 
-    @discord.ui.button(label='Hit 要牌', style=discord.ButtonStyle.primary)
-    async def hit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.handle_hit(interaction)
+def render(cards: List[Card]) -> str:
+    return " ".join(f"`{r}{s}`" for r, s in cards)
 
-    @discord.ui.button(label='Stand 停牌', style=discord.ButtonStyle.secondary)
-    async def stand_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.handle_stand(interaction)
 
-class PlayAgainView(discord.ui.View):
-    """A view with a 'Play Again' button that carries over the previous bet."""
-    def __init__(self, cog: commands.Cog, owner_id: int, previous_bet: int):
-        super().__init__(timeout=300)
-        self.cog = cog
-        self.owner_id = owner_id
-        self.previous_bet = previous_bet
+# 結果 -> (標題, 顏色, 賠付倍數（含本金）)
+OUTCOMES = {
+    "blackjack": ("🎉 Blackjack！", Color.GOLD, 2.5),
+    "win": ("🎉 你贏了！", Color.SUCCESS, 2),
+    "dealer_bust": ("🎉 莊家爆牌，你贏了！", Color.SUCCESS, 2),
+    "push": ("🤝 平手，退還賭注", Color.MUTED, 1),
+    "lose": ("😢 你輸了", Color.DANGER, 0),
+    "bust": ("💥 爆牌了", Color.DANGER, 0),
+    "dealer_blackjack": ("😱 莊家 Blackjack", Color.DANGER, 0),
+}
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message('只有開局者可以再玩一局。', ephemeral=True)
-            return False
-        return True
 
-    @discord.ui.button(label="再來一局 (相同賭注)", style=discord.ButtonStyle.success)
-    async def play_again_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Disable the button to prevent multiple clicks
-        self.stop()
-        button.disabled = True
-        button.label = "正在開始新的一局..."
-        await interaction.response.edit_message(view=self)
-        # Call the cog to start a new game
-        await self.cog.start_new_game(interaction, bet=self.previous_bet)
+class BlackjackGame:
+    def __init__(self, player_id: int, bet: int, hold_id: Optional[int], deck: Optional[List[Card]] = None):
+        self.player_id, self.bet, self.hold_id = player_id, bet, hold_id
+        self.deck = deck or new_deck()
+        self.player = [self.deck.pop(), self.deck.pop()]
+        self.dealer = [self.deck.pop(), self.deck.pop()]
+        self.doubled = False
+        self.outcome: Optional[str] = None
+        self.lock = asyncio.Lock()
 
-# --- Main Cog ---
-class BlackjackCog(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    @property
+    def finished(self) -> bool:
+        return self.outcome is not None
+
+    def check_naturals(self) -> None:
+        """開牌就有 21 點的情況（莊家也會先偷看底牌）。"""
+        player_bj, dealer_bj = is_blackjack(self.player), is_blackjack(self.dealer)
+        if player_bj and dealer_bj:
+            self.outcome = "push"
+        elif player_bj:
+            self.outcome = "blackjack"
+        elif dealer_bj:
+            self.outcome = "dealer_blackjack"
+
+    def hit(self) -> None:
+        self.player.append(self.deck.pop())
+        if hand_value(self.player) > 21:
+            self.outcome = "bust"
+        elif hand_value(self.player) == 21:
+            self.stand()  # 21 點自動停牌
+
+    def stand(self) -> None:
+        while hand_value(self.dealer) < 17:
+            self.dealer.append(self.deck.pop())
+        player, dealer = hand_value(self.player), hand_value(self.dealer)
+        if dealer > 21:
+            self.outcome = "dealer_bust"
+        elif player > dealer:
+            self.outcome = "win"
+        elif player == dealer:
+            self.outcome = "push"
+        else:
+            self.outcome = "lose"
+
+    def double(self) -> None:
+        self.bet *= 2
+        self.doubled = True
+        self.player.append(self.deck.pop())
+        if hand_value(self.player) > 21:
+            self.outcome = "bust"
+        else:
+            self.stand()
+
+    @property
+    def payout(self) -> int:
+        return int(self.bet * OUTCOMES[self.outcome][2]) if self.outcome else 0
+
+
+class Blackjack(commands.Cog):
+    def __init__(self, bot):
         self.bot = bot
-        self.tables = {}
-        self.points_cog = None
+        self.games: Dict[int, BlackjackGame] = {}
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        self.points_cog = self.bot.get_cog('Points')
-        if not self.points_cog:
-            print("Error: PointsCog not found in BlackjackCog.")
-
-    @commands.command(name='blackjack', help='開始一局 21 點。可加上賭注：!blackjack 100')
-    async def blackjack(self, ctx: commands.Context, bet: int = 0):
-        await self.start_new_game(ctx, bet)
-
-    async def start_new_game(self, ctx_or_interaction: Union[commands.Context, discord.Interaction], bet: int):
-        is_interaction = isinstance(ctx_or_interaction, discord.Interaction)
-        author = ctx_or_interaction.user if is_interaction else ctx_or_interaction.author
-        channel = ctx_or_interaction.channel
-
-        if not self.points_cog:
-            return await channel.send("積分系統目前無法使用，請聯絡管理員。")
-        
-        if bet < 0:
-            return await channel.send('賭注必須是非負整數。')
-
-        player_points = self.points_cog.get_points(author.id)
-        if bet > player_points:
-            return await channel.send(f'你的積分不足。目前餘額：{player_points}')
-
-        deck = build_shuffled_deck()
-        player_hand = [deck.pop(), deck.pop()]
-        dealer_hand = [deck.pop(), deck.pop()]
-
-        self.tables[channel.id] = {
-            'deck': deck, 'player_hand': player_hand, 'dealer_hand': dealer_hand,
-            'bet': bet, 'owner_id': author.id, 'finished': False
-        }
-
-        p_val = hand_value(player_hand)
-        embed: discord.Embed
-        view: discord.ui.View
-
-        if p_val == 21:  # Natural Blackjack
-            embed = self._build_final_embed(channel.id)
-            view = PlayAgainView(self, author.id, bet)
+    # ------------------------------------------------------------------ 畫面
+    def build_embed(self, game: BlackjackGame, user: discord.abc.User, balance: Optional[int] = None) -> discord.Embed:
+        if game.finished:
+            title, color, _ = OUTCOMES[game.outcome]
+            dealer = f"{render(game.dealer)}　**{hand_value(game.dealer)}**"
         else:
-            embed = self._build_status_embed(self.tables[channel.id])
-            view = BlackjackView(self, author.id)
+            title, color = "🃏 21點", Color.GAME
+            dealer = f"{render(game.dealer[:1])} `🂠`　**?**"
+        embed = make_embed(title, color=color)
+        embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
+        embed.add_field(name="莊家", value=dealer, inline=False)
+        embed.add_field(name="你的手牌", value=f"{render(game.player)}　**{hand_value(game.player)}**", inline=False)
 
-        if is_interaction:
-            # The original message with the play again button has been edited, 
-            # so we need to send a new message for the new game.
-            await channel.send(embed=embed, view=view)
+        if game.finished and game.bet:
+            net = game.payout - game.bet
+            embed.add_field(name="結算", value=f"賭注 {fmt_points(game.bet)}{'（已加倍）' if game.doubled else ''}"
+                                               f"・損益 **{fmt_signed(net)}**・餘額 {fmt_points(balance or 0)}", inline=False)
+        elif game.bet:
+            embed.set_footer(text=f"賭注 {game.bet:,} 分{'（已加倍）' if game.doubled else ''}")
         else:
-            await channel.send(embed=embed, view=view)
-
-    async def handle_hit(self, interaction: discord.Interaction):
-        table = self.tables.get(interaction.channel.id)
-        if not table or table.get('finished'):
-            return await interaction.response.send_message('本局已結束或不存在。', ephemeral=True)
-
-        table['player_hand'].append(table['deck'].pop())
-
-        if hand_value(table['player_hand']) > 21:  # Player busts
-            final_embed = self._build_final_embed(interaction.channel.id)
-            view = PlayAgainView(self, table['owner_id'], table['bet'])
-            await interaction.response.edit_message(embed=final_embed, view=view)
-        else:
-            embed = self._build_status_embed(table)
-            await interaction.response.edit_message(embed=embed)
-
-    async def handle_stand(self, interaction: discord.Interaction):
-        table = self.tables.get(interaction.channel.id)
-        if not table or table.get('finished'):
-            return await interaction.response.send_message('本局已結束或不存在。', ephemeral=True)
-        
-        while hand_value(table['dealer_hand']) < 17:
-            table['dealer_hand'].append(table['deck'].pop())
-        
-        final_embed = self._build_final_embed(interaction.channel.id)
-        view = PlayAgainView(self, table['owner_id'], table['bet'])
-        await interaction.response.edit_message(embed=final_embed, view=view)
-
-    def _decide_result(self, p_val, d_val):
-        if p_val > 21: return 'lose'
-        if d_val > 21 or p_val > d_val: return 'win'
-        if p_val < d_val: return 'lose'
-        return 'push'
-
-    def _build_status_embed(self, table, reveal_dealer=False) -> discord.Embed:
-        embed = discord.Embed(title='Blackjack', color=0x00bcd4)
-        embed.add_field(name="你的手牌", value=f"{render_cards(table['player_hand'])} ({hand_value(table['player_hand'])})", inline=False)
-        d_text = f"{render_cards([table['dealer_hand'][0]])} 🂠" if not reveal_dealer else f"{render_cards(table['dealer_hand'])} ({hand_value(table['dealer_hand'])})"
-        embed.add_field(name="莊家手牌", value=d_text, inline=False)
-        if table['bet'] > 0: embed.set_footer(text=f"賭注: {table['bet']}")
+            embed.set_footer(text="練習模式（沒有下注）")
         return embed
 
-    def _build_final_embed(self, channel_id: int) -> discord.Embed:
-        table = self.tables.get(channel_id)
-        if not table or table.get('finished'): 
-            return self._build_status_embed(table, reveal_dealer=True)
+    # ------------------------------------------------------------------ 流程
+    async def start(self, interaction: discord.Interaction, bet: int) -> None:
+        user = interaction.user
+        current = self.games.get(user.id)
+        if current and not current.finished:
+            return await send_error(interaction, "你還有一局 21 點沒打完，先把它結束吧！")
 
-        p_val = hand_value(table['player_hand'])
-        d_val = hand_value(table['dealer_hand'])
-        result = self._decide_result(p_val, d_val)
-        owner_id, bet = table['owner_id'], table['bet']
-        delta = bet if result == 'win' else -bet if result == 'lose' else 0
+        hold_id = None
+        if bet > 0:
+            hold_id = await self.bot.db.hold(user.id, bet, "21點")
+            if hold_id is None:
+                balance = await self.bot.db.get_points(user.id)
+                return await send_error(interaction, f"積分不足，你目前有 {fmt_points(balance)}。")
 
-        if bet > 0 and delta != 0:
-            self.points_cog.update_points(owner_id, delta)
-        
-        table['finished'] = True
-        new_total = self.points_cog.get_points(owner_id)
+        game = BlackjackGame(user.id, bet, hold_id)
+        self.games[user.id] = game
+        game.check_naturals()
+        if game.finished:
+            balance = await self.finish(game)
+            view = PlayAgainView(self, user.id, bet)
+            view.message = await respond(interaction, embed=self.build_embed(game, user, balance), view=view)
+            return
+        view = BlackjackView(self, game, user)
+        view.message = await respond(interaction, embed=self.build_embed(game, user), view=view)
 
-        title, color = {'win': ('你贏了！🎉', 0x43a047), 'lose': ('你輸了。', 0xe53935), 'push': ('平手。', 0x9e9e9e)}[result]
-        embed = self._build_status_embed(table, reveal_dealer=True)
-        embed.title = title
-        embed.color = color
-        
-        footer_text = f"賭注: {bet} / 淨得: {delta:+} | 目前積分: {new_total}" if bet > 0 else f"目前積分: {new_total}"
-        embed.set_footer(text=footer_text)
-        return embed
+    async def finish(self, game: BlackjackGame) -> Optional[int]:
+        """結算並回傳新餘額。"""
+        self.games.pop(game.player_id, None)
+        if game.hold_id is None:
+            return await self.bot.db.get_points(game.player_id)
+        won = game.outcome in ("blackjack", "win", "dealer_bust")
+        return await self.bot.db.settle(game.hold_id, game.payout, "21點", game="blackjack", won=won)
+
+    async def launch_from_hub(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(AmountModal(
+            "🃏 21點", "賭注（填 0 是練習模式）", self.start, default=DEFAULT_BET))
+
+    @app_commands.command(name="blackjack", description="21點：跟莊家比誰最接近 21 點")
+    @app_commands.describe(bet="下注的積分，不填或填 0 是練習模式")
+    async def blackjack(self, interaction: discord.Interaction, bet: app_commands.Range[int, 0, 10_000_000] = 0):
+        await self.start(interaction, bet)
+
+
+class BlackjackView(BaseView):
+    owner_denied_message = "這不是你的牌局，用 /blackjack 開一局自己的吧！"
+
+    def __init__(self, cog: Blackjack, game: BlackjackGame, user: discord.abc.User):
+        super().__init__(owner_id=user.id, timeout=120)
+        self.cog, self.game, self.user = cog, game, user
+        self.double_btn.disabled = game.bet == 0
+
+    async def _after_action(self, interaction: discord.Interaction) -> None:
+        if self.game.finished:
+            balance = await self.cog.finish(self.game)
+            self.stop()
+            view = PlayAgainView(self.cog, self.user.id, self.game.bet // (2 if self.game.doubled else 1))
+            view.message = self.message
+            await interaction.response.edit_message(embed=self.cog.build_embed(self.game, self.user, balance), view=view)
+        else:
+            self.double_btn.disabled = True  # 只有前兩張牌時能加倍
+            await interaction.response.edit_message(embed=self.cog.build_embed(self.game, self.user), view=self)
+
+    @discord.ui.button(label="要牌", emoji="➕", style=discord.ButtonStyle.primary)
+    async def hit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self.game.lock:
+            if self.game.finished:
+                return await send_error(interaction, "這局已經結束了。")
+            self.game.hit()
+            await self._after_action(interaction)
+
+    @discord.ui.button(label="停牌", emoji="✋", style=discord.ButtonStyle.secondary)
+    async def stand_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self.game.lock:
+            if self.game.finished:
+                return await send_error(interaction, "這局已經結束了。")
+            self.game.stand()
+            await self._after_action(interaction)
+
+    @discord.ui.button(label="加倍", emoji="✖️", style=discord.ButtonStyle.success)
+    async def double_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self.game.lock:
+            if self.game.finished or len(self.game.player) != 2:
+                return await send_error(interaction, "只有拿到前兩張牌時可以加倍。")
+            if not await self.cog.bot.db.extend_hold(self.game.hold_id, self.game.bet):
+                return await send_error(interaction, f"加倍需要再 {fmt_points(self.game.bet)}，你的積分不夠。")
+            self.game.double()
+            await self._after_action(interaction)
+
+    async def on_timeout(self) -> None:
+        # 玩家離開太久就自動停牌結算，避免賭注一直被扣著
+        async with self.game.lock:
+            if self.game.finished:
+                return
+            self.game.stand()
+            balance = await self.cog.finish(self.game)
+        if self.message:
+            embed = self.cog.build_embed(self.game, self.user, balance)
+            embed.set_footer(text="閒置太久，已自動停牌")
+            try:
+                await self.message.edit(embed=embed, view=None)
+            except discord.HTTPException:
+                pass
+
+
+class PlayAgainView(BaseView):
+    owner_denied_message = "用 /blackjack 開一局自己的吧！"
+
+    def __init__(self, cog: Blackjack, owner_id: int, bet: int):
+        super().__init__(owner_id=owner_id, timeout=180)
+        self.cog, self.bet = cog, bet
+        self.again.label = f"再來一局（{bet:,} 分）" if bet else "再來一局"
+
+    @discord.ui.button(label="再來一局", emoji="🔁", style=discord.ButtonStyle.success)
+    async def again(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._clear_buttons()
+        await self.cog.start(interaction, self.bet)
+
+    @discord.ui.button(label="換個賭注", emoji="💰", style=discord.ButtonStyle.secondary)
+    async def change_bet(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async def start(inter: discord.Interaction, amount: int):
+            await self._clear_buttons()
+            await self.cog.start(inter, amount)
+        await interaction.response.send_modal(AmountModal("🃏 21點", "新的賭注（0 是練習模式）", start, default=self.bet))
+
+    async def _clear_buttons(self) -> None:
+        self.stop()
+        if self.message:
+            try:
+                await self.message.edit(view=None)
+            except discord.HTTPException:
+                pass
+
 
 async def setup(bot):
-    await bot.add_cog(BlackjackCog(bot))
+    await bot.add_cog(Blackjack(bot))

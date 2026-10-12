@@ -1,347 +1,379 @@
-import discord
-from discord.ext import commands
-import google.generativeai as genai
+"""AI 海龜湯：Gemini 出題與裁判，玩家用是非題推理真相。"""
 import asyncio
-import json
-from typing import Dict, Any
+import logging
+import time
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set, Tuple
 
-# 載入本地設定
-try:
-    import config
-    GEMINI_API_KEY = getattr(config, "GEMINI_API_KEY", None)
-except ImportError:
-    GEMINI_API_KEY = None
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
 
-if not GEMINI_API_KEY or GEMINI_API_KEY == "PUT_YOUR_GEMINI_API_KEY_HERE":
-    raise ValueError("Gemini API Key 未在 config.py 中設定！")
+from core.ai import AIError
+from core.ui import BaseView, Color, make_embed, respond, send_error
 
-# 設定 Gemini API
-genai.configure(api_key=GEMINI_API_KEY)
+log = logging.getLogger(__name__)
 
-# --- Gemini AI 模型設定 ---
-# 用於生成故事和判斷答案
-generation_config = {
-    "temperature": 0.9,
-    "top_p": 1,
-    "top_k": 1,
-    "max_output_tokens": 2048,
+IDLE_TIMEOUT = 30 * 60
+QUESTION_COOLDOWN = 3
+MAX_HINTS = 3
+DIFFICULTIES = {
+    "easy": ("簡單", "線索直接、推理步驟少，適合新手", 100),
+    "normal": ("普通", "需要幾個關鍵轉折才能想通", 150),
+    "hard": ("困難", "真相出乎意料、需要跳脫常理思考", 250),
 }
-safety_settings = [
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-]
-model = genai.GenerativeModel(model_name="gemini-2.5-flash",
-                              generation_config=generation_config,
-                              safety_settings=safety_settings)
+DIFFICULTY_CHOICES = [app_commands.Choice(name=name, value=key) for key, (name, _, _) in DIFFICULTIES.items()]
 
-class SeaTortoiseGame:
-    """代表一個頻道的遊戲狀態"""
-    def __init__(self, premise: str, answer: str):
-        self.premise = premise
-        self.answer = answer
-        self.active = True
+STORY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "premise": {"type": "string"},
+        "answer": {"type": "string"},
+        "key_points": {"type": "array", "items": {"type": "string"}},
+        "hints": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["title", "premise", "answer", "key_points", "hints"],
+}
+
+# 回答文字 -> 顯示樣式（判斷時由長到短比對，避免「是也不是」被當成「是」）
+ANSWERS: List[Tuple[str, str]] = [
+    ("是也不是", "🔶 是也不是"),
+    ("不是", "❌ 不是"),
+    ("無關", "➖ 無關"),
+    ("是", "✅ 是"),
+]
+
+
+@dataclass
+class SoupGame:
+    channel_id: int
+    host_id: int
+    difficulty: str
+    title: str
+    premise: str
+    answer: str
+    key_points: List[str]
+    hints: List[str]
+    qa: List[Tuple[str, str, str]] = field(default_factory=list)   # (提問者, 問題, 回答)
+    hints_used: int = 0
+    participants: Set[int] = field(default_factory=set)
+    last_activity: float = field(default_factory=time.time)
+    message: Optional[discord.PartialMessage] = None
+    over: bool = False
+
+    @property
+    def reward(self) -> int:
+        base = DIFFICULTIES[self.difficulty][2]
+        return max(base // 4, int(base * (1 - 0.25 * self.hints_used)))
+
+
+def parse_answer(text: str) -> str:
+    for key, display in ANSWERS:
+        if key in text:
+            return display
+    return "➖ 無關"
+
 
 class SeaTortoise(commands.Cog):
-    """由 Gemini AI 驅動的海龜湯遊戲功能"""
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot):
         self.bot = bot
-        self.games: Dict[int, SeaTortoiseGame] = {}  # channel_id -> Game
+        self.games: Dict[int, SoupGame] = {}
+        self.preparing: Set[int] = set()
+        self.cooldowns: Dict[int, float] = {}
 
-    async def generate_content_safe(self, prompt: str) -> str:
-        """安全地調用 Gemini API，處理可能的錯誤或空白回應"""
-        loop = asyncio.get_running_loop()
+    async def cog_load(self):
+        self.expire_idle.start()
+
+    async def cog_unload(self):
+        self.expire_idle.cancel()
+
+    @property
+    def ai(self):
+        return self.bot.ai
+
+    # ------------------------------------------------------------------ AI
+    async def generate_story(self, difficulty: str, theme: Optional[str]) -> Dict:
+        name, desc, _ = DIFFICULTIES[difficulty]
+        theme_line = f"故事主題或場景：{theme}。" if theme else "主題自由發揮，避免老套的經典題。"
+        prompt = f"""你是「海龜湯」情境推理遊戲的出題者。請原創一則難度「{name}」（{desc}）的海龜湯。{theme_line}
+要求：
+- title：4–10 字的標題，不能洩漏答案。
+- premise（湯面）：2–4 句，懸疑、不完整，但真相必須能從湯面合理推理出來。
+- answer（湯底）：3–6 句，完整解釋真相與因果。
+- key_points：猜中所需的 2–4 個關鍵要素，每個一句話。
+- hints：3 個由淺入深的提示，最後一個也不能直接說出答案。
+- 使用繁體中文（台灣用語）。可以有懸疑、死亡元素，但避免血腥細節。"""
+        story = await self.ai.json(prompt, STORY_SCHEMA, temperature=1.0)
+        if not story.get("premise") or not story.get("answer"):
+            raise AIError("AI 出的題目不完整，請再試一次。")
+        return story
+
+    def _context(self, game: SoupGame) -> str:
+        points = "\n".join(f"- {p}" for p in game.key_points)
+        return f"湯面：{game.premise}\n湯底（真相，絕對不能透露）：{game.answer}\n關鍵要素：\n{points}"
+
+    async def judge_question(self, game: SoupGame, question: str) -> str:
+        prompt = f"""你是海龜湯的主持人。
+{self._context(game)}
+
+玩家提問：「{question}」
+
+依照湯底判斷，只能回答以下四個之一：是、不是、無關、是也不是。
+「是也不是」用在問題部分正確、或前提有誤需要釐清的時候。只輸出答案本身，不要任何其他文字。"""
+        return parse_answer(await self.ai.text(prompt, max_tokens=16))
+
+    async def judge_guess(self, game: SoupGame, guess: str) -> Tuple[str, str]:
+        prompt = f"""你是海龜湯的主持人，要判斷玩家的推理是否猜中真相。
+{self._context(game)}
+
+玩家的推理：「{guess}」
+
+第一行只能輸出「正確」、「接近」或「錯誤」其中之一：
+- 正確：抓到所有關鍵要素的核心（細節不同沒關係）
+- 接近：抓到部分關鍵要素，但還缺重要的部分
+- 錯誤：方向不對
+如果是「接近」，第二行用一句話鼓勵玩家、點出他猜對的方向，但不能透露他還沒猜到的內容。"""
+        text = await self.ai.text(prompt, max_tokens=120)
+        first, _, rest = text.partition("\n")
+        verdict = "correct" if "正確" in first else "close" if "接近" in first else "wrong"
+        return verdict, rest.strip()
+
+    # ------------------------------------------------------------------ 畫面
+    def board_embed(self, game: SoupGame) -> discord.Embed:
+        embed = make_embed(f"🐢 {game.title}", f"**湯面**\n> {game.premise}", Color.TABLE)
+        embed.add_field(name="難度", value=DIFFICULTIES[game.difficulty][0])
+        embed.add_field(name="已提問", value=f"{len(game.qa)} 題")
+        embed.add_field(name="猜中可得", value=f"{game.reward} 分")
+        if game.hints_used:
+            hints = "\n".join(f"{i + 1}. {h}" for i, h in enumerate(game.hints[:game.hints_used]))
+            embed.add_field(name="💡 提示", value=hints, inline=False)
+        embed.set_footer(text="在頻道輸入以「？」結尾的問題，湯主會回答 是／不是／無關／是也不是")
+        return embed
+
+    async def refresh(self, game: SoupGame) -> None:
+        if game.message and not game.over:
+            try:
+                await game.message.edit(embed=self.board_embed(game))
+            except discord.HTTPException:
+                pass
+
+    # ------------------------------------------------------------------ 流程
+    async def start(self, interaction: discord.Interaction, difficulty: str = "normal", theme: Optional[str] = None) -> None:
+        if not self.ai.available:
+            return await send_error(interaction, "海龜湯需要 AI 功能，請管理員在 config.py 設定 `GEMINI_API_KEY`。")
+        if not interaction.guild:
+            return await send_error(interaction, "海龜湯要在伺服器頻道裡玩。")
+        channel_id = interaction.channel_id
+        if channel_id in self.games or channel_id in self.preparing:
+            return await send_error(interaction, "這個頻道已經有一鍋海龜湯了！")
+
+        self.preparing.add(channel_id)
         try:
-            response = await loop.run_in_executor(
-                None, lambda: model.generate_content(prompt)
-            )
-            # 檢查是否有內容
-            if not response.parts:
-                # 若因安全原因被阻擋，finish_reason 會顯示相關資訊 (通常在 console 可見)
-                # 這裡簡單回傳一個錯誤標示
-                print(f"Gemini 回應空的 (Finish Reason: {response.candidates[0].finish_reason})")
-                if response.candidates[0].finish_reason == 2: # MAX_TOKENS or unknown mapping
-                     return "錯誤：AI 生成中斷 (Max Tokens)"
-                return "錯誤：AI 拒絕產生內容 (可能觸發安全機制)"
-            
-            return response.text.strip()
-            
-        except Exception as e:
-            print(f"Gemini API 錯誤: {e}")
-            return f"錯誤：{str(e)}"
+            await interaction.response.defer(thinking=True)
+            story = await self.generate_story(difficulty, theme)
+        except AIError as e:
+            return await send_error(interaction, str(e))
+        finally:
+            self.preparing.discard(channel_id)
 
-    async def generate_story(self) -> Dict[str, str]:
-        """呼叫 Gemini API 生成一則海龜湯故事"""
-        prompt = ("""
-        請你扮演一位「海龜湯」遊戲的出題者。海龜湯是一個情境猜謎遊戲，
-        你會先說出一個不完整、帶有懸疑感的短篇故事開頭（謎題），然後由我來猜測故事的完整真相（謎底）。
-        
-        你的任務是，只生成一則新的海龜湯故事，不需要任何額外對話。
-        
-        請嚴格按照以下 JSON 格式輸出，不要有任何多餘的文字或 markdown 標記：
-        ```json
-        {
-          "premise": "這裡放謎題的開頭",
-          "answer": "這裡放故事的完整真相"
-        }
-        ```
-        """
-        )
-        
-        text = await self.generate_content_safe(prompt)
-        
-        # 簡單的錯誤檢查
-        if text.startswith("錯誤："):
-            raise ValueError(text)
+        hints = (story.get("hints") or [])[:MAX_HINTS]
+        game = SoupGame(channel_id, interaction.user.id, difficulty, story["title"], story["premise"],
+                        story["answer"], story.get("key_points") or [], hints)
+        self.games[channel_id] = game
+        view = SoupView(self, game)
+        game.message = await respond(interaction, embed=self.board_embed(game), view=view)
 
-        # 清理並解析 JSON
-        if text.startswith('```json'):
-            text = text[7:]
-        if text.endswith('```'):
-            text = text[:-3]
-        
-        return json.loads(text.strip())
+    def _on_cooldown(self, user_id: int) -> bool:
+        now = time.time()
+        if now - self.cooldowns.get(user_id, 0) < QUESTION_COOLDOWN:
+            return True
+        self.cooldowns[user_id] = now
+        return False
 
-    @commands.command(name="seatortoise", aliases=["海龜湯"], help="開始一場由 AI 生成的海龜湯遊戲。")
-    async def start_game(self, ctx: commands.Context):
-        if ctx.channel.id in self.games:
-            await ctx.send("這個頻道已經在進行一場海龜湯遊戲了！")
-            return
+    async def ask(self, game: SoupGame, user: discord.abc.User, question: str) -> str:
+        game.last_activity = time.time()
+        game.participants.add(user.id)
+        answer = await self.judge_question(game, question)
+        game.qa.append((user.display_name, question, answer))
+        await self.refresh(game)
+        return answer
 
+    async def guess(self, interaction: discord.Interaction, game: SoupGame, text: str) -> None:
+        game.last_activity = time.time()
+        game.participants.add(interaction.user.id)
+        await interaction.response.defer(thinking=True)
         try:
-            msg = await ctx.send("🐢 AI 湯主正在熬製一鍋新鮮的海龜湯，請稍候...", tts=False)
-            story_data = await self.generate_story()
-            
-            # 建立遊戲實例
-            game = SeaTortoiseGame(story_data['premise'], story_data['answer'])
-            self.games[ctx.channel.id] = game
+            verdict, feedback = await self.judge_guess(game, text)
+        except AIError as e:
+            return await send_error(interaction, str(e))
+        if game.over:
+            return await interaction.followup.send("這鍋湯剛剛已經被喝完了！")
 
-            # 建立 Embed
-            embed = discord.Embed(
-                title="🐢 AI 海龜湯：謎題來了！",
-                description=f"**{story_data['premise']}**",
-                color=discord.Color.dark_green()
-            )
-            embed.set_footer(text="點擊下方按鈕來進行遊戲！")
+        quoted = "\n".join(f"> {line}" for line in text.splitlines())
+        if verdict == "correct":
+            reward = game.reward
+            await self.finish(game)
+            balance = await self.bot.db.add_points(interaction.user.id, reward, "海龜湯猜中真相")
+            await self.bot.db.record_game(interaction.user.id, "seatortoise", True, reward)
+            embed = make_embed(f"🎉 {interaction.user.display_name} 猜中了！", f"{quoted}\n\n**湯底**\n{game.answer}", Color.GOLD)
+            embed.add_field(name="獎勵", value=f"+{reward} 分（餘額 {balance:,}）")
+            embed.add_field(name="共提問", value=f"{len(game.qa)} 題")
+            embed.add_field(name="參與人數", value=f"{len(game.participants)} 人")
+            await interaction.followup.send(embed=embed, view=AgainView(self, game.difficulty))
+        elif verdict == "close":
+            message = f"**{interaction.user.display_name}** 猜：\n{quoted}\n\n🔶 **很接近了！** {feedback}"
+            await interaction.followup.send(message)
+        else:
+            await interaction.followup.send(f"**{interaction.user.display_name}** 猜：\n{quoted}\n\n❌ **不對喔，再想想！**")
 
-            # 建立 View (按鈕介面)
-            view = SeaTortoiseView(self, game, ctx.channel.id)
-            await msg.edit(content=None, embed=embed, view=view)
+    async def finish(self, game: SoupGame, note: Optional[str] = None) -> None:
+        game.over = True
+        self.games.pop(game.channel_id, None)
+        if game.message:
+            embed = make_embed(f"🐢 {game.title}【已結束】", f"**湯面**\n> {game.premise}\n\n**湯底**\n||{game.answer}||",
+                               Color.MUTED)
+            if note:
+                embed.set_footer(text=note)
+            try:
+                await game.message.edit(embed=embed, view=None)
+            except discord.HTTPException:
+                pass
 
-        except Exception as e:
-            await ctx.send(f"糟糕，AI 湯主煮湯失敗了... 錯誤訊息：`{e}`")
-            if ctx.channel.id in self.games:
-                del self.games[ctx.channel.id]
+    async def reveal(self, game: SoupGame, reason: str, channel: Optional[discord.abc.Messageable] = None) -> None:
+        await self.finish(game, reason)
+        channel = channel or self.bot.get_channel(game.channel_id)
+        if channel:
+            embed = make_embed(f"🐢 公布答案：{game.title}", game.answer, Color.WARNING)
+            embed.set_footer(text=reason)
+            await channel.send(embed=embed, view=AgainView(self, game.difficulty))
 
-    # --- 核心邏輯函式 (供指令與 Modal 共用) ---
+    async def launch_from_hub(self, interaction: discord.Interaction) -> None:
+        await self.start(interaction)
 
-    async def core_process_guess(self, channel_id: int, user: discord.User, guess: str, interaction: discord.Interaction = None):
-        """處理猜測答案的核心邏輯"""
-        game = self.games.get(channel_id)
-        if not game:
-            msg = "這裡沒有正在進行的海龜湯遊戲。"
-            if interaction: await interaction.response.send_message(msg, ephemeral=True)
-            else: await user.send(msg) # Fallback
-            return
+    @app_commands.command(name="seatortoise", description="AI 海龜湯：AI 出謎題，用是非題推理真相")
+    @app_commands.describe(difficulty="題目難度", theme="想要的主題或場景，例如：校園、太空、便利商店")
+    @app_commands.choices(difficulty=DIFFICULTY_CHOICES)
+    @app_commands.guild_only()
+    @app_commands.checks.cooldown(1, 20.0, key=lambda i: i.channel_id)
+    async def seatortoise(self, interaction: discord.Interaction, difficulty: str = "normal",
+                          theme: Optional[app_commands.Range[str, 1, 50]] = None):
+        await self.start(interaction, difficulty, theme)
 
-        prompt = (f"""
-        你是一位海龜湯遊戲的主持人（湯主）。現在有位玩家正在嘗試猜出最終的謎底。
-        
-        **這是標準的完整謎底：**
-        {game.answer}
-        
-        **這是玩家的猜測：**
-        「{guess}」
-        
-        請根據標準謎底，判斷玩家的猜測是否正確。如果玩家的猜測涵蓋了謎底的核心要素和關鍵情節，即使細節略有出入，也應視為正確。
-        你的回答**只能是「正確」或「錯誤」**，兩個詞其中之一，不要有任何其他解釋。
-        """)
-
-        # 若是 Interaction，先 defer 以免超時
-        if interaction:
-            await interaction.response.defer()
-
-        try:
-            result = await self.generate_content_safe(prompt)
-            
-            # 定義發送訊息的 helper
-            async def send_result(content=None, embed=None):
-                if interaction:
-                    await interaction.followup.send(content=content, embed=embed)
-                else:
-                    channel = self.bot.get_channel(channel_id)
-                    await channel.send(content=content, embed=embed)
-
-            if "正確" in result:
-                embed = discord.Embed(
-                    title="🎉 恭喜你，猜對了！",
-                    description=f"**玩家：** {user.mention}\n**真相是：**\n{game.answer}",
-                    color=discord.Color.gold()
-                )
-                await send_result(embed=embed)
-                del self.games[channel_id]
-            else:
-                await send_result(content=f"不對喔，{user.mention}。再猜猜看！")
-
-        except Exception as e:
-            err_msg = f"抱歉，AI 裁判長腦袋當機了... 錯誤訊息：`{e}`"
-            if interaction: await interaction.followup.send(err_msg, ephemeral=True)
-            else: 
-                channel = self.bot.get_channel(channel_id)
-                await channel.send(err_msg)
-
-    async def core_process_question(self, channel_id: int, user: discord.User, question: str, interaction: discord.Interaction = None):
-        """處理提問的核心邏輯"""
-        game = self.games.get(channel_id)
-        if not game:
-            return
-
-        prompt = (f"""
-        你是一位海龜湯遊戲的主持人（湯主）。玩家正在根據你出的謎題進行推理。
-        
-        **這是完整的真相（謎底），請記在心裡，但不要透露給玩家：**
-        {game.answer}
-        
-        **現在，一位玩家問了以下問題：**
-        「{question}」
-        
-        你的任務是，根據你所知道的完整真相，判斷這個問題的答案。
-        **你「只能」也「必須」從以下三個詞中選擇一個來回答：**
-        - 「是」
-        - 「否」
-        - 「與此無關」
-        
-        不要提供任何解釋或額外的文字。請直接給出你的判斷。
-        """)
-
-        if interaction:
-            await interaction.response.defer()
-
-        try:
-            response_text = await self.generate_content_safe(prompt)
-            
-            # 組合問答文字
-            reply_text = f"**{user.display_name} 問：** {question}\n**湯主答：** {response_text}"
-            
-            if interaction:
-                await interaction.followup.send(reply_text)
-            else:
-                channel = self.bot.get_channel(channel_id)
-                await channel.send(reply_text)
-
-        except Exception as e:
-            err_msg = f"AI 湯主突然斷線了... `{e}`"
-            if interaction: await interaction.followup.send(err_msg)
-            else: 
-                channel = self.bot.get_channel(channel_id)
-                await channel.send(err_msg)
-
-    # --- 指令介面 (維持相容性) ---
-
-    @commands.command(name="answer", aliases=["答案"], help="猜測海龜湯的最終答案。")
-    async def guess_answer(self, ctx: commands.Context, *, guess: str):
-        # 轉發給核心邏輯
-        await self.core_process_guess(ctx.channel.id, ctx.author, guess)
-
-    @commands.command(name="giveup", aliases=["放棄"], help="結束目前的海龜湯遊戲並公布答案。")
-    async def give_up(self, ctx: commands.Context):
-        game = self.games.get(ctx.channel.id)
-        if not game:
-            await ctx.send("這裡沒有正在進行的海龜湯遊戲。")
-            return
-
-        embed = discord.Embed(
-            title="🤔 遊戲結束",
-            description=f"**公布答案：**\n{game.answer}",
-            color=discord.Color.orange()
-        )
-        await ctx.send(embed=embed)
-        del self.games[ctx.channel.id]
-
+    # ------------------------------------------------------------------ 頻道提問
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if message.author.bot or message.content.startswith(self.bot.command_prefix):
+        if message.author.bot or not message.guild:
             return
-
         game = self.games.get(message.channel.id)
-        if not game or not message.content.endswith(("?", "？")):
+        content = message.content.strip()
+        if not game or game.over or not content.endswith(("?", "？")) or len(content) > 200:
             return
+        if self._on_cooldown(message.author.id):
+            return await message.add_reaction("⏳")
+        try:
+            async with message.channel.typing():
+                answer = await self.ask(game, message.author, content)
+        except AIError as e:
+            return await message.reply(f"⚠️ {e}", mention_author=False)
+        await message.reply(f"**{answer}**", mention_author=False)
 
-        # 這裡會自動從文字頻道讀取問題，轉發給核心邏輯
-        # 為避免阻塞，不使用 await 等待它完成
-        asyncio.create_task(self.core_process_question(message.channel.id, message.author, message.content))
+    @tasks.loop(minutes=1)
+    async def expire_idle(self):
+        now = time.time()
+        for game in [g for g in self.games.values() if now - g.last_activity > IDLE_TIMEOUT]:
+            await self.reveal(game, "太久沒人提問，自動公布答案")
 
 
-# --- UI 組件 ---
+class QuestionModal(discord.ui.Modal, title="向湯主提問"):
+    question = discord.ui.TextInput(label="是非題", placeholder="例如：他是被別人殺死的嗎？", max_length=200)
 
-class QuestionModal(discord.ui.Modal, title='向湯主提問'):
-    question = discord.ui.TextInput(
-        label='你的問題 (請以 是/否 回答為主)',
-        style=discord.TextStyle.short,
-        placeholder='例如：他是被謀殺的嗎？',
-        required=True,
-        max_length=100
-    )
-
-    def __init__(self, cog: 'SeaTortoise', channel_id: int):
+    def __init__(self, cog: SeaTortoise, game: SoupGame):
         super().__init__()
-        self.cog = cog
-        self.channel_id = channel_id
+        self.cog, self.game = cog, game
 
     async def on_submit(self, interaction: discord.Interaction):
-        # 呼叫 Cog 中的核心邏輯
-        await self.cog.core_process_question(self.channel_id, interaction.user, self.question.value, interaction)
+        if self.game.over:
+            return await send_error(interaction, "這鍋湯已經結束了。")
+        await interaction.response.defer(thinking=True)
+        try:
+            answer = await self.cog.ask(self.game, interaction.user, self.question.value.strip())
+        except AIError as e:
+            return await send_error(interaction, str(e))
+        await interaction.followup.send(f"**{interaction.user.display_name}** 問：{self.question.value.strip()}\n湯主：**{answer}**")
 
-class GuessModal(discord.ui.Modal, title='猜測真相'):
-    guess = discord.ui.TextInput(
-        label='你認為的真相是...',
-        style=discord.TextStyle.paragraph,
-        placeholder='請詳細描述你的推理...',
-        required=True,
-        max_length=500
-    )
 
-    def __init__(self, cog: 'SeaTortoise', channel_id: int):
+class GuessModal(discord.ui.Modal, title="猜真相"):
+    guess = discord.ui.TextInput(label="你認為的真相", style=discord.TextStyle.paragraph,
+                                 placeholder="把你推理出的完整經過寫下來…", max_length=600)
+
+    def __init__(self, cog: SeaTortoise, game: SoupGame):
         super().__init__()
-        self.cog = cog
-        self.channel_id = channel_id
+        self.cog, self.game = cog, game
 
     async def on_submit(self, interaction: discord.Interaction):
-        # 呼叫 Cog 中的核心邏輯
-        await self.cog.core_process_guess(self.channel_id, interaction.user, self.guess.value, interaction)
+        if self.game.over:
+            return await send_error(interaction, "這鍋湯已經結束了。")
+        await self.cog.guess(interaction, self.game, self.guess.value.strip())
 
-class SeaTortoiseView(discord.ui.View):
-    def __init__(self, cog: 'SeaTortoise', game: SeaTortoiseGame, channel_id: int):
-        super().__init__(timeout=None) # 遊戲介面不逾時，直到遊戲結束
-        self.cog = cog
-        self.game = game
-        self.channel_id = channel_id
 
-    @discord.ui.button(label="🗣️ 提問", style=discord.ButtonStyle.primary)
-    async def ask_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(QuestionModal(self.cog, self.channel_id))
+class SoupView(BaseView):
+    def __init__(self, cog: SeaTortoise, game: SoupGame):
+        super().__init__(timeout=None)
+        self.cog, self.game = cog, game
 
-    @discord.ui.button(label="💡 猜答", style=discord.ButtonStyle.success)
-    async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(GuessModal(self.cog, self.channel_id))
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.game.over:
+            await send_error(interaction, "這鍋湯已經結束了。")
+            return False
+        return True
 
-    @discord.ui.button(label="🏳️ 放棄", style=discord.ButtonStyle.danger)
-    async def giveup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 直接執行放棄邏輯
-        if self.channel_id in self.cog.games:
-            del self.cog.games[self.channel_id]
-            
-            embed = discord.Embed(
-                title="🤔 遊戲結束",
-                description=f"**公布答案：**\n{self.game.answer}",
-                color=discord.Color.orange()
-            )
-            await interaction.response.send_message(embed=embed)
-            # 停止並移除 View
-            self.stop()
-        else:
-            await interaction.response.send_message("遊戲已經結束了。", ephemeral=True)
+    @discord.ui.button(label="提問", emoji="🗣️", style=discord.ButtonStyle.primary)
+    async def ask_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(QuestionModal(self.cog, self.game))
 
-async def setup(bot: commands.Bot):
+    @discord.ui.button(label="猜真相", emoji="💡", style=discord.ButtonStyle.success)
+    async def guess_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(GuessModal(self.cog, self.game))
+
+    @discord.ui.button(label="提示", emoji="🔍", style=discord.ButtonStyle.secondary)
+    async def hint_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = self.game
+        if game.hints_used >= len(game.hints):
+            return await send_error(interaction, "提示已經全部用完了！")
+        game.hints_used += 1
+        game.last_activity = time.time()
+        await interaction.response.send_message(
+            f"🔍 **提示 {game.hints_used}**（{interaction.user.display_name} 要求）：{game.hints[game.hints_used - 1]}\n"
+            f"猜中獎勵降為 {game.reward} 分")
+        await self.cog.refresh(game)
+
+    @discord.ui.button(label="問答紀錄", emoji="📜", style=discord.ButtonStyle.secondary)
+    async def history_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.game.qa:
+            return await send_error(interaction, "還沒有人提問喔。")
+        lines = [f"**{q}** → {a}（{who}）" for who, q, a in self.game.qa[-20:]]
+        embed = make_embed(f"📜 問答紀錄（共 {len(self.game.qa)} 題）", "\n".join(lines))
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="公布答案", emoji="🏳️", style=discord.ButtonStyle.danger)
+    async def reveal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        is_mod = isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.manage_messages
+        if interaction.user.id != self.game.host_id and not is_mod:
+            return await send_error(interaction, "只有開湯的人或管理員可以公布答案。")
+        await interaction.response.defer()
+        await self.cog.reveal(self.game, f"{interaction.user.display_name} 公布了答案", interaction.channel)
+
+
+class AgainView(BaseView):
+    def __init__(self, cog: SeaTortoise, difficulty: str):
+        super().__init__(timeout=600)
+        self.cog, self.difficulty = cog, difficulty
+
+    @discord.ui.button(label="再來一鍋", emoji="🐢", style=discord.ButtonStyle.success)
+    async def again(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.start(interaction, self.difficulty)
+
+
+async def setup(bot):
     await bot.add_cog(SeaTortoise(bot))

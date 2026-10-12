@@ -1,66 +1,83 @@
-# AI-Powered Discord Bot
+# 嘎哇 Discord Bot
 
-這是一個搭載了多種遊戲功能的 Discord 機器人，其中的「海龜湯」遊戲更是由強大的 Gemini AI 驅動，能夠動態生成謎題並進行智慧判斷，帶來無限的遊戲樂趣。
+一個以**斜線指令**操作的 Discord 遊戲與工具機器人：每日簽到、積分排行榜、21 點、拉霸機、猜數字、井字遊戲、德州撲克，以及由 Gemini AI 出題的海龜湯。
 
-## 功能與特色
+輸入 `/menu` 打開大廳，所有功能都能用按鈕操作；介面語言是中文的使用者會看到中文指令名稱（例如 `/簽到`）。
 
-- **模組化設計**: 使用 `cogs` 來管理不同的功能，易於擴充與維護。
-- **AI 驅動遊戲**: 海龜湯遊戲完全由 Gemini AI 生成與互動，每一局都是獨一無二的體驗。
-- **多樣化遊戲庫**: 除了 AI 海龜湯，還內建了猜數字、二十一點、井字遊戲等多種經典遊戲。
-- **環境感知**: 自動偵測 `config.py` 或環境變數，安全地載入金鑰。
+## 功能一覽
 
-### 目前支援的遊戲
-- `!seatortoise` / `!海龜湯`: 開始一場由 AI 生成的懸疑推理遊戲。
-- `!guess` / `!猜數字`: 猜一個 1 到 100 之間的祕密數字。
-- `!blackjack` / `!二十一點`: 和莊家對決，看誰的點數最接近 21。
-- `!poker`: 簡易的德州撲克遊戲。
-- `!tictactoe` / `!井字遊戲`: 與另一位玩家進行一場井字對決。
-- `!checkin` / `!簽到`: 每日簽到領取獎勵。
+| 分類 | 指令 | 說明 |
+| --- | --- | --- |
+| 入口 | `/menu` | 大廳，按鈕操作所有功能（管理員可用 `公開:True` 發在頻道給大家用） |
+| | `/help` | 指令說明，指令可以直接點擊使用 |
+| 積分 | `/checkin` | 每日簽到：基礎 100、首次 +500、連續每天再 +20（台灣時間 00:00 換日） |
+| | `/profile [使用者]` | 積分、伺服器排名、簽到紀錄、遊戲戰績、最近收支 |
+| | `/leaderboard` | 伺服器積分排行榜與連續簽到排行榜 |
+| | `/give 對象 金額` | 轉帳給其他人 |
+| 遊戲 | `/blackjack [賭注]` | 21 點：每人獨立牌局，可加倍，Blackjack 賠 3:2；不下注就是練習模式 |
+| | `/slots 賭注` | 拉霸機，最高 100 倍 |
+| | `/guess [範圍]` | 全頻道一起猜，直接在頻道輸入數字，bot 用 ⬆️⬇️ 回應 |
+| | `/tictactoe [對手] [難度]` | 邀請朋友對戰，或挑戰三種難度的機器人 |
+| | `/poker [大盲注] [帶入籌碼]` | 2–8 人德州撲克，支援邊池、逾時自動行動、中途入座／離桌 |
+| | `/seatortoise [難度] [主題]` | AI 海龜湯：頻道裡輸入「？」結尾的問題，湯主回答是／不是／無關 |
+| 工具 | `/remind 時間 內容` | 提醒，支援 `10m`、`1h30m`、`18:30`、`明天 9:00` |
+| | `/reminders` | 查看或取消提醒 |
+| | `/poll [時長]` | 按鈕投票，可設定自動截止 |
+| | `/clear 數量` | 清除訊息（需要管理訊息權限） |
 
-## 環境設定與啟動
+## 安裝與啟動
 
-這是一個通用的 Python Discord Bot 專案。
+1. **建立虛擬環境並安裝套件**（需要 Python 3.10 以上）
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate        # macOS / Linux：source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
-1.  **安裝相依套件**
-    請確保您已安裝 Python，然後執行：
-    ```bash
-    pip install -r requirements.txt
-    ```
+2. **設定金鑰**：把 `config_example.py` 複製成 `config.py`，填入：
+   ```python
+   DISCORD_TOKEN = "你的 Discord Bot Token"
+   GEMINI_API_KEY = "你的 Gemini API Key"   # 選填，沒填只會停用海龜湯
+   ```
+   `config.py` 已被 `.gitignore` 排除，不會上傳。也可以改用同名的環境變數。
 
-2.  **設定 API 金鑰**
-    - 複製範例設定檔：
-      ```bash
-      cp config.example.py config.py
-      ```
-      (Windows 用戶請手動複製改名，或使用 `copy config.example.py config.py`)
-    - 編輯 `config.py`，並填入你的真實金鑰：
-      ```python
-      # config.py
-      DISCORD_TOKEN = "YOUR_DISCORD_BOT_TOKEN"
-      GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
-      ```
-    - **重要**: `config.py` 已被加入 `.gitignore`，不會被上傳到 Git。
+3. **Discord Developer Portal 設定**
+   - Bot 頁面開啟 **Message Content Intent**（猜數字與海龜湯要讀取頻道訊息）
+   - 邀請時勾選 scope `bot` 與 `applications.commands`，權限至少需要
+     Send Messages、Embed Links、Add Reactions、Read Message History（`/clear` 另需 Manage Messages）
 
-3.  **啟動 Bot**
-    ```bash
-    python bot.py
-    ```
+4. **啟動**
+   ```bash
+   python bot.py
+   ```
+   第一次啟動會自動把舊版 `data/points.json`、`data/checkin.json` 匯入資料庫（原檔不會被修改）。
+   開發時可以在 `config.py` 設定 `DEV_GUILD_ID`，斜線指令只同步到該伺服器並立即生效。
 
 ## 專案結構
 
 ```
-discord-bot/
-├── bot.py              # Bot 主程式
-├── config.example.py   # 設定檔範本
-├── requirements.txt    # 相依套件列表
-├── README.md           # 就是你現在在看的這個檔案
-└── cogs/                 # 功能模組 (Cogs)
-    ├── __init__.py
-    ├── blackjack.py
-    ├── checkin.py
-    ├── guess_number.py
-    ├── help.py
-    ├── poker.py
-    ├── seatortoise.py    # AI 海龜湯
-    └── tictactoe.py
+bot.py              主程式：載入功能、同步斜線指令、統一錯誤處理
+core/
+  config.py         讀取 config.py / 環境變數
+  db.py             SQLite 資料層（積分、簽到、下注保管、提醒、投票）
+  ui.py             共用的顏色、訊息格式、按鈕介面基底
+  ai.py             Gemini（google-genai）包裝
+  catalog.py        遊戲與指令目錄（大廳、說明、戰績共用）
+  i18n.py           指令名稱中文化
+  timeutil.py       台灣時區與時間字串解析
+cogs/
+  hub.py            /menu、/help
+  economy.py        簽到、個人資料、排行榜、轉帳
+  reminders.py      提醒
+  polls.py          投票
+  admin.py          /clear
+  blackjack.py  slots.py  guess_number.py  tictactoe.py  seatortoise.py
+  poker/            德州撲克（engine.py 是不依賴 Discord 的牌局引擎）
+tests/              單元測試：python -m unittest discover -s tests -t .
+data/               資料庫 bot.db（不會上傳）
 ```
+
+## 積分安全機制
+
+- 所有積分異動都經過 SQLite 並序列化處理，多人同時操作也不會互相覆蓋。
+- 遊戲開局時先扣下賭注保管，結算時一次發放；bot 中途重啟的話，下次啟動會自動退還所有未結算的賭注。
