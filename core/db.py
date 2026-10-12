@@ -85,6 +85,21 @@ CREATE TABLE IF NOT EXISTS poll_votes (
     option  INTEGER NOT NULL,
     PRIMARY KEY (poll_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS income (
+    user_id     INTEGER PRIMARY KEY,
+    last_work   REAL,
+    work_count  INTEGER NOT NULL DEFAULT 0,
+    chat_day    TEXT,
+    chat_earned INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS quest_progress (
+    user_id  INTEGER NOT NULL,
+    day      TEXT NOT NULL,
+    quest    TEXT NOT NULL,
+    progress INTEGER NOT NULL DEFAULT 0,
+    done     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day, quest)
+);
 """
 
 CHECKIN_BASE = 100
@@ -426,6 +441,88 @@ class Database:
             async with self.conn.execute("SELECT points FROM users WHERE user_id = ?", (user_id,)) as cur:
                 mine = await cur.fetchone()
         return row["rank"] if mine and mine["points"] > 0 else None
+
+    # ------------------------------------------------------------------ 打工 / 聊天獎勵
+    async def try_work(self, user_id: int, now: float, cooldown: float, reward: int,
+                       reason: str) -> Tuple[bool, float, int]:
+        """冷卻結束才發薪。回傳 (是否成功, 下次可打工的時間, 餘額)。"""
+        async with self._lock:
+            await self._ensure_user(user_id)
+            await self.conn.execute("INSERT OR IGNORE INTO income (user_id) VALUES (?)", (user_id,))
+            async with self.conn.execute("SELECT last_work FROM income WHERE user_id = ?", (user_id,)) as cur:
+                last = (await cur.fetchone())["last_work"]
+            if last and now - last < cooldown:
+                return False, last + cooldown, await self._balance(user_id)
+            await self.conn.execute(
+                "UPDATE income SET last_work = ?, work_count = work_count + 1 WHERE user_id = ?", (now, user_id))
+            await self.conn.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (reward, user_id))
+            await self._log(user_id, reward, reason)
+            await self.conn.commit()
+            return True, now + cooldown, await self._balance(user_id)
+
+    async def add_chat_reward(self, user_id: int, day: date, amount: int, daily_cap: int) -> int:
+        """發聊天獎勵（每天有上限），回傳實際發出的金額。"""
+        async with self._lock:
+            await self._ensure_user(user_id)
+            await self.conn.execute("INSERT OR IGNORE INTO income (user_id) VALUES (?)", (user_id,))
+            async with self.conn.execute("SELECT chat_day, chat_earned FROM income WHERE user_id = ?", (user_id,)) as cur:
+                row = await cur.fetchone()
+            earned = row["chat_earned"] if row["chat_day"] == day.isoformat() else 0
+            granted = max(0, min(amount, daily_cap - earned))
+            if granted:
+                await self.conn.execute(
+                    "UPDATE income SET chat_day = ?, chat_earned = ? WHERE user_id = ?",
+                    (day.isoformat(), earned + granted, user_id))
+                await self.conn.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (granted, user_id))
+                # 聊天獎勵很零碎，不逐筆寫入收支紀錄
+                await self.conn.commit()
+            return granted
+
+    async def income_status(self, user_id: int, day: date) -> Tuple[Optional[float], int]:
+        """回傳 (上次打工時間, 今天已領的聊天獎勵)。"""
+        async with self._lock:
+            async with self.conn.execute("SELECT last_work, chat_day, chat_earned FROM income WHERE user_id = ?",
+                                         (user_id,)) as cur:
+                row = await cur.fetchone()
+        if not row:
+            return None, 0
+        return row["last_work"], row["chat_earned"] if row["chat_day"] == day.isoformat() else 0
+
+    # ------------------------------------------------------------------ 每日任務
+    async def quest_progress(self, user_id: int, day: date) -> Dict[str, Tuple[int, bool]]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT quest, progress, done FROM quest_progress WHERE user_id = ? AND day = ?",
+                (user_id, day.isoformat()),
+            ) as cur:
+                return {r["quest"]: (r["progress"], bool(r["done"])) for r in await cur.fetchall()}
+
+    async def advance_quest(self, user_id: int, day: date, quest: str, increment: int, target: int,
+                            reward: int, reason: str) -> bool:
+        """增加任務進度；剛好達成時發獎勵並回傳 True（每個任務只會發一次）。"""
+        async with self._lock:
+            await self.conn.execute(
+                "INSERT OR IGNORE INTO quest_progress (user_id, day, quest) VALUES (?, ?, ?)",
+                (user_id, day.isoformat(), quest))
+            async with self.conn.execute(
+                "SELECT progress, done FROM quest_progress WHERE user_id = ? AND day = ? AND quest = ?",
+                (user_id, day.isoformat(), quest),
+            ) as cur:
+                row = await cur.fetchone()
+            if row["done"]:
+                await self.conn.commit()
+                return False
+            progress = min(target, row["progress"] + increment)
+            completed = progress >= target
+            await self.conn.execute(
+                "UPDATE quest_progress SET progress = ?, done = ? WHERE user_id = ? AND day = ? AND quest = ?",
+                (progress, 1 if completed else 0, user_id, day.isoformat(), quest))
+            if completed and reward:
+                await self._ensure_user(user_id)
+                await self.conn.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (reward, user_id))
+                await self._log(user_id, reward, reason)
+            await self.conn.commit()
+            return completed
 
     # ------------------------------------------------------------------ 提醒
     async def add_reminder(self, user_id: int, channel_id: Optional[int], content: str, due_at: float) -> int:

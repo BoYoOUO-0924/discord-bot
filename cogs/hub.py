@@ -29,6 +29,8 @@ class HubView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         row0 = [("checkin", "簽到", "✨", discord.ButtonStyle.success),
+                ("work", "打工", "💼", discord.ButtonStyle.success),
+                ("quests", "任務", "🎯", discord.ButtonStyle.primary),
                 ("profile", "個人資料", "👤", discord.ButtonStyle.primary),
                 ("leaderboard", "排行榜", "🏆", discord.ButtonStyle.primary)]
         for key, label, emoji, style in row0:
@@ -71,6 +73,7 @@ class Hub(commands.Cog):
                             value=f"💰 {fmt_points(profile.points)}・🔥 連續 {profile.streak} 天・{checked}", inline=False)
         else:
             embed.description = "點下方按鈕就能開始，所有結果只會顯示給操作的人或在頻道開局。"
+        embed.add_field(name="賺積分", value="✨ 每日簽到・💼 打工（每小時）・🎯 每日任務・💬 聊天也會累積", inline=False)
         games = []
         for game in GAMES:
             unavailable = "（未啟用）" if game.needs_ai and not self.bot.ai.available else ""
@@ -101,6 +104,10 @@ class Hub(commands.Cog):
         economy = self.bot.get_cog("Economy")
         if action == "checkin":
             return await economy.do_checkin(interaction)
+        if action == "work":
+            return await self.bot.get_cog("Earn").do_work(interaction)
+        if action == "quests":
+            return await self.bot.get_cog("Earn").send_quests(interaction)
         if action == "profile":
             return await economy.send_profile(interaction)
         if action == "leaderboard":

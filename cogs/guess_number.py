@@ -124,6 +124,8 @@ class GuessNumber(commands.Cog):
                     return await send_error(interaction, f"{number} 不在範圍內，答案在 {game.low} ~ {game.high} 之間。")
                 return await self._react(message, "❌")
 
+            self.bot.dispatch("activity", user.id, "guess", game.channel_id, {})
+
             if result == "correct":
                 return await self._win(game, user, number, message, interaction)
 
@@ -151,6 +153,7 @@ class GuessNumber(commands.Cog):
         reward = reward_for(game.attempts, game.maximum)
         balance = await self.bot.db.add_points(user.id, reward, "猜數字猜中")
         await self.bot.db.record_game(user.id, "guess", True, reward)
+        self.bot.dispatch("activity", user.id, "game", game.channel_id, {"game": "guess", "won": True})
 
         embed = make_embed("🎉 猜中了！", f"答案就是 **{number}**！", Color.GOLD)
         embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)

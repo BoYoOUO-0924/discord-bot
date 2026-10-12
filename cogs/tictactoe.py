@@ -132,11 +132,15 @@ class TicTacToe(commands.Cog):
         view.message = await respond(interaction, content=opponent.mention, embed=embed, view=view,
                                      allowed_mentions=discord.AllowedMentions(users=[opponent]))
 
-    async def record(self, game: TicTacToeGame) -> None:
+    async def record(self, game: TicTacToeGame, channel_id: Optional[int]) -> None:
         for symbol in (X, O):
             player = game.players[symbol]
             if player:
-                await self.bot.db.record_game(player.id, "tictactoe", game.winner == symbol)
+                won = game.winner == symbol
+                await self.bot.db.record_game(player.id, "tictactoe", won)
+                # 贏簡單電腦太容易，不算任務進度
+                if not (game.vs_bot and game.difficulty == "easy"):
+                    self.bot.dispatch("activity", player.id, "game", channel_id, {"game": "tictactoe", "won": won})
 
     async def launch_from_hub(self, interaction: discord.Interaction) -> None:
         view = OpponentPickerView(self, interaction.user.id)
@@ -197,8 +201,8 @@ class BoardView(BaseView):
 
     async def _update(self, interaction: discord.Interaction, note: Optional[str] = None) -> None:
         if self.game.winner:
-            self.stop()
-            await self.cog.record(self.game)
+            # 不能在這裡 stop()：「再來一局」按鈕也在這個介面上，停掉就按不了了
+            await self.cog.record(self.game, interaction.channel_id)
         self.render()
         await interaction.response.edit_message(embed=self.cog.build_embed(self.game, note), view=self)
 
@@ -214,6 +218,7 @@ class BoardView(BaseView):
         game = self.game
         if interaction.user.id not in self._participants():
             return await send_error(interaction, "只有剛剛對戰的玩家可以再來一局。")
+        self.stop()
         # 交換 ❌ ⭕，機器人永遠是 ⭕
         if game.vs_bot:
             new_game = TicTacToeGame(game.players[X], None, game.difficulty)
@@ -222,11 +227,17 @@ class BoardView(BaseView):
         await self.cog.begin(interaction, new_game, edit=True)
 
     async def on_timeout(self) -> None:
-        if self.message and not self.game.winner:
-            try:
+        if not self.message:
+            return
+        try:
+            if self.game.winner:
+                # 已經分出勝負：只把「再來一局」停用，保留棋盤結果
+                self.disable_all()
+                await self.message.edit(view=self)
+            else:
                 await self.message.edit(embed=self.cog.build_embed(self.game, "太久沒有動作，對局已結束"), view=None)
-            except discord.HTTPException:
-                pass
+        except discord.HTTPException:
+            pass
 
 
 class InviteView(BaseView):

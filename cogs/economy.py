@@ -1,10 +1,12 @@
 """積分系統：簽到、個人資料、排行榜、轉帳。"""
+import time
 from typing import Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.earn import CHAT_DAILY_CAP, WORK_COOLDOWN
 from core.catalog import GAMES_BY_KEY
 from core.db import checkin_reward
 from core.timeutil import next_midnight_tw, today_tw, ts
@@ -68,7 +70,12 @@ class Economy(commands.Cog):
         embed.add_field(name="📅 今日簽到", value="✅ 已簽到" if checked_today else "❗ 尚未簽到")
         embed.add_field(name="🔥 連續簽到", value=f"{profile.streak} 天")
         embed.add_field(name="🗓️ 累計簽到", value=f"{profile.total_checkins} 天")
-        embed.add_field(name="​", value="​")
+        last_work, chat_earned = await self.db.income_status(member.id, today)
+        if last_work and time.time() - last_work < WORK_COOLDOWN:
+            work_text = f"{ts(last_work + WORK_COOLDOWN, 'R')}可打工"
+        else:
+            work_text = "現在可以打工"
+        embed.add_field(name="💼 今日收入", value=f"{work_text}\n聊天獎勵 {chat_earned}/{CHAT_DAILY_CAP}")
 
         stats = await self.db.game_stats(member.id)
         if stats:

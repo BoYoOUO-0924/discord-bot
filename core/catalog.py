@@ -18,7 +18,7 @@ GAMES: List[GameInfo] = [
     GameInfo("slots", "🎰", "拉霸機", "三個一樣就中獎，最高 100 倍", "賭注"),
     GameInfo("guess", "🔢", "猜數字", "全頻道一起猜，猜中的人拿獎勵", "[範圍]"),
     GameInfo("tictactoe", "⭕", "井字遊戲", "找朋友對戰，或挑戰機器人", "[對手] [難度]"),
-    GameInfo("poker", "♠️", "德州撲克", "2–8 人一桌，帶入籌碼一起玩", "[大盲注] [帶入籌碼]"),
+    GameInfo("poker", "♠️", "德州撲克", "2–8 人一桌，也能加入電腦對手", "[大盲注] [帶入籌碼] [電腦對手]"),
     GameInfo("seatortoise", "🐢", "AI 海龜湯", "AI 出謎題，用是非題推理真相", "[難度] [主題]", needs_ai=True),
 ]
 GAMES_BY_KEY: Dict[str, GameInfo] = {g.key: g for g in GAMES}
@@ -27,6 +27,8 @@ GAMES_BY_KEY: Dict[str, GameInfo] = {g.key: g for g in GAMES}
 HELP_SECTIONS: List[Tuple[str, List[Tuple[str, str, str]]]] = [
     ("💰 積分與日常", [
         ("checkin", "", "每日簽到領積分，連續簽到加成越來越多"),
+        ("work", "", "打工賺 80–200 分，每小時一次，偶爾大成功雙倍"),
+        ("quests", "", "每日 3 個任務，全部完成再加碼；在伺服器聊天也會慢慢累積積分"),
         ("profile", "[使用者]", "積分、排名、簽到紀錄與遊戲戰績"),
         ("leaderboard", "", "伺服器積分與連續簽到排行榜"),
         ("give", "對象 金額", "把積分轉給其他人"),
