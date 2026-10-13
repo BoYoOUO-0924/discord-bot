@@ -3,6 +3,7 @@ import asyncio
 import logging
 import random
 import time
+from dataclasses import replace
 from typing import Dict, Optional
 
 import discord
@@ -57,8 +58,7 @@ class Lobby:
             personality = fresh[0]
         else:   # 四種個性都用過了，加上編號區分
             base = PERSONALITIES[len(self.ai) % len(PERSONALITIES)]
-            personality = Personality(f"{base.name} {len(self.ai) // len(PERSONALITIES) + 1}號", base.style,
-                                      base.margin, base.aggression, base.bluff, base.sims)
+            personality = replace(base, name=f"{base.name} {len(self.ai) // len(PERSONALITIES) + 1}號")
         self.ai[-(len(self.ai) + 1)] = personality
         return personality
 
@@ -635,7 +635,7 @@ class TableView(discord.ui.View):
         self._button(call_label, discord.ButtonStyle.primary, 0, self.call, disabled=not in_progress)
         self._button("加注", discord.ButtonStyle.success, 0, self.raise_, disabled=not in_progress or raise_disabled)
         self._button(allin_label, discord.ButtonStyle.secondary, 0, self.all_in, disabled=allin_disabled)
-        self._button("看手牌", discord.ButtonStyle.secondary, 1, self.hand, emoji="🂠")
+        self._button("看手牌", discord.ButtonStyle.secondary, 1, self.hand, emoji="🃏")
         self._button("加入牌桌", discord.ButtonStyle.secondary, 1, self.join, emoji="🪑",
                      disabled=len(t.seats) >= MAX_SEATS)
         self._button("離桌", discord.ButtonStyle.secondary, 1, self.leave, emoji="👋")

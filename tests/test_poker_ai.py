@@ -3,7 +3,7 @@ import unittest
 from dataclasses import replace
 from datetime import date
 
-from cogs.poker.ai import PERSONALITIES, decide, estimate_equity
+from cogs.poker.ai import PERSONALITIES, decide, estimate_equity, preflop_rank
 from cogs.poker.cards import Card
 from cogs.poker.engine import PokerTable, Seat
 from core.quests import QUEST_POOL, daily_quests
@@ -26,6 +26,49 @@ class EquityTest(unittest.TestCase):
         board = [C("K♥"), C("9♥"), C("4♥"), C("2♣"), C("J♦")]
         equity = estimate_equity([C("A♥"), C("Q♥")], board, 2, 300, random.Random(1))
         self.assertGreater(equity, 0.95)
+
+
+class PreflopRankTest(unittest.TestCase):
+    def test_rank_order(self):
+        self.assertLess(preflop_rank([C("A♠"), C("A♥")]), 0.01)            # AA 第一名
+        self.assertLess(preflop_rank([C("K♠"), C("A♠")]), 0.03)            # AKs 前 3%
+        self.assertEqual(preflop_rank([C("7♠"), C("2♥")]), 1.0)            # 72 不同花最後一名
+        self.assertLess(preflop_rank([C("Q♥"), C("J♥")]), preflop_rank([C("Q♥"), C("J♣")]))
+
+
+class LooseTableTest(unittest.TestCase):
+    """8 人全電腦桌：確認每手有足夠多電腦跟進，入局率接近個性設定。"""
+
+    def test_most_bots_see_the_flop(self):
+        rng = random.Random(2024)
+        hands, flop_seers = 300, 0
+        entered = {p.name: [0, 0] for p in PERSONALITIES}   # 個性 -> [入局次數, 手數]
+        for _ in range(hands):
+            seats = [Seat(-(i + 1), PERSONALITIES[i % 4].name, 2000) for i in range(8)]
+            people = {s.user_id: replace(PERSONALITIES[i % 4], sims=30) for i, s in enumerate(seats)}
+            table = PokerTable(seats, 10, 20)
+            table.dealer_id = rng.choice(seats).user_id
+            table.start_hand()
+            voluntary = set()
+            while not table.hand_over and not table.board:
+                seat = table.current_seat
+                action, amount = decide(table, seat, people[seat.user_id], rng)
+                if action in ("call", "raise", "all_in"):
+                    voluntary.add(seat.user_id)
+                table.act(seat.user_id, action, amount)
+            if table.board:
+                flop_seers += sum(1 for s in table.order if not s.folded)
+            for s in seats:
+                if s.user_id == table.bb_id:
+                    continue   # 大盲常常免費看牌，不列入入局率
+                stats = entered[people[s.user_id].name]
+                stats[1] += 1
+                stats[0] += s.user_id in voluntary
+        # 8 人桌平均 5.5 位看翻牌 ≈ 真人加 7 位電腦時，電腦有 5 位以上跟進
+        self.assertGreaterEqual(flop_seers / hands, 5.5)
+        for p in PERSONALITIES:
+            played, total = entered[p.name]
+            self.assertAlmostEqual(played / total, p.vpip, delta=0.12, msg=p.name)
 
 
 class AIPlayTest(unittest.TestCase):
