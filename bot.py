@@ -1,6 +1,8 @@
 """Discord Bot 主程式（斜線指令版）。"""
 import logging
 import os
+import sys
+from logging.handlers import RotatingFileHandler
 
 import discord
 from discord import app_commands
@@ -27,7 +29,11 @@ EXTENSIONS = [
     "cogs.tictactoe",
     "cogs.poker",
     "cogs.seatortoise",
+    "cogs.updater",
 ]
+
+# 結束代碼 3 代表「已更新，請立刻重新啟動」，deploy/windows/2_start.bat 會依此重啟
+RESTART_EXIT_CODE = 3
 
 
 class AppTree(app_commands.CommandTree):
@@ -66,6 +72,12 @@ class Bot(commands.Bot):
         self.settings = load_settings()
         self.db = Database(self.settings.database_path)
         self.ai = GeminiClient(self.settings.gemini_api_key, self.settings.gemini_model)
+        self.restart_requested = False
+
+    async def request_restart(self) -> None:
+        """關閉 bot 並以 RESTART_EXIT_CODE 結束，讓啟動腳本馬上重新啟動。"""
+        self.restart_requested = True
+        await self.close()
 
     async def setup_hook(self) -> None:
         await self.db.connect()
@@ -110,12 +122,26 @@ class Bot(commands.Bot):
         await self.db.close()
 
 
+def setup_file_logging() -> None:
+    """紀錄同時寫進 logs/bot.log（每個 5 MB，保留 3 份），無人看管時也查得到問題。"""
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    handler = RotatingFileHandler(os.path.join(log_dir, "bot.log"), maxBytes=5 * 1024 * 1024,
+                                  backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("[{asctime}] [{levelname:<8}] {name}: {message}",
+                                           "%Y-%m-%d %H:%M:%S", style="{"))
+    logging.getLogger().addHandler(handler)
+
+
 def main() -> None:
     discord.utils.setup_logging()
+    setup_file_logging()
     bot = Bot()
     if not bot.settings.discord_token:
         raise SystemExit("找不到 Bot Token：請在 config.py 設定 DISCORD_TOKEN，或設定環境變數 DISCORD_TOKEN。")
     bot.run(bot.settings.discord_token, log_handler=None)
+    if bot.restart_requested:
+        sys.exit(RESTART_EXIT_CODE)
 
 
 if __name__ == "__main__":
