@@ -10,7 +10,7 @@ from discord.ext import commands
 
 from core.quests import ALL_DONE_BONUS, ALL_DONE_KEY, daily_quests
 from core.timeutil import next_midnight_tw, today_tw, ts
-from core.ui import Color, fmt_points, make_embed, progress_bar, respond
+from core.ui import Color, defer, fmt_points, make_embed, progress_bar, respond
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +94,7 @@ class Earn(commands.Cog):
         return embed
 
     async def send_quests(self, interaction: discord.Interaction) -> None:
+        await defer(interaction, ephemeral=True)
         await respond(interaction, embed=await self.build_quests(interaction.user), ephemeral=True)
 
     @app_commands.command(name="quests", description="查看今天的每日任務與進度")

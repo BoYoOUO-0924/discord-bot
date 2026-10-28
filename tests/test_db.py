@@ -71,6 +71,16 @@ class DatabaseTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(board, [(2, 500), (1, 300)])
         self.assertEqual(await self.db.points_rank(10, 1), 2)
 
+    async def test_touch_member_writes_once(self):
+        await self.db.touch_member(10, 1)
+        await self.db.conn.execute("DELETE FROM guild_members")
+        await self.db.touch_member(10, 1)   # 已經記錄過，不會再寫一次資料庫
+        async with self.db.conn.execute("SELECT COUNT(*) AS n FROM guild_members") as cur:
+            self.assertEqual((await cur.fetchone())["n"], 0)
+        await self.db.touch_member(10, 2)   # 新的人照常寫入
+        async with self.db.conn.execute("SELECT COUNT(*) AS n FROM guild_members") as cur:
+            self.assertEqual((await cur.fetchone())["n"], 1)
+
     async def test_votes_toggle(self):
         poll = await self.db.create_poll(1, 1, "Q", ["a", "b"], None)
         self.assertEqual(await self.db.vote(poll, 5, 0), "added")

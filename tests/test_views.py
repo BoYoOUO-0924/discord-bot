@@ -25,6 +25,30 @@ class TicTacToeViewTest(unittest.IsolatedAsyncioTestCase):
         cog.record.assert_awaited_once()
 
 
+class DeferTest(unittest.IsolatedAsyncioTestCase):
+    async def test_defer_then_respond_uses_followup(self):
+        from core.ui import defer, respond
+
+        state = {"done": False}
+
+        async def fake_defer(**kwargs):
+            state["done"] = True
+
+        message = SimpleNamespace(id=1)
+        interaction = SimpleNamespace(
+            response=SimpleNamespace(is_done=lambda: state["done"], defer=AsyncMock(side_effect=fake_defer),
+                                     send_message=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock(return_value=message)),
+            channel=None,
+        )
+        await defer(interaction, ephemeral=True)
+        await defer(interaction, ephemeral=True)   # 重複呼叫不會出錯
+        interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+        self.assertIs(await respond(interaction, content="hi", ephemeral=True), message)
+        interaction.followup.send.assert_awaited_once()
+        interaction.response.send_message.assert_not_awaited()
+
+
 class PokerTableViewTest(unittest.IsolatedAsyncioTestCase):
     async def test_button_emojis_are_discord_emojis(self):
         from cogs.poker.cog import Lobby, PokerGame, TableView

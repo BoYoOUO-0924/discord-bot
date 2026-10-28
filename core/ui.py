@@ -64,6 +64,15 @@ async def respond(interaction: discord.Interaction, *, ephemeral: bool = False, 
     return message
 
 
+async def defer(interaction: discord.Interaction, *, ephemeral: bool = False) -> None:
+    """先回「思考中…」。Discord 要求 3 秒內回應，要查較多資料的指令先呼叫這個，就有 15 分鐘可以處理。
+
+    之後用 respond() 送出結果即可；ephemeral 必須和最後要送的訊息一致。
+    """
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=ephemeral, thinking=True)
+
+
 async def send_error(interaction: discord.Interaction, message: str) -> None:
     """錯誤一律只讓當事人看到，不洗頻道。"""
     try:
