@@ -36,7 +36,7 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 | `1_install.bat` | 建立虛擬環境、安裝套件，並在桌面建立「Gawa Bot」捷徑 |
 | 桌面的 **Gawa Bot** | 啟動 bot。可以到 Discord 試一下 `/menu` 確認正常 |
 | `3_autostart.bat` | 之後每次登入 Windows，bot 都會自動啟動（縮小到工作列） |
-| `4_keep_awake.bat` | 選用：插電時不睡眠、蓋上螢幕不休眠。不影響用電池時的設定 |
+| `4_keep_awake.bat` | **建議**：插電時不睡眠、蓋上螢幕不休眠，並可關閉「新式待命」（見下方常見問題）。會要求系統管理員權限，不影響用電池時的設定 |
 
 ### 6. 筆電重新開機後
 `3_autostart.bat` 會在**登入 Windows 後**才啟動 bot。如果筆電重開後停在登入畫面（例如 Windows 更新後自動重開），bot 就不會啟動。
@@ -64,6 +64,21 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 打開 `logs\bot.log`，搜尋「自動更新」看原因：
 - 「本機有自己的修改」：筆電上的程式被改過。如果確定不需要那些修改，在 `C:\GawaBot` 開 PowerShell 執行 `git reset --hard origin/main`。這只會還原程式檔，`config.py` 和 `data\` 裡的資料不受影響。
 - 「找不到 git」：回到步驟 2 安裝 Git。
+
+**明明設定「蓋上螢幕不執行任何動作」，蓋上後 bot 還是離線**
+很多較新的筆電使用「新式待命」（Modern Standby，S0 低電源閒置）：只要螢幕關掉，Windows 就會進入待命，
+「不執行任何動作」只代表蓋上時不主動睡眠，螢幕一關還是會待命，bot 就斷線了。
+1. 在 PowerShell 執行 `powercfg /a`，如果「可用」的狀態裡有 **待命 (S0 低電源閒置)**，就是這個原因。
+2. 執行 `4_keep_awake.bat`，在「Turn off Modern Standby」選 **Y**，然後**重新開機**。
+3. 之後蓋上螢幕，bot 會持續在線。要還原，以系統管理員身分執行
+   `reg delete HKLM\SYSTEM\CurrentControlSet\Control\Power /v PlatformAoAcOverride /f` 再重開機。
+
+其他也會讓 bot 斷線的情況：
+- 拔掉電源改用電池：這些設定只套用在插電時。
+- 筆電廠商的電源管理程式（例如 Lenovo Vantage、MyASUS）或切換電源計畫，可能把設定改回去。重新執行 `4_keep_awake.bat` 即可。
+- 無線網卡省電：裝置管理員 → 網路介面卡 → 你的 Wi-Fi → 內容 → 電源管理，取消勾選「允許電腦關閉這個裝置以節省電源」。
+
+另外，bot 執行時本身也會阻止 Windows 因「閒置」而自動睡眠，但擋不住蓋上螢幕造成的待命。
 
 **bot 一直重啟**
 看 `logs\bot.log` 最後的錯誤訊息。常見原因是 `config.py` 的 Token 填錯或過期，要到 Discord Developer Portal 重新產生。

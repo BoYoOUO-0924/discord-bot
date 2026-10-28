@@ -133,9 +133,23 @@ def setup_file_logging() -> None:
     logging.getLogger().addHandler(handler)
 
 
+def keep_system_awake() -> None:
+    """Windows：bot 執行期間告訴系統「正在工作」，不會因閒置而自動睡眠。
+
+    只擋閒置睡眠；蓋上螢幕或按電源鍵仍依電源設定，見 deploy/windows/4_keep_awake.bat。
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+    ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+    if not ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED):
+        log.warning("無法設定防止睡眠")
+
+
 def main() -> None:
     discord.utils.setup_logging()
     setup_file_logging()
+    keep_system_awake()
     bot = Bot()
     if not bot.settings.discord_token:
         raise SystemExit("找不到 Bot Token：請在 config.py 設定 DISCORD_TOKEN，或設定環境變數 DISCORD_TOKEN。")
