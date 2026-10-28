@@ -28,6 +28,7 @@ class Seat:
     acted: bool = False
     in_hand: bool = False   # 這手有拿到牌
     leaving: bool = False   # 這手結束後離桌
+    last_action: str = ""   # 本輪最後的動作，顯示在牌桌上
 
     @property
     def can_act(self) -> bool:
@@ -149,6 +150,7 @@ class PokerTable:
         for seat in self.seats:
             seat.hole, seat.bet, seat.contributed = [], 0, 0
             seat.folded = seat.all_in = seat.acted = False
+            seat.last_action = ""
             seat.in_hand = seat in players
 
         # 移動莊家按鈕到下一位
@@ -211,17 +213,17 @@ class PokerTable:
 
         if action == "fold":
             seat.folded = True
-            self.log.append(f"{seat.name} 棄牌")
+            self._record(seat, "棄牌")
         elif action == "check":
             if not legal.can_check:
                 raise IllegalAction(f"現在需要跟注 {legal.to_call}，不能過牌。")
-            self.log.append(f"{seat.name} 過牌")
+            self._record(seat, "過牌")
         elif action == "call":
             if legal.can_check:
-                self.log.append(f"{seat.name} 過牌")
+                self._record(seat, "過牌")
             else:
                 self._pay(seat, legal.call_amount)
-                self.log.append(f"{seat.name} 跟注 {legal.call_amount}" + ("（All-in）" if seat.all_in else ""))
+                self._record(seat, f"跟注 {legal.call_amount:,}" + ("（All-in）" if seat.all_in else ""))
         elif action in ("raise", "all_in"):
             target = legal.max_raise_to if action == "all_in" else amount
             if target is None:
@@ -229,7 +231,7 @@ class PokerTable:
             if action == "all_in" and (target <= self.current_bet or not legal.can_raise):
                 # 籌碼不夠跟注、或其他人都已 All-in 沒人能再跟，這種 All-in 視同跟注
                 self._pay(seat, legal.call_amount)
-                self.log.append(f"{seat.name} 跟注 {legal.call_amount}" + ("（All-in）" if seat.all_in else ""))
+                self._record(seat, f"跟注 {legal.call_amount:,}" + ("（All-in）" if seat.all_in else ""))
             elif target <= self.current_bet:
                 raise IllegalAction(f"加注後的總下注必須大於 {self.current_bet}。")
             else:
@@ -248,12 +250,16 @@ class PokerTable:
                     if other is not seat:
                         other.acted = False
                 verb = "All-in" if seat.all_in else "加注到"
-                self.log.append(f"{seat.name} {verb} {target}")
+                self._record(seat, f"{verb} {target:,}")
         else:
             raise IllegalAction("未知的動作。")
 
         seat.acted = True
         self._advance()
+
+    def _record(self, seat: Seat, text: str) -> None:
+        seat.last_action = text
+        self.log.append(f"{seat.name} {text}")
 
     def _betting_complete(self) -> bool:
         actors = [s for s in self.order if s.can_act]
@@ -296,6 +302,8 @@ class PokerTable:
         while True:
             for seat in self.order:
                 seat.bet, seat.acted = 0, False
+                if not seat.folded and not seat.all_in:
+                    seat.last_action = ""
             self.current_bet, self.min_raise = 0, self.big_blind
             if self.street == "river":
                 self._showdown()
