@@ -23,19 +23,23 @@ powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0
 powercfg /setactive SCHEME_CURRENT
 
 echo.
-echo ------------------------------------------------------------------
-echo Sleep states on this laptop:
-powercfg /a
-echo ------------------------------------------------------------------
+rem Ask Windows directly whether this laptop uses Modern Standby (AoAc in SYSTEM_POWER_CAPABILITIES)
+powershell -NoProfile -Command "$p = Add-Type -MemberDefinition '[DllImport(\"powrprof.dll\")] public static extern bool GetPwrCapabilities(byte[] c);' -Name Pwr -Namespace GawaBot -PassThru; $c = New-Object byte[] 128; [void]$p::GetPwrCapabilities($c); exit $c[20]"
+if not "%errorlevel%"=="1" (
+    echo.
+    echo This laptop does not use Modern Standby, so nothing else needs to change.
+    echo Closing the lid while plugged in will no longer put it to sleep.
+    goto done
+)
+
 echo.
-echo Many newer laptops use "Modern Standby" (S0 Low Power Idle).
-echo On those laptops Windows goes into standby whenever the screen turns off,
+echo This laptop uses "Modern Standby" (S0 Low Power Idle).
+echo Windows then goes into standby whenever the screen turns off,
 echo for example when the lid is closed, even if the lid is set to "Do nothing".
 echo The bot then goes offline.
 echo.
-echo If the list above shows "S0 Low Power Idle" as AVAILABLE, turn Modern Standby off.
-echo The laptop will use normal sleep instead, so "Do nothing" really does nothing.
-echo You can undo this later with:
+echo Turning Modern Standby off makes the laptop use normal sleep instead,
+echo so "Do nothing" really does nothing. You can undo this later with:
 echo     reg delete HKLM\SYSTEM\CurrentControlSet\Control\Power /v PlatformAoAcOverride /f
 echo.
 choice /m "Turn off Modern Standby"
