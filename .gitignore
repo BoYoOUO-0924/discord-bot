@@ -17,6 +17,9 @@ ENV/
 .DS_Store
 Thumbs.db
 
+# Logs
+logs/
+
 # Data (ignore json / database but keep folder)
 data/*.json
 data/*.db

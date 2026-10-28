@@ -1,2 +1,3 @@
 * text=auto
-
+# 批次檔一定要用 Windows 換行，否則 goto 等指令可能出錯
+*.bat text eol=crlf

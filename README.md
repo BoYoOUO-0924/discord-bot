@@ -55,6 +55,11 @@
    第一次啟動會自動把舊版 `data/points.json`、`data/checkin.json` 匯入資料庫（原檔不會被修改）。
    開發時可以在 `config.py` 設定 `DEV_GUILD_ID`，斜線指令只同步到該伺服器並立即生效。
 
+## 放在舊筆電上 24 小時執行
+
+`deploy/windows/` 裡有一鍵安裝、自動重啟、開機自動啟動的腳本，並支援從 GitHub 自動更新（只會套用自動測試通過的版本）。
+詳細步驟請看 [deploy/windows/README.md](deploy/windows/README.md)。
+
 ## 專案結構
 
 ```
