@@ -1,5 +1,5 @@
 # Secrets
-config.py
+/config.py
 .env
 
 # Python
