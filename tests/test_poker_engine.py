@@ -187,5 +187,49 @@ class RandomPlayTest(unittest.TestCase):
                 self.assertTrue(all(s.stack >= 0 for s in table.seats))
 
 
+
+class LastActionTest(unittest.TestCase):
+    def test_last_action_shown_until_next_street(self):
+        table = make_table([1000, 1000, 1000])
+        table.start_hand()
+        p1, p2, p3 = table.order
+        table.act(p1.user_id, "raise", 60)
+        self.assertEqual(p1.last_action, "加注到 60")
+        table.act(p2.user_id, "fold")
+        table.act(p3.user_id, "call")
+        self.assertEqual(table.street, "flop")
+        self.assertEqual(p1.last_action, "")
+        self.assertEqual(p2.last_action, "棄牌")   # 棄牌的狀態保留
+
+
+class RaiseOptionsTest(unittest.TestCase):
+    def test_presets_are_legal_and_below_all_in(self):
+        from cogs.poker.cog import raise_options
+
+        table = make_table([1000, 1000, 1000])
+        table.start_hand()
+        seat = table.current_seat
+        legal = table.legal(seat)
+        options = raise_options(table, seat)
+        amounts = [a for _, a in options]
+        self.assertEqual(amounts[0], legal.min_raise_to)
+        self.assertEqual(amounts, sorted(set(amounts)))
+        self.assertTrue(all(legal.min_raise_to <= a < legal.max_raise_to for a in amounts))
+        for _, amount in options:   # 每個選項都要能真的下出去
+            copy = make_table([1000, 1000, 1000])
+            copy.start_hand()
+            copy.act(copy.current_seat.user_id, "raise", amount)
+
+    def test_short_stack_has_no_presets(self):
+        from cogs.poker.cog import raise_options
+
+        table = make_table([1000, 1000, 30])
+        table.start_hand()
+        table.act(table.current_seat.user_id, "raise", 100)
+        table.act(table.current_seat.user_id, "call")
+        seat = table.current_seat   # 只剩 30 的大盲，加注只能 All-in
+        self.assertEqual(raise_options(table, seat), [])
+
+
 if __name__ == "__main__":
     unittest.main()
