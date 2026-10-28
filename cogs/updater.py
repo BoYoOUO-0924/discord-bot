@@ -3,6 +3,7 @@
 只有設定 AUTO_UPDATE=1 時才會啟用（deploy/windows/2_start.bat 會自動設定），
 開發用的電腦不會被自動覆蓋。
 """
+import asyncio
 import logging
 import os
 import shutil
@@ -26,6 +27,7 @@ class Updater(commands.Cog):
         self.bot = bot
         self.deferred_since: Optional[float] = None
         self.last_notice: Optional[str] = None
+        self.restart_task: Optional[asyncio.Task] = None
 
     async def cog_load(self):
         if not self.bot.settings.auto_update:
@@ -89,7 +91,9 @@ class Updater(commands.Cog):
 
         await updater.apply(PROJECT_ROOT)
         log.info("自動更新：%s → %s（%s），重新啟動中", status.current[:7], status.latest[:7], reason)
-        await self.bot.request_restart()
+        # 關閉 bot 時會卸載這個 cog 並取消 check_loop；如果直接在迴圈裡 await，
+        # 關閉流程會跟著被取消，指令都卸載了卻沒斷線、也不會重啟，所以改在獨立的工作裡關閉
+        self.restart_task = asyncio.create_task(self.bot.request_restart())
 
 
 async def setup(bot):
