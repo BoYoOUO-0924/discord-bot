@@ -10,7 +10,7 @@ from cogs.earn import CHAT_DAILY_CAP, WORK_COOLDOWN
 from core.catalog import GAMES_BY_KEY
 from core.db import checkin_reward
 from core.timeutil import next_midnight_tw, today_tw, ts
-from core.ui import BaseView, Color, fmt_points, fmt_signed, make_embed, respond, send_error
+from core.ui import BaseView, Color, defer, fmt_points, fmt_signed, make_embed, respond, send_error
 
 MEDALS = ["🥇", "🥈", "🥉"]
 
@@ -103,6 +103,7 @@ class Economy(commands.Cog):
         member = member or interaction.user
         if member.bot:
             return await send_error(interaction, "機器人沒有個人資料喔。")
+        await defer(interaction, ephemeral=True)   # 要查好幾種資料，先回應避免超過 3 秒
         embed = await self.build_profile(member, interaction.guild)
         view = None
         if member.id == interaction.user.id:
@@ -141,6 +142,7 @@ class Economy(commands.Cog):
     async def send_leaderboard(self, interaction: discord.Interaction, *, ephemeral: bool = False) -> None:
         if not interaction.guild:
             return await send_error(interaction, "排行榜只能在伺服器裡查看。")
+        await defer(interaction, ephemeral=ephemeral)
         embed = await self.build_leaderboard(interaction.guild, interaction.user.id, "points")
         view = LeaderboardView(self)
         view.message = await respond(interaction, embed=embed, view=view, ephemeral=ephemeral)
@@ -185,8 +187,9 @@ class LeaderboardView(BaseView):
 
     async def _switch(self, interaction: discord.Interaction, by: str):
         # 每個人按都會看到包含自己排名的版本
+        await defer(interaction, ephemeral=True)
         embed = await self.cog.build_leaderboard(interaction.guild, interaction.user.id, by)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await respond(interaction, embed=embed, ephemeral=True)
 
     @discord.ui.button(label="積分", emoji="💰", style=discord.ButtonStyle.secondary)
     async def by_points(self, interaction: discord.Interaction, button: discord.ui.Button):

@@ -154,6 +154,7 @@ class Database:
         self.path = path
         self._conn: Optional[aiosqlite.Connection] = None
         self._lock = asyncio.Lock()
+        self._members_seen: set = set()
 
     # ------------------------------------------------------------------ 連線
     async def connect(self) -> None:
@@ -161,6 +162,8 @@ class Database:
         self._conn = await aiosqlite.connect(self.path)
         self._conn.row_factory = aiosqlite.Row
         await self._conn.execute("PRAGMA journal_mode=WAL")
+        # WAL 模式下用 NORMAL 一樣不會損壞資料庫，但寫入不必每次等硬碟同步，舊電腦上快很多
+        await self._conn.execute("PRAGMA synchronous=NORMAL")
         await self._conn.executescript(SCHEMA)
         await self._conn.commit()
 
@@ -237,12 +240,19 @@ class Database:
 
     # ------------------------------------------------------------------ 積分
     async def touch_member(self, guild_id: int, user_id: int) -> None:
-        """記錄使用者出現在哪個伺服器，排行榜只列出同伺服器的人。"""
+        """記錄使用者出現在哪個伺服器，排行榜只列出同伺服器的人。
+
+        每個指令都會呼叫，所以同一組只在每次啟動後寫一次，避免拖慢指令回應。
+        """
+        key = (guild_id, user_id)
+        if key in self._members_seen:
+            return
         async with self._lock:
             await self.conn.execute(
-                "INSERT OR IGNORE INTO guild_members (guild_id, user_id) VALUES (?, ?)", (guild_id, user_id)
+                "INSERT OR IGNORE INTO guild_members (guild_id, user_id) VALUES (?, ?)", key
             )
             await self.conn.commit()
+        self._members_seen.add(key)
 
     async def get_points(self, user_id: int) -> int:
         async with self._lock:

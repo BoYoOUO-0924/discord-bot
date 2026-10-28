@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core.timeutil import fmt_duration, now_tw, parse_when, ts
-from core.ui import BaseView, Color, make_embed, respond, send_error, success_embed
+from core.ui import BaseView, Color, defer, make_embed, respond, send_error, success_embed
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +71,7 @@ class Reminders(commands.Cog):
     # ------------------------------------------------------------------ 查看 / 取消
     @app_commands.command(name="reminders", description="查看或取消你的提醒")
     async def reminders(self, interaction: discord.Interaction):
+        await defer(interaction, ephemeral=True)
         rows = await self.bot.db.list_reminders(interaction.user.id)
         if not rows:
             return await respond(interaction, embed=make_embed("⏰ 你的提醒", "目前沒有任何提醒。用 `/remind` 新增一個吧！"),
