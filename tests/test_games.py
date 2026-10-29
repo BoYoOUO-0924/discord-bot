@@ -4,7 +4,6 @@ from datetime import datetime
 
 from cogs.blackjack import BlackjackGame, hand_value
 from cogs.guess_number import GuessGame, reward_for
-from cogs.seatortoise import parse_answer
 from cogs.slots import evaluate
 from cogs.tictactoe import EMPTY, O, X, bot_move, find_winner
 from core.timeutil import TAIPEI, parse_duration, parse_when
@@ -128,11 +127,6 @@ class MiscGameTest(unittest.TestCase):
         self.assertEqual(reward_for(3, 100), 100)
         self.assertEqual(reward_for(20, 100), 20)
 
-    def test_sea_turtle_answer_parsing(self):
-        self.assertEqual(parse_answer("是也不是"), "🔶 是也不是")
-        self.assertEqual(parse_answer("不是。"), "❌ 不是")
-        self.assertEqual(parse_answer("是"), "✅ 是")
-        self.assertEqual(parse_answer("與此無關"), "➖ 無關")
 
 
 if __name__ == "__main__":

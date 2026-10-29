@@ -76,7 +76,9 @@ class Hub(commands.Cog):
         embed.add_field(name="賺積分", value="✨ 每日簽到・💼 打工（每小時）・🎯 每日任務・💬 聊天也會累積", inline=False)
         games = []
         for game in GAMES:
-            unavailable = "（未啟用）" if game.needs_ai and not self.bot.ai.available else ""
+            unavailable = ""
+            if game.needs_ai and not self.bot.ai.available:
+                unavailable = "（暫停中）" if self.bot.ai.configured else "（未啟用）"
             games.append(f"{game.emoji} **{game.name}**{unavailable}　{game.tagline}")
         embed.add_field(name="遊戲", value="\n".join(games), inline=False)
         embed.add_field(name="工具", value="⏰ **提醒**　時間到通知你\n📊 **投票**　按鈕投票、自動截止", inline=False)

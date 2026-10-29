@@ -19,7 +19,7 @@ GAMES: List[GameInfo] = [
     GameInfo("guess", "🔢", "猜數字", "全頻道一起猜，猜中的人拿獎勵", "[範圍]"),
     GameInfo("tictactoe", "⭕", "井字遊戲", "找朋友對戰，或挑戰機器人", "[對手] [難度]"),
     GameInfo("poker", "♠️", "德州撲克", "2–8 人一桌，也能加入電腦對手", "[大盲注] [帶入籌碼] [電腦對手]"),
-    GameInfo("seatortoise", "🐢", "AI 海龜湯", "AI 出謎題，用是非題推理真相", "[難度] [主題]", needs_ai=True),
+    GameInfo("seatortoise", "🐢", "海龜湯", "用是非題推理真相，AI 擔任湯主", "[難度]", needs_ai=True),
 ]
 GAMES_BY_KEY: Dict[str, GameInfo] = {g.key: g for g in GAMES}
 

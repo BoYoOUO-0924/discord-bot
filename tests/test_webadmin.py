@@ -15,7 +15,7 @@ HEADERS = {"X-Requested-With": "gawa-admin"}
 class FakeBot:
     def __init__(self, db):
         self.db = db
-        self.ai = SimpleNamespace(available=False)
+        self.ai = SimpleNamespace(available=False, configured=False, provider="none", model="", status="未設定")
         self.settings = SimpleNamespace(auto_update=False)
         self.user = None
         self.latency = 0.05

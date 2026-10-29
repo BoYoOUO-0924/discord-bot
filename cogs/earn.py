@@ -76,7 +76,7 @@ class Earn(commands.Cog):
     # ------------------------------------------------------------------ 每日任務
     async def build_quests(self, user: discord.abc.User) -> discord.Embed:
         today = today_tw()
-        quests = daily_quests(user.id, today, self.bot.ai.available)
+        quests = daily_quests(user.id, today, self.bot.ai.configured)
         progress = await self.db.quest_progress(user.id, today)
         lines, done_count = [], 0
         for quest in quests:
@@ -106,7 +106,7 @@ class Earn(commands.Cog):
         if user_id <= 0:   # 撲克電腦玩家
             return
         today = today_tw()
-        quests = daily_quests(user_id, today, self.bot.ai.available)
+        quests = daily_quests(user_id, today, self.bot.ai.configured)
         finished = []
         for quest in quests:
             if quest.matches(kind, meta):

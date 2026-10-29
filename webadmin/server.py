@@ -199,6 +199,9 @@ class AdminServer:
                 "uptime": int(time.time() - self.started_at),
                 "version": self.version,
                 "ai": bot.ai.available,
+                "ai_configured": bot.ai.configured,
+                "ai_name": f"{bot.ai.provider} {bot.ai.model}".strip(),
+                "ai_status": bot.ai.status,
                 "auto_update": bot.settings.auto_update,
             },
         })
@@ -238,7 +241,7 @@ class AdminServer:
         progress = await self.db.quest_progress(user_id, today)
         quests = [{"title": q.title, "target": q.target, "reward": q.reward,
                    "progress": progress.get(q.key, (0, False))[0], "done": progress.get(q.key, (0, False))[1]}
-                  for q in daily_quests(user_id, today, self.bot.ai.available)]
+                  for q in daily_quests(user_id, today, self.bot.ai.configured)]
         holds = [{"id": h["id"], "amount": h["amount"], "reason": h["reason"], "created_at": h["created_at"]}
                  for h in await self.db.list_holds() if h["user_id"] == user_id]
         stats = [{"game": s["game"], "name": GAME_NAMES.get(s["game"], s["game"]), "played": s["played"],
@@ -352,7 +355,7 @@ class AdminServer:
         for channel_id, game in getattr(soup, "games", {}).items():
             items.append({"type": "seatortoise", "id": str(channel_id), "game": "海龜湯",
                           "where": self.channel_name(channel_id),
-                          "detail": f"「{game.title}」・已提問 {len(game.qa)} 題",
+                          "detail": f"「{game.puzzle.title}」・已提問 {len(game.qa)} 題",
                           "players": [f"{len(game.participants)} 人參與"]})
 
         attached = self.attached_holds()

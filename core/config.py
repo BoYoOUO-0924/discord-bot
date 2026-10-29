@@ -30,6 +30,9 @@ class Settings:
     admin_password: Optional[str]
     admin_host: str
     admin_port: int
+    ai_provider: Optional[str]
+    ollama_url: Optional[str]
+    ollama_model: str
 
 
 def load_settings() -> Settings:
@@ -48,4 +51,8 @@ def load_settings() -> Settings:
         admin_password=_read("ADMIN_PASSWORD"),
         admin_host=_read("ADMIN_HOST", "0.0.0.0"),
         admin_port=int(_read("ADMIN_PORT", 8080)),
+        # 海龜湯的 AI：gemini 或 ollama；沒指定時，有設定 OLLAMA_URL 就用 Ollama
+        ai_provider=_read("AI_PROVIDER"),
+        ollama_url=_read("OLLAMA_URL"),
+        ollama_model=_read("OLLAMA_MODEL", "gemma4:e4b-it-q4_K_M"),
     )

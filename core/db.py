@@ -104,6 +104,12 @@ CREATE TABLE IF NOT EXISTS stats_daily (
     value  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (day, metric)
 );
+CREATE TABLE IF NOT EXISTS soup_played (
+    guild_id  INTEGER NOT NULL,
+    puzzle_id TEXT NOT NULL,
+    played_at REAL NOT NULL,
+    PRIMARY KEY (guild_id, puzzle_id)
+);
 CREATE TABLE IF NOT EXISTS admin_audit (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at REAL NOT NULL,
@@ -856,3 +862,19 @@ class Database:
                 "ORDER BY a.id DESC LIMIT ?", (limit,)
             ) as cur:
                 return await cur.fetchall()
+
+    # ------------------------------------------------------------------ 海龜湯題庫：記錄各伺服器玩過的題目
+    async def soup_played(self, guild_id: int) -> Dict[str, float]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT puzzle_id, played_at FROM soup_played WHERE guild_id = ?", (guild_id,)
+            ) as cur:
+                return {r["puzzle_id"]: r["played_at"] for r in await cur.fetchall()}
+
+    async def mark_soup_played(self, guild_id: int, puzzle_id: str) -> None:
+        async with self._lock:
+            await self.conn.execute(
+                "INSERT INTO soup_played (guild_id, puzzle_id, played_at) VALUES (?, ?, ?) "
+                "ON CONFLICT (guild_id, puzzle_id) DO UPDATE SET played_at = excluded.played_at",
+                (guild_id, puzzle_id, time.time()))
+            await self.conn.commit()

@@ -4,11 +4,17 @@
 # 必填：Discord Bot Token（Discord Developer Portal → Bot → Reset Token）
 DISCORD_TOKEN = "YOUR_DISCORD_BOT_TOKEN"
 
-# 選填：Gemini API Key，沒填的話 AI 海龜湯會停用，其他功能照常
+# 海龜湯的 AI 湯主（二選一，都沒設定的話海龜湯會停用，其他功能照常）
+#
+# 選項 1：Ollama（自己架的模型，可以透過 Tailscale 連到別台電腦）
+# OLLAMA_URL = "http://100.123.111.120:11434"
+# OLLAMA_MODEL = "gemma4:e4b-it-q4_K_M"
+#
+# 選項 2：Gemini（Google 雲端；新專案可能需要開啟付費）
 GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
-
-# 選填：使用的 Gemini 模型（預設 gemini-flash-latest，會自動使用最新的 Flash 模型）
 # GEMINI_MODEL = "gemini-flash-latest"
+#
+# 兩個都有設定時，預設用 Ollama；想指定的話設定 AI_PROVIDER = "ollama" 或 "gemini"
 
 # 選填：管理後台密碼（至少 8 個字元）。設定後可以用瀏覽器開 http://這台電腦的IP:8080 管理積分等資料；
 # 沒設定就不會啟動後台。只在家裡的網路使用，不要把這個連接埠開放到網際網路。
