@@ -65,6 +65,28 @@ class BlackjackTest(unittest.TestCase):
         self.assertEqual(game.payout, 400)
 
 
+class CardDisplayTest(unittest.TestCase):
+    def test_black_suits_use_outline_symbols(self):
+        from cogs.blackjack import render
+        from cogs.poker.cards import Card
+
+        # 實心 ♠ ♣ 在深色背景上看不清楚，顯示時要換成空心符號；紅色花色不變
+        self.assertEqual(str(Card("A", "♠")), "A♤")
+        self.assertEqual(str(Card("10", "♣")), "10♧")
+        self.assertEqual(str(Card("K", "♥")), "K♥")
+        self.assertEqual(render([("Q", "♠"), ("7", "♦")]), "`Q♤` `7♦`")
+
+    def test_poker_table_has_no_black_suit_emoji(self):
+        from cogs.poker.cards import Card
+        from cogs.poker.cog import cards_text
+
+        text = cards_text([Card(r, s) for r, s in [("A", "♠"), ("K", "♣"), ("Q", "♥"), ("J", "♦")]])
+        for black in ("♠", "♣"):
+            self.assertNotIn(black, text)
+        self.assertIn("♤", text)
+        self.assertIn("♧", text)
+
+
 class TicTacToeTest(unittest.TestCase):
     def test_winner_detection(self):
         self.assertEqual(find_winner((X, X, X, 0, 0, 0, 0, 0, 0))[0], X)

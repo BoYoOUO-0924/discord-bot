@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.poker.cards import card_label
 from core.quests import MIN_QUEST_BET
 from core.ui import AmountModal, BaseView, Color, fmt_points, fmt_signed, make_embed, respond, send_error
 
@@ -44,8 +45,11 @@ def is_blackjack(cards: List[Card]) -> bool:
     return len(cards) == 2 and hand_value(cards) == 21
 
 
+HIDDEN_CARD = "`？`"
+
+
 def render(cards: List[Card]) -> str:
-    return " ".join(f"`{r}{s}`" for r, s in cards)
+    return " ".join(f"`{card_label(r, s)}`" for r, s in cards)
 
 
 # 結果 -> (標題, 顏色, 賠付倍數（含本金）)
@@ -128,14 +132,15 @@ class Blackjack(commands.Cog):
     def build_embed(self, game: BlackjackGame, user: discord.abc.User, balance: Optional[int] = None) -> discord.Embed:
         if game.finished:
             title, color, _ = OUTCOMES[game.outcome]
-            dealer = f"{render(game.dealer)}　**{hand_value(game.dealer)}**"
+            dealer_cards, dealer_value = render(game.dealer), hand_value(game.dealer)
         else:
             title, color = "🃏 21點", Color.GAME
-            dealer = f"{render(game.dealer[:1])} `🂠`　**?**"
-        embed = make_embed(title, color=color)
+            dealer_cards, dealer_value = f"{render(game.dealer[:1])} {HIDDEN_CARD}", "?"
+        # 用標題大小顯示牌面，跟德州撲克「看手牌」一樣清楚
+        description = (f"**莊家**　{dealer_value} 點\n# {dealer_cards}\n"
+                       f"**你的手牌**　{hand_value(game.player)} 點\n# {render(game.player)}")
+        embed = make_embed(title, description, color)
         embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
-        embed.add_field(name="莊家", value=dealer, inline=False)
-        embed.add_field(name="你的手牌", value=f"{render(game.player)}　**{hand_value(game.player)}**", inline=False)
 
         if game.finished and game.bet:
             net = game.payout - game.bet
