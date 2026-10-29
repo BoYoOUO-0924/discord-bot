@@ -163,7 +163,10 @@ async function refreshStatus() {
     const { bot } = await api("/api/overview");
     const color = bot.online ? "var(--good)" : "var(--critical)";
     const text = bot.online ? `線上・延遲 ${bot.latency_ms ?? "?"} ms・版本 ${bot.version}` : "離線";
-    $("#bot-status").replaceChildren(h("span", { class: "dot", style: { background: color } }), text);
+    const ai = !bot.ai_configured ? "AI 未設定" : bot.ai ? "AI 湯主正常" : "⚠️ AI 湯主暫停";
+    const pill = $("#bot-status");
+    pill.replaceChildren(h("span", { class: "dot", style: { background: color } }), `${text}・${ai}`);
+    pill.title = bot.ai_configured ? `${bot.ai_name}：${bot.ai_status}` : "沒有設定 OLLAMA_URL 或 GEMINI_API_KEY";
   } catch (e) { /* 狀態列失敗不影響頁面 */ }
 }
 
