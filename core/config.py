@@ -27,6 +27,9 @@ class Settings:
     dev_guild_id: Optional[int]
     database_path: str
     auto_update: bool
+    admin_password: Optional[str]
+    admin_host: str
+    admin_port: int
 
 
 def load_settings() -> Settings:
@@ -41,4 +44,8 @@ def load_settings() -> Settings:
         database_path=_read("DATABASE_PATH", os.path.join(root, "data", "bot.db")),
         # 從 GitHub 自動更新；deploy/windows/2_start.bat 會設定 AUTO_UPDATE=1
         auto_update=str(_read("AUTO_UPDATE", "0")).strip().lower() in ("1", "true", "yes", "on"),
+        # 管理後台：有設定密碼才會啟動；預設開放給同一個網路裡的裝置連線
+        admin_password=_read("ADMIN_PASSWORD"),
+        admin_host=_read("ADMIN_HOST", "0.0.0.0"),
+        admin_port=int(_read("ADMIN_PORT", 8080)),
     )

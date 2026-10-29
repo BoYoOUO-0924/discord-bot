@@ -139,6 +139,7 @@ class Earn(commands.Cog):
             self.chat_reward_at[user_id] = now
             await self.db.add_chat_reward(user_id, today_tw(), CHAT_REWARD, CHAT_DAILY_CAP)
             await self.db.touch_member(message.guild.id, user_id)
+            await self.db.remember_user(user_id, message.author.display_name, message.author.display_avatar.url)
         if now - self.chat_quest_at.get(user_id, 0) >= CHAT_QUEST_COOLDOWN:
             self.chat_quest_at[user_id] = now
             self.bot.dispatch("activity", user_id, "chat", message.channel.id, {})
