@@ -101,6 +101,8 @@ class Hub(commands.Cog):
         if interaction.guild_id:
             # 按鈕不經過斜線指令的入口，這裡也要記錄，排行榜才找得到人
             await self.bot.db.touch_member(interaction.guild_id, interaction.user.id)
+            await self.bot.db.remember_user(interaction.user.id, interaction.user.display_name,
+                                            interaction.user.display_avatar.url)
         economy = self.bot.get_cog("Economy")
         if action == "checkin":
             return await economy.do_checkin(interaction)

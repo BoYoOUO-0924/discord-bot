@@ -30,6 +30,7 @@ EXTENSIONS = [
     "cogs.poker",
     "cogs.seatortoise",
     "cogs.updater",
+    "cogs.webadmin",
 ]
 
 # 結束代碼 3 代表「已更新，請立刻重新啟動」，deploy/windows/2_start.bat 會依此重啟
@@ -42,7 +43,11 @@ class AppTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         # 自動完成每打一個字就會觸發一次，不需要記錄
         if interaction.guild_id and interaction.type is discord.InteractionType.application_command:
-            await interaction.client.db.touch_member(interaction.guild_id, interaction.user.id)
+            db = interaction.client.db
+            await db.touch_member(interaction.guild_id, interaction.user.id)
+            # 記下名稱，管理後台才能用名字搜尋（名稱沒變就不會寫資料庫）
+            await db.remember_user(interaction.user.id, interaction.user.display_name,
+                                   interaction.user.display_avatar.url)
         return True
 
     async def on_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
