@@ -25,6 +25,7 @@
 | 工具 | `/remind 時間 內容` | 提醒，支援 `10m`、`1h30m`、`18:30`、`明天 9:00` |
 | | `/reminders` | 查看或取消提醒 |
 | | `/poll [時長]` | 按鈕投票，可設定自動截止 |
+| | `/weather` | 台北、淡水今天的天氣、降雨機率與穿衣建議；每天早上 6 點也會用 Webhook 自動傳送 |
 | | `/clear 數量` | 清除訊息（需要管理訊息權限） |
 
 ## 安裝與啟動
@@ -55,6 +56,26 @@
    第一次啟動會自動把舊版 `data/points.json`、`data/checkin.json` 匯入資料庫（原檔不會被修改）。
    開發時可以在 `config.py` 設定 `DEV_GUILD_ID`，斜線指令只同步到該伺服器並立即生效。
 
+## 每日天氣預報
+
+每天早上 6 點（台灣時間）用 Discord Webhook 傳送**台北**與**淡水**的天氣：天氣狀況、溫度、白天／晚上降雨機率、
+會不會下雨（要不要帶傘），以及穿衣建議。資料來自[中央氣象署開放資料平台](https://opendata.cwa.gov.tw)。
+
+1. 到中央氣象署開放資料平台註冊並登入，在「取得授權碼」複製 API 授權碼。
+2. 在 Discord 要接收預報的頻道：**編輯頻道 → 整合 → Webhook → 新 Webhook**，複製 Webhook 網址。
+3. 在專案根目錄（和 `bot.py` 同一層）建立 `.env`，可以參考 `.env.example`：
+   ```
+   CWA_API_KEY=你的授權碼
+   WEATHER_WEBHOOK_URL=https://discord.com/api/webhooks/...
+   # 選填，預設 06:00
+   WEATHER_TIME=06:00
+   ```
+   `.env` 已被 `.gitignore` 排除，不會上傳；自動更新也不會動到它。
+4. 重新啟動 bot。紀錄裡出現「每日天氣預報已啟用」就成功了，可以用 `/weather` 立即預覽。
+
+- 傳送時間剛好關機或重啟時，開機後中午前會補送；同一天不會重複傳送。
+- 淡水使用新北市淡水區的鄉鎮預報；萬一抓不到會改用新北市全市預報，並在訊息底部註明。
+
 ## 放在舊筆電上 24 小時執行
 
 `deploy/windows/` 裡有一鍵安裝、自動重啟、開機自動啟動的腳本，並支援從 GitHub 自動更新（只會套用自動測試通過的版本）。
@@ -65,7 +86,8 @@
 ```
 bot.py              主程式：載入功能、同步斜線指令、統一錯誤處理
 core/
-  config.py         讀取 config.py / 環境變數
+  config.py         讀取 config.py / 環境變數 / .env
+  weather.py        中央氣象署預報解析、穿衣與降雨建議
   db.py             SQLite 資料層（積分、簽到、下注保管、提醒、投票）
   ui.py             共用的顏色、訊息格式、按鈕介面基底
   ai.py             Gemini（google-genai）包裝
@@ -78,6 +100,7 @@ cogs/
   reminders.py      提醒
   polls.py          投票
   admin.py          /clear
+  weather.py        每日天氣預報 Webhook、/weather
   blackjack.py  slots.py  guess_number.py  tictactoe.py  seatortoise.py
   poker/            德州撲克（engine.py 是不依賴 Discord 的牌局引擎）
 tests/              單元測試：python -m unittest discover -s tests -t .
