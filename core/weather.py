@@ -168,19 +168,20 @@ def summarize(elements: Dict[str, List[Sample]], start: datetime, end: datetime)
     )
 
 
-def windows(now: datetime) -> Tuple[Tuple[datetime, datetime], Tuple[datetime, datetime]]:
-    """今天白天 06–18、今晚 18–明天 06。"""
-    six = now.astimezone(TAIPEI).replace(hour=6, minute=0, second=0, microsecond=0)
+def windows(day: datetime) -> Tuple[Tuple[datetime, datetime], Tuple[datetime, datetime]]:
+    """那一天的白天 06–18、晚上 18–隔天 06。"""
+    six = day.astimezone(TAIPEI).replace(hour=6, minute=0, second=0, microsecond=0)
     return (six, six + timedelta(hours=12)), (six + timedelta(hours=12), six + timedelta(hours=24))
 
 
-def build_forecast(label: str, payload: dict, location_name: str, now: datetime, source: str) -> Forecast:
+def build_forecast(label: str, payload: dict, location_name: str, day: datetime, source: str) -> Forecast:
+    """day：要預報的那一天（今天或明天）。"""
     elements = _elements(_find_location(payload, location_name))
-    (ds, de), (ns, ne) = windows(now)
-    day, night = summarize(elements, ds, de), summarize(elements, ns, ne)
-    if day.max_t is None and day.pop is None:
-        raise WeatherError(f"「{location_name}」沒有今天的預報資料")
-    return Forecast(label, day, night, source)
+    (ds, de), (ns, ne) = windows(day)
+    daytime, night = summarize(elements, ds, de), summarize(elements, ns, ne)
+    if daytime.max_t is None and daytime.pop is None:
+        raise WeatherError(f"「{location_name}」沒有 {day.month}/{day.day} 白天的預報資料")
+    return Forecast(label, daytime, night, source)
 
 
 # ---------------------------------------------------------------------- 建議
@@ -247,7 +248,8 @@ async def _fetch(session: aiohttp.ClientSession, api_key: str, dataset: str, **p
     return data
 
 
-async def fetch_forecasts(api_key: str, now: datetime, places: List[Place] = PLACES) -> List[Forecast]:
+async def fetch_forecasts(api_key: str, day: datetime, places: List[Place] = PLACES) -> List[Forecast]:
+    """day：要預報的那一天。36 小時縣市預報在任何時間查詢都會涵蓋明天白天，鄉鎮預報涵蓋 3 天。"""
     if not api_key:
         raise WeatherError("沒有設定 CWA_API_KEY")
     timeout = aiohttp.ClientTimeout(total=30)
@@ -260,14 +262,14 @@ async def fetch_forecasts(api_key: str, now: datetime, places: List[Place] = PLA
                 try:
                     if place.town_dataset not in town_data:
                         town_data[place.town_dataset] = await _fetch(session, api_key, place.town_dataset)
-                    forecasts.append(build_forecast(place.label, town_data[place.town_dataset], place.town, now,
+                    forecasts.append(build_forecast(place.label, town_data[place.town_dataset], place.town, day,
                                                     f"{place.county}{place.town}"))
                     continue
                 except (WeatherError, aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
                     # 鄉鎮預報抓不到時，退回用縣市預報
                     log.warning("%s 的鄉鎮預報無法使用（%s），改用%s預報", place.label, e, place.county)
             try:
-                forecasts.append(build_forecast(place.label, county, place.county, now,
+                forecasts.append(build_forecast(place.label, county, place.county, day,
                                                 place.county + ("（全市預報）" if place.town else "")))
             except WeatherError as e:
                 # 某個地點壞掉時，其他地點照常傳送

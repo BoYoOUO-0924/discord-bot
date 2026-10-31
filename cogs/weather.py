@@ -45,18 +45,18 @@ def fmt_pop(pop: Optional[int]) -> str:
     return "—" if pop is None else f"{pop}%"
 
 
-def forecast_embed(forecast: weather.Forecast, now: datetime) -> discord.Embed:
+def forecast_embed(forecast: weather.Forecast, date: datetime, tomorrow: bool = False) -> discord.Embed:
     day, night = forecast.day, forecast.night
     emoji, rain_text = weather.rain_advice(day, night)
     top_pop = max([p for p in (day.pop, night.pop) if p is not None], default=0)
     color = Color.PRIMARY if top_pop >= 40 else (Color.WARNING if top_pop < 20 else Color.MUTED)
-    date_text = f"{now.month}/{now.day}（{WEEKDAYS[now.weekday()]}）"
+    date_text = f"{'明天 ' if tomorrow else ''}{date.month}/{date.day}（{WEEKDAYS[date.weekday()]}）"
     embed = discord.Embed(title=f"{emoji} {forecast.label}・{date_text}", color=color)
     embed.description = f"**{day.wx or '—'}**　🌡️ {fmt_temp(day)}" + (f"　・　{day.ci}" if day.ci else "")
     embed.add_field(name="☔ 會不會下雨", value=f"**{rain_text}**\n白天 {fmt_pop(day.pop)}・晚上 {fmt_pop(night.pop)}",
                     inline=False)
     embed.add_field(name="👕 穿衣建議", value=weather.clothing_advice(day, night), inline=False)
-    embed.add_field(name="🌙 今晚", value=f"{night.wx or '—'}　🌡️ {fmt_temp(night)}", inline=False)
+    embed.add_field(name="🌙 明晚" if tomorrow else "🌙 今晚", value=f"{night.wx or '—'}　🌡️ {fmt_temp(night)}", inline=False)
     embed.set_footer(text=f"{forecast.source}・資料來源：中央氣象署")
     return embed
 
@@ -104,15 +104,17 @@ class Weather(commands.Cog):
         return send_time <= now < deadline and self.last_sent() != now.date().isoformat()
 
     # ------------------------------------------------------------------ 傳送
-    async def build_embeds(self, now: datetime) -> List[discord.Embed]:
-        forecasts = await weather.fetch_forecasts(self.api_key, now)
-        return [forecast_embed(f, now) for f in forecasts]
+    async def build_embeds(self, now: datetime, tomorrow: bool = False) -> List[discord.Embed]:
+        day = now + timedelta(days=1) if tomorrow else now
+        forecasts = await weather.fetch_forecasts(self.api_key, day)
+        return [forecast_embed(f, day, tomorrow) for f in forecasts]
 
-    async def send_daily(self, now: datetime) -> None:
-        embeds = await self.build_embeds(now)
+    async def send_daily(self, now: datetime, tomorrow: bool = False) -> None:
+        embeds = await self.build_embeds(now, tomorrow)
+        content = "🌙 **明天的天氣預報**" if tomorrow else "☀️ **早安！今天的天氣預報**"
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             webhook = discord.Webhook.from_url(self.webhook_url, session=session)
-            await webhook.send(content="☀️ **早安！今天的天氣預報**", embeds=embeds,
+            await webhook.send(content=content, embeds=embeds,
                                allowed_mentions=discord.AllowedMentions.none())
 
     @tasks.loop(minutes=1)
@@ -134,9 +136,12 @@ class Weather(commands.Cog):
         await self.bot.wait_until_ready()
 
     # ------------------------------------------------------------------ 指令
-    @app_commands.command(name="weather", description="查看今天台北、淡水的天氣、降雨機率與穿衣建議")
-    @app_commands.describe(send="管理員：立刻用 Webhook 傳送一次每日預報到頻道（測試用，不影響明天早上的傳送）")
-    async def weather_command(self, interaction: discord.Interaction, send: bool = False):
+    @app_commands.command(name="weather", description="查看台北、淡水今天或明天的天氣、降雨機率與穿衣建議")
+    @app_commands.describe(day="要看哪一天，預設今天",
+                           send="管理員：立刻用 Webhook 傳送到頻道（不影響每天早上的自動傳送）")
+    @app_commands.choices(day=[app_commands.Choice(name="今天", value=0), app_commands.Choice(name="明天", value=1)])
+    async def weather_command(self, interaction: discord.Interaction, day: int = 0, send: bool = False):
+        tomorrow = day == 1
         if not self.api_key:
             return await send_error(interaction, "還沒有設定中央氣象署 API 金鑰（CWA_API_KEY）。")
         if send:
@@ -149,14 +154,14 @@ class Weather(commands.Cog):
         now = datetime.now(TAIPEI)
         try:
             if send:
-                await self.send_daily(now)
+                await self.send_daily(now, tomorrow)
             else:
-                embeds = await self.build_embeds(now)
+                embeds = await self.build_embeds(now, tomorrow)
         except (weather.WeatherError, aiohttp.ClientError, discord.HTTPException, TimeoutError, ValueError) as e:
             log.warning("查詢天氣失敗：%s", e)
             return await send_error(interaction, f"{'傳送' if send else '查詢'}天氣失敗：{e}")
         if send:
-            await respond(interaction, embed=success_embed("已經用 Webhook 傳送天氣預報了，去頻道看看吧！"), ephemeral=True)
+            await respond(interaction, embed=success_embed(f"已經用 Webhook 傳送{'明天' if tomorrow else '今天'}的天氣預報了，去頻道看看吧！"), ephemeral=True)
         else:
             await respond(interaction, embeds=embeds, ephemeral=True)
 
