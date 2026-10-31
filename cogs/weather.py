@@ -17,7 +17,7 @@ from discord.ext import commands, tasks
 
 from core import weather
 from core.timeutil import TAIPEI, now_tw
-from core.ui import Color, defer, respond, send_error
+from core.ui import Color, defer, respond, send_error, success_embed
 
 log = logging.getLogger(__name__)
 
@@ -135,18 +135,30 @@ class Weather(commands.Cog):
 
     # ------------------------------------------------------------------ 指令
     @app_commands.command(name="weather", description="查看今天台北、淡水的天氣、降雨機率與穿衣建議")
-    async def weather_command(self, interaction: discord.Interaction):
+    @app_commands.describe(send="管理員：立刻用 Webhook 傳送一次每日預報到頻道（測試用，不影響明天早上的傳送）")
+    async def weather_command(self, interaction: discord.Interaction, send: bool = False):
         if not self.api_key:
             return await send_error(interaction, "還沒有設定中央氣象署 API 金鑰（CWA_API_KEY）。")
+        if send:
+            perms = getattr(interaction.user, "guild_permissions", None)
+            if not perms or not perms.manage_guild:
+                return await send_error(interaction, "只有伺服器管理員可以立刻傳送預報。")
+            if not self.webhook_url:
+                return await send_error(interaction, "還沒有設定 Webhook（WEATHER_WEBHOOK_URL）。")
         await defer(interaction, ephemeral=True)
         now = datetime.now(TAIPEI)
         try:
-            embeds = await self.build_embeds(now)
-        except (weather.WeatherError, aiohttp.ClientError, TimeoutError, ValueError) as e:
+            if send:
+                await self.send_daily(now)
+            else:
+                embeds = await self.build_embeds(now)
+        except (weather.WeatherError, aiohttp.ClientError, discord.HTTPException, TimeoutError, ValueError) as e:
             log.warning("查詢天氣失敗：%s", e)
-            return await send_error(interaction, f"查詢天氣失敗：{e}")
-        await respond(interaction, embeds=embeds, ephemeral=True)
-
+            return await send_error(interaction, f"{'傳送' if send else '查詢'}天氣失敗：{e}")
+        if send:
+            await respond(interaction, embed=success_embed("已經用 Webhook 傳送天氣預報了，去頻道看看吧！"), ephemeral=True)
+        else:
+            await respond(interaction, embeds=embeds, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Weather(bot))
