@@ -24,5 +24,6 @@ logs/
 data/*.json
 data/*.db
 data/*.db-*
+data/bot.lock
 !data/.gitkeep
 

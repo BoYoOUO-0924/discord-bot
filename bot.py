@@ -11,6 +11,7 @@ from discord.ext import commands
 from core.ai import create_ai
 from core.config import legacy_keys, load_settings
 from core.db import Database
+from core.instance import acquire_single_instance
 from core.i18n import ZhTranslator
 from core.ui import send_error
 
@@ -36,6 +37,8 @@ EXTENSIONS = [
 
 # 結束代碼 3 代表「已更新，請立刻重新啟動」，deploy/windows/2_start.bat 會依此重啟
 RESTART_EXIT_CODE = 3
+# 結束代碼 4 代表「已經有另一個 bot 在執行」，啟動腳本不會一直重試
+ALREADY_RUNNING_EXIT_CODE = 4
 
 
 class AppTree(app_commands.CommandTree):
@@ -160,6 +163,10 @@ def main() -> None:
     keep_system_awake()
     try:
         bot = Bot()
+        lock = acquire_single_instance(os.path.join(os.path.dirname(bot.settings.database_path), "bot.lock"))
+        if lock is None:
+            log.critical("已經有另一個 bot 在執行（可能開了兩個 Gawa Bot 視窗），這個不啟動。")
+            sys.exit(ALREADY_RUNNING_EXIT_CODE)
         if not bot.settings.discord_token:
             log.critical("找不到 Bot Token：請在 .env 設定 DISCORD_TOKEN（範本見 .env.example）。")
             raise SystemExit(1)

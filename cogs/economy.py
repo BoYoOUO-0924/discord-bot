@@ -25,6 +25,8 @@ class Economy(commands.Cog):
 
     # ------------------------------------------------------------------ 簽到
     async def do_checkin(self, interaction: discord.Interaction) -> None:
+        # 先回「思考中」：舊電腦寫資料庫偶爾會超過 Discord 的 3 秒限制（Unknown interaction）
+        await defer(interaction)
         result = await self.db.checkin(interaction.user.id, today_tw())
         next_reset = ts(next_midnight_tw(), "R")
 
@@ -32,6 +34,11 @@ class Economy(commands.Cog):
             embed = make_embed("📅 今天已經簽到過了", color=Color.MUTED)
             embed.add_field(name="🔥 連續簽到", value=f"{result.streak} 天")
             embed.add_field(name="⏭️ 下次簽到", value=next_reset)
+            # 已簽到只需要讓本人知道：收掉公開的「思考中」，改用私密訊息回覆
+            try:
+                await interaction.delete_original_response()
+            except discord.HTTPException:
+                pass
             return await respond(interaction, embed=embed, ephemeral=True)
 
         parts = [f"基礎 +{result.base}"]
