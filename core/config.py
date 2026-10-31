@@ -1,9 +1,13 @@
-"""讀取設定：優先使用 config.py，其次是環境變數（含專案根目錄的 .env）。"""
+"""讀取設定：所有 Token、API 金鑰、網址都放在專案根目錄的 .env（範本見 .env.example）。
+
+讀取順序：環境變數 → .env → 舊版 config.py（相容用，之後會提示搬到 .env）。
+"""
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_PATH = os.path.join(ROOT, ".env")
 
 
 def load_dotenv(path: str) -> None:
@@ -26,22 +30,31 @@ def load_dotenv(path: str) -> None:
             os.environ.setdefault(key, value)
 
 
-load_dotenv(os.path.join(ROOT, ".env"))
+load_dotenv(ENV_PATH)
 
 try:
-    import config as _local_config  # 本地 config.py（已被 .gitignore 排除）
+    import config as _legacy_config  # 舊版的 config.py（已被 .gitignore 排除），只為了相容
 except ImportError:
-    _local_config = None
+    _legacy_config = None
+
+# 從舊版 config.py 讀到的設定名稱，啟動時提醒搬到 .env
+legacy_keys: List[str] = []
+
+
+def _is_placeholder(value) -> bool:
+    # 還沒改掉的範本佔位字串視同未設定
+    return isinstance(value, str) and (value.startswith("YOUR_") or value.startswith("PUT_YOUR_"))
 
 
 def _read(name: str, default=None):
-    value = getattr(_local_config, name, None) if _local_config else None
-    if value in (None, ""):
-        value = os.getenv(name)
-    # 還沒改掉的範本佔位字串視同未設定
-    if isinstance(value, str) and (value.startswith("YOUR_") or value.startswith("PUT_YOUR_")):
-        value = None
-    return default if value in (None, "") else value
+    value = os.getenv(name)
+    if value in (None, "") or _is_placeholder(value):
+        value = getattr(_legacy_config, name, None) if _legacy_config else None
+        if value in (None, "") or _is_placeholder(value):
+            return default
+        if name not in legacy_keys:
+            legacy_keys.append(name)
+    return value
 
 
 @dataclass(frozen=True)

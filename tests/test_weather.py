@@ -160,6 +160,20 @@ class SendNowTest(unittest.IsolatedAsyncioTestCase):
         error.assert_awaited_once()
 
 
+class SettingsSourceTest(unittest.TestCase):
+    def test_env_first_then_legacy_config_py(self):
+        from unittest.mock import patch
+        from core import config
+
+        legacy = SimpleNamespace(TEST_KEY_A="from-config", TEST_KEY_B="from-config", TEST_KEY_C="YOUR_PLACEHOLDER")
+        with patch.object(config, "_legacy_config", legacy), patch.object(config, "legacy_keys", []), \
+             patch.dict(os.environ, {"TEST_KEY_A": "from-env"}):
+            self.assertEqual(config._read("TEST_KEY_A"), "from-env")      # .env / 環境變數優先
+            self.assertEqual(config._read("TEST_KEY_B"), "from-config")   # 舊 config.py 仍可讀
+            self.assertEqual(config._read("TEST_KEY_C", "default"), "default")
+            self.assertEqual(config.legacy_keys, ["TEST_KEY_B"])          # 會提醒搬到 .env
+
+
 class DotenvTest(unittest.TestCase):
     def test_load_dotenv(self):
         from core.config import load_dotenv

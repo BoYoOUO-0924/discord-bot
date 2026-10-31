@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.ai import create_ai
-from core.config import load_settings
+from core.config import legacy_keys, load_settings
 from core.db import Database
 from core.i18n import ZhTranslator
 from core.ui import send_error
@@ -160,7 +160,10 @@ def main() -> None:
     keep_system_awake()
     bot = Bot()
     if not bot.settings.discord_token:
-        raise SystemExit("找不到 Bot Token：請在 config.py 設定 DISCORD_TOKEN，或設定環境變數 DISCORD_TOKEN。")
+        raise SystemExit("找不到 Bot Token：請在 .env 設定 DISCORD_TOKEN（範本見 .env.example）。")
+    if legacy_keys:
+        log.warning("這些設定還寫在舊的 config.py：%s。請搬到 .env（範本見 .env.example），之後就可以刪掉 config.py",
+                    "、".join(legacy_keys))
     bot.run(bot.settings.discord_token, log_handler=None)
     if bot.restart_requested:
         sys.exit(RESTART_EXIT_CODE)

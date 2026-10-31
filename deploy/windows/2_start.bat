@@ -7,8 +7,8 @@ if not exist ".venv\Scripts\python.exe" (
     pause
     exit /b 1
 )
-if not exist "config.py" (
-    echo [ERROR] config.py not found. Run 1_install.bat first.
+if not exist ".env" if not exist "config.py" (
+    echo [ERROR] .env not found. Run 1_install.bat first.
     pause
     exit /b 1
 )
