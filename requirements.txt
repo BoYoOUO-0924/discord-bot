@@ -1,3 +1,5 @@
 discord.py>=2.4
 google-genai>=1.0
 aiosqlite>=0.20
+# 連中央氣象署時改用作業系統驗證憑證（對方網站缺中繼憑證，見 core/weather.py）
+truststore>=0.9

@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+import ssl
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -235,14 +236,38 @@ def clothing_advice(day: Period, night: Period) -> str:
 
 
 # ---------------------------------------------------------------------- 抓資料
+_ssl_context: Optional[ssl.SSLContext] = None
+
+
+def ssl_context() -> ssl.SSLContext:
+    """連中央氣象署用的 SSL 設定：交給作業系統驗證憑證。
+
+    opendata.cwa.gov.tw 沒有送出中繼憑證，Python 內建的驗證會失敗
+    （unable to get local issuer certificate）。Windows 的驗證跟瀏覽器一樣會自動補抓缺少的
+    中繼憑證，所以用 truststore 改由系統驗證；驗證仍然完整，不是關掉檢查。
+    """
+    global _ssl_context
+    if _ssl_context is None:
+        try:
+            import truststore
+            _ssl_context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        except ImportError:
+            log.warning("沒有安裝 truststore，改用 Python 內建的憑證驗證")
+            _ssl_context = ssl.create_default_context()
+    return _ssl_context
+
+
 async def _fetch(session: aiohttp.ClientSession, api_key: str, dataset: str, **params) -> dict:
     query = {"Authorization": api_key, "format": "JSON", **params}
-    async with session.get(f"{API_BASE}/{dataset}", params=query) as response:
-        if response.status in (401, 403):
-            raise WeatherError("CWA API 金鑰無效或沒有權限，請確認 CWA_API_KEY")
-        if response.status != 200:
-            raise WeatherError(f"CWA API 回應 HTTP {response.status}")
-        data = await response.json(content_type=None)
+    try:
+        async with session.get(f"{API_BASE}/{dataset}", params=query) as response:
+            if response.status in (401, 403):
+                raise WeatherError("CWA API 金鑰無效或沒有權限，請確認 CWA_API_KEY")
+            if response.status != 200:
+                raise WeatherError(f"CWA API 回應 HTTP {response.status}")
+            data = await response.json(content_type=None)
+    except aiohttp.ClientSSLError as e:
+        raise WeatherError(f"中央氣象署的憑證驗證失敗：{e}") from e
     if str(_get(data, "success", default="true")).lower() != "true":
         raise WeatherError(f"CWA API 回傳失敗：{_get(data, 'message', default=data)}")
     return data
@@ -253,7 +278,8 @@ async def fetch_forecasts(api_key: str, day: datetime, places: List[Place] = PLA
     if not api_key:
         raise WeatherError("沒有設定 CWA_API_KEY")
     timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    connector = aiohttp.TCPConnector(ssl=ssl_context())
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         county = await _fetch(session, api_key, COUNTY_36H)
         town_data: Dict[str, dict] = {}
         forecasts, errors = [], []
