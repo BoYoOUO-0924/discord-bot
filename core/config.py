@@ -36,9 +36,32 @@ def _decode(raw: bytes) -> str:
         return raw.decode("cp950", errors="replace")   # 繁體中文 Windows 的 ANSI
 
 
+def _filled_keys(path: str) -> List[str]:
+    """範本檔裡已經被填了真正值的設定名稱（沒註解、不是空的、不是 YOUR_ 佔位字串）。"""
+    try:
+        with open(path, "rb") as f:
+            text = _decode(f.read())
+    except OSError:
+        return []
+    filled = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("#") or "=" not in line:
+            continue
+        key, value = (part.strip().strip("\"'") for part in line.split("=", 1))
+        if key in KNOWN_KEYS and value and not value.startswith(("YOUR_", "PUT_YOUR_")):
+            filled.append(key)
+    return filled
+
+
 def load_dotenv(path: str) -> EnvStatus:
     """讀取 .env 的 KEY=VALUE 到環境變數；已經存在的環境變數不覆蓋。"""
     status = EnvStatus(path)
+    in_example = _filled_keys(os.path.join(os.path.dirname(path), ".env.example"))
+    if in_example:
+        # .env.example 是範本、會被更新覆蓋；改了它還會讓自動更新以為程式被改過而停止
+        status.problems.append(f"{'、'.join(in_example)} 填在 .env.example 裡，bot 不會讀這個檔案。"
+                               "請複製一份改名成 .env，再把 .env.example 還原（git checkout -- .env.example）")
     try:
         with open(path, "rb") as f:
             text = _decode(f.read())

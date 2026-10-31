@@ -88,7 +88,10 @@ class GitFlowTest(unittest.IsolatedAsyncioTestCase):
             f.write("我自己改的")
         result = await updater.check(self.laptop)
         self.assertTrue(result.dirty)
-        self.assertEqual(decide(result, "success")[0], "skip")
+        self.assertEqual(result.changed_files, ["bot.py"])
+        action, reason = decide(result, "success")
+        self.assertEqual(action, "skip")
+        self.assertIn("bot.py", reason)
 
 
 if __name__ == "__main__":
