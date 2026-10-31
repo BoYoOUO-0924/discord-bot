@@ -49,6 +49,7 @@ PARAMETER_NAMES = {
     "bots": "電腦對手",
     "theme": "主題",
     "weather.send": "立即傳送",
+    "weather.day": "日期",
 }
 
 

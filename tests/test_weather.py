@@ -59,6 +59,18 @@ class WeatherParseTest(unittest.TestCase):
         self.assertEqual(f.night.min_t, 17)
         self.assertIn(f.day.wx, ("多雲", "晴"))
 
+    def test_tomorrow_from_evening_query(self):
+        from datetime import timedelta
+        from cogs.weather import forecast_embed
+
+        tomorrow = NOW.replace(hour=20) + timedelta(days=1)
+        f = weather.build_forecast("台北", county_payload(), "臺北市", tomorrow, "臺北市")
+        self.assertEqual((f.day.wx, f.day.max_t, f.day.pop), ("晴", 28, 0))
+        self.assertIsNone(f.night.pop)   # 36 小時預報還沒涵蓋明晚，顯示「—」而不是出錯
+        embed = forecast_embed(f, tomorrow, tomorrow=True)
+        self.assertIn("明天 11/1（日）", embed.title)
+        self.assertTrue(any(field.name == "🌙 明晚" for field in embed.fields))
+
     def test_missing_location(self):
         with self.assertRaises(weather.WeatherError):
             weather.build_forecast("淡水", county_payload(), "淡水區", NOW, "")
@@ -153,6 +165,19 @@ class SendNowTest(unittest.IsolatedAsyncioTestCase):
         send, error = await self.run_command(True)
         send.assert_awaited_once()
         error.assert_not_awaited()
+
+    async def test_admin_can_send_tomorrow(self):
+        from unittest.mock import AsyncMock, patch
+        from cogs import weather as weather_cog
+
+        with tempfile.TemporaryDirectory() as folder:
+            cog = WeatherCogTest().make_cog(folder)
+            cog.send_daily = AsyncMock()
+            interaction = SimpleNamespace(user=SimpleNamespace(guild_permissions=SimpleNamespace(manage_guild=True)))
+            with patch.object(weather_cog, "send_error", AsyncMock()), \
+                 patch.object(weather_cog, "defer", AsyncMock()), patch.object(weather_cog, "respond", AsyncMock()):
+                await cog.weather_command.callback(cog, interaction, day=1, send=True)
+            self.assertTrue(cog.send_daily.await_args.args[1])
 
     async def test_non_admin_cannot_send(self):
         send, error = await self.run_command(False)
