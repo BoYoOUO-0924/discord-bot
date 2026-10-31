@@ -48,6 +48,7 @@ PARAMETER_NAMES = {
     "buy_in": "帶入籌碼",
     "bots": "電腦對手",
     "theme": "主題",
+    "weather.send": "立即傳送",
 }
 
 

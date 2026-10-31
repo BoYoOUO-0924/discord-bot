@@ -134,6 +134,32 @@ class WeatherCogTest(unittest.TestCase):
         self.assertTrue(any("60%" in field.value for field in embed.fields))
 
 
+class SendNowTest(unittest.IsolatedAsyncioTestCase):
+    async def run_command(self, manage_guild):
+        from unittest.mock import AsyncMock, patch
+        from cogs import weather as weather_cog
+
+        with tempfile.TemporaryDirectory() as folder:
+            cog = WeatherCogTest().make_cog(folder)
+            cog.send_daily = AsyncMock()
+            interaction = SimpleNamespace(user=SimpleNamespace(guild_permissions=SimpleNamespace(manage_guild=manage_guild)))
+            with patch.object(weather_cog, "send_error", AsyncMock()) as error, \
+                 patch.object(weather_cog, "defer", AsyncMock()), patch.object(weather_cog, "respond", AsyncMock()):
+                await cog.weather_command.callback(cog, interaction, send=True)
+            self.assertIsNone(cog.last_sent())   # 測試傳送不算今天已傳送
+            return cog.send_daily, error
+
+    async def test_admin_can_send_now(self):
+        send, error = await self.run_command(True)
+        send.assert_awaited_once()
+        error.assert_not_awaited()
+
+    async def test_non_admin_cannot_send(self):
+        send, error = await self.run_command(False)
+        send.assert_not_awaited()
+        error.assert_awaited_once()
+
+
 class DotenvTest(unittest.TestCase):
     def test_load_dotenv(self):
         from core.config import load_dotenv
