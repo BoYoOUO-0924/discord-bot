@@ -52,6 +52,12 @@ class Settings:
     dev_guild_id: Optional[int]
     database_path: str
     auto_update: bool
+    admin_password: Optional[str]
+    admin_host: str
+    admin_port: int
+    ai_provider: Optional[str]
+    ollama_url: Optional[str]
+    ollama_model: str
     cwa_api_key: Optional[str]
     weather_webhook_url: Optional[str]
     weather_time: str
@@ -69,6 +75,14 @@ def load_settings() -> Settings:
         database_path=_read("DATABASE_PATH", os.path.join(root, "data", "bot.db")),
         # 從 GitHub 自動更新；deploy/windows/2_start.bat 會設定 AUTO_UPDATE=1
         auto_update=str(_read("AUTO_UPDATE", "0")).strip().lower() in ("1", "true", "yes", "on"),
+        # 管理後台：有設定密碼才會啟動；預設開放給同一個網路裡的裝置連線
+        admin_password=_read("ADMIN_PASSWORD"),
+        admin_host=_read("ADMIN_HOST", "0.0.0.0"),
+        admin_port=int(_read("ADMIN_PORT", 8080)),
+        # 海龜湯的 AI：gemini 或 ollama；沒指定時，有設定 OLLAMA_URL 就用 Ollama
+        ai_provider=_read("AI_PROVIDER"),
+        ollama_url=_read("OLLAMA_URL"),
+        ollama_model=_read("OLLAMA_MODEL", "gemma4:e4b-it-q4_K_M"),
         # 每日天氣預報：中央氣象署開放資料 API 授權碼、要傳送的 Discord Webhook、傳送時間（台灣時間）
         cwa_api_key=_read("CWA_API_KEY"),
         weather_webhook_url=_read("WEATHER_WEBHOOK_URL"),

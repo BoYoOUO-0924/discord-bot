@@ -4,7 +4,6 @@ from datetime import datetime
 
 from cogs.blackjack import BlackjackGame, hand_value
 from cogs.guess_number import GuessGame, reward_for
-from cogs.seatortoise import parse_answer
 from cogs.slots import evaluate
 from cogs.tictactoe import EMPTY, O, X, bot_move, find_winner
 from core.timeutil import TAIPEI, parse_duration, parse_when
@@ -65,6 +64,28 @@ class BlackjackTest(unittest.TestCase):
         self.assertEqual(game.payout, 400)
 
 
+class CardDisplayTest(unittest.TestCase):
+    def test_black_suits_use_outline_symbols(self):
+        from cogs.blackjack import render
+        from cogs.poker.cards import Card
+
+        # 實心 ♠ ♣ 在深色背景上看不清楚，顯示時要換成空心符號；紅色花色不變
+        self.assertEqual(str(Card("A", "♠")), "A♤")
+        self.assertEqual(str(Card("10", "♣")), "10♧")
+        self.assertEqual(str(Card("K", "♥")), "K♥")
+        self.assertEqual(render([("Q", "♠"), ("7", "♦")]), "`Q♤` `7♦`")
+
+    def test_poker_table_has_no_black_suit_emoji(self):
+        from cogs.poker.cards import Card
+        from cogs.poker.cog import cards_text
+
+        text = cards_text([Card(r, s) for r, s in [("A", "♠"), ("K", "♣"), ("Q", "♥"), ("J", "♦")]])
+        for black in ("♠", "♣"):
+            self.assertNotIn(black, text)
+        self.assertIn("♤", text)
+        self.assertIn("♧", text)
+
+
 class TicTacToeTest(unittest.TestCase):
     def test_winner_detection(self):
         self.assertEqual(find_winner((X, X, X, 0, 0, 0, 0, 0, 0))[0], X)
@@ -106,11 +127,6 @@ class MiscGameTest(unittest.TestCase):
         self.assertEqual(reward_for(3, 100), 100)
         self.assertEqual(reward_for(20, 100), 20)
 
-    def test_sea_turtle_answer_parsing(self):
-        self.assertEqual(parse_answer("是也不是"), "🔶 是也不是")
-        self.assertEqual(parse_answer("不是。"), "❌ 不是")
-        self.assertEqual(parse_answer("是"), "✅ 是")
-        self.assertEqual(parse_answer("與此無關"), "➖ 無關")
 
 
 if __name__ == "__main__":

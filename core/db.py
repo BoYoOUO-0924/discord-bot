@@ -92,6 +92,32 @@ CREATE TABLE IF NOT EXISTS income (
     chat_day    TEXT,
     chat_earned INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS user_names (
+    user_id    INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    avatar_url TEXT,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS stats_daily (
+    day    TEXT NOT NULL,                       -- 台灣時間 YYYY-MM-DD
+    metric TEXT NOT NULL,
+    value  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, metric)
+);
+CREATE TABLE IF NOT EXISTS soup_played (
+    guild_id  INTEGER NOT NULL,
+    puzzle_id TEXT NOT NULL,
+    played_at REAL NOT NULL,
+    PRIMARY KEY (guild_id, puzzle_id)
+);
+CREATE TABLE IF NOT EXISTS admin_audit (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at REAL NOT NULL,
+    action     TEXT NOT NULL,
+    user_id    INTEGER,
+    detail     TEXT NOT NULL,
+    ip         TEXT
+);
 CREATE TABLE IF NOT EXISTS quest_progress (
     user_id  INTEGER NOT NULL,
     day      TEXT NOT NULL,
@@ -155,6 +181,7 @@ class Database:
         self._conn: Optional[aiosqlite.Connection] = None
         self._lock = asyncio.Lock()
         self._members_seen: set = set()
+        self._names_seen: Dict[int, Tuple[str, Optional[str]]] = {}
 
     # ------------------------------------------------------------------ 連線
     async def connect(self) -> None:
@@ -484,7 +511,11 @@ class Database:
                     "UPDATE income SET chat_day = ?, chat_earned = ? WHERE user_id = ?",
                     (day.isoformat(), earned + granted, user_id))
                 await self.conn.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (granted, user_id))
-                # 聊天獎勵很零碎，不逐筆寫入收支紀錄
+                # 聊天獎勵很零碎，不逐筆寫入收支紀錄，只累計每日總額給後台統計
+                await self.conn.execute(
+                    "INSERT INTO stats_daily (day, metric, value) VALUES (?, 'chat_reward', ?) "
+                    "ON CONFLICT (day, metric) DO UPDATE SET value = value + excluded.value",
+                    (day.isoformat(), granted))
                 await self.conn.commit()
             return granted
 
@@ -643,3 +674,207 @@ class Database:
             ) as cur:
                 rows = await cur.fetchall()
         return [self._row_to_poll(r) for r in rows]
+
+    # ------------------------------------------------------------------ 使用者名稱（後台搜尋用）
+    async def remember_user(self, user_id: int, name: str, avatar_url: Optional[str]) -> None:
+        """記下使用者目前的顯示名稱與頭像。名稱沒變就不寫資料庫。"""
+        if self._names_seen.get(user_id) == (name, avatar_url):
+            return
+        async with self._lock:
+            await self.conn.execute(
+                "INSERT INTO user_names (user_id, name, avatar_url, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (user_id) DO UPDATE SET name = excluded.name, avatar_url = excluded.avatar_url, "
+                "updated_at = excluded.updated_at",
+                (user_id, name, avatar_url, time.time()))
+            await self.conn.commit()
+        self._names_seen[user_id] = (name, avatar_url)
+
+    async def get_names(self, user_ids: List[int]) -> Dict[int, Tuple[str, Optional[str]]]:
+        if not user_ids:
+            return {}
+        marks = ",".join("?" * len(user_ids))
+        async with self._lock:
+            async with self.conn.execute(
+                f"SELECT user_id, name, avatar_url FROM user_names WHERE user_id IN ({marks})", list(user_ids)
+            ) as cur:
+                return {r["user_id"]: (r["name"], r["avatar_url"]) for r in await cur.fetchall()}
+
+    # ------------------------------------------------------------------ 後台：查詢
+    USER_SORTS = {"points": "u.points", "streak": "u.streak", "checkins": "u.total_checkins", "games": "games"}
+
+    async def search_users(self, query: str, sort: str, limit: int, offset: int) -> Tuple[int, List[aiosqlite.Row]]:
+        order = self.USER_SORTS.get(sort, "u.points")
+        query = query.strip()
+        where = "WHERE (? = '' OR n.name LIKE ? OR CAST(u.user_id AS TEXT) = ?)"
+        params = (query, f"%{query}%", query)
+        async with self._lock:
+            async with self.conn.execute(
+                f"SELECT COUNT(*) AS n FROM users u LEFT JOIN user_names n ON n.user_id = u.user_id {where}", params
+            ) as cur:
+                total = (await cur.fetchone())["n"]
+            async with self.conn.execute(
+                "SELECT u.user_id, u.points, u.streak, u.last_checkin, u.total_checkins, n.name, n.avatar_url, "
+                "(SELECT COALESCE(SUM(played), 0) FROM game_stats g WHERE g.user_id = u.user_id) AS games "
+                f"FROM users u LEFT JOIN user_names n ON n.user_id = u.user_id {where} "
+                f"ORDER BY {order} DESC, u.user_id LIMIT ? OFFSET ?",
+                (*params, limit, offset),
+            ) as cur:
+                return total, await cur.fetchall()
+
+    async def user_row(self, user_id: int) -> Optional[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT u.*, n.name, n.avatar_url FROM users u LEFT JOIN user_names n ON n.user_id = u.user_id "
+                "WHERE u.user_id = ?", (user_id,)
+            ) as cur:
+                return await cur.fetchone()
+
+    async def transactions(self, user_id: int, limit: int, offset: int) -> Tuple[int, List[aiosqlite.Row]]:
+        async with self._lock:
+            async with self.conn.execute("SELECT COUNT(*) AS n FROM transactions WHERE user_id = ?", (user_id,)) as cur:
+                total = (await cur.fetchone())["n"]
+            async with self.conn.execute(
+                "SELECT id, amount, reason, created_at FROM transactions WHERE user_id = ? "
+                "ORDER BY id DESC LIMIT ? OFFSET ?",
+                (user_id, limit, offset),
+            ) as cur:
+                return total, await cur.fetchall()
+
+    async def list_holds(self) -> List[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT h.id, h.user_id, h.amount, h.reason, h.created_at, n.name FROM holds h "
+                "LEFT JOIN user_names n ON n.user_id = h.user_id ORDER BY h.created_at"
+            ) as cur:
+                return await cur.fetchall()
+
+    # 收支紀錄的原因 → 統計分類
+    _CATEGORY_SQL = """CASE
+        WHEN reason LIKE '每日簽到%' THEN 'checkin'
+        WHEN reason LIKE '打工%' THEN 'work'
+        WHEN reason LIKE '每日任務%' THEN 'quest'
+        WHEN reason LIKE '猜數字%' OR reason LIKE '海龜湯%' THEN 'game_reward'
+        WHEN reason IN ('21點', '拉霸機', '德州撲克') THEN 'game_net'
+        WHEN reason LIKE '管理員%' THEN 'admin'
+        ELSE 'other' END"""
+    # Unix 時間 → 台灣日期
+    _DAY_SQL = "date(created_at + 8 * 3600, 'unixepoch')"
+
+    async def stats_overview(self, today: date) -> Dict:
+        async with self._lock:
+            async def one(sql, params=()):
+                async with self.conn.execute(sql, params) as cur:
+                    row = await cur.fetchone()
+                    return row[0] or 0
+            return {
+                "users": await one("SELECT COUNT(*) FROM users"),
+                "points": await one("SELECT SUM(points) FROM users"),
+                "held": await one("SELECT SUM(amount) FROM holds"),
+                "checkins_today": await one("SELECT COUNT(*) FROM users WHERE last_checkin = ?", (today.isoformat(),)),
+                "active_today": await one(
+                    f"SELECT COUNT(DISTINCT user_id) FROM transactions WHERE {self._DAY_SQL} = ?", (today.isoformat(),)),
+            }
+
+    async def stats_daily_series(self, today: date, days: int) -> Dict[str, Dict[str, int]]:
+        """最近 days 天每天各來源發出的積分與活躍人數。回傳 {日期: {分類: 數值}}。"""
+        start = (today - timedelta(days=days - 1)).isoformat()
+        series: Dict[str, Dict[str, int]] = {
+            (today - timedelta(days=i)).isoformat(): {} for i in range(days - 1, -1, -1)}
+        async with self._lock:
+            async with self.conn.execute(
+                f"SELECT {self._DAY_SQL} AS day, {self._CATEGORY_SQL} AS category, SUM(amount) AS total "
+                f"FROM transactions WHERE {self._DAY_SQL} >= ? AND amount > 0 GROUP BY day, category", (start,)
+            ) as cur:
+                for row in await cur.fetchall():
+                    if row["day"] in series:
+                        series[row["day"]][row["category"]] = row["total"]
+            async with self.conn.execute(
+                f"SELECT {self._DAY_SQL} AS day, COUNT(DISTINCT user_id) AS n FROM transactions "
+                f"WHERE {self._DAY_SQL} >= ? GROUP BY day", (start,)
+            ) as cur:
+                for row in await cur.fetchall():
+                    if row["day"] in series:
+                        series[row["day"]]["active"] = row["n"]
+            async with self.conn.execute(
+                "SELECT day, value FROM stats_daily WHERE metric = 'chat_reward' AND day >= ?", (start,)
+            ) as cur:
+                for row in await cur.fetchall():
+                    if row["day"] in series:
+                        series[row["day"]]["chat"] = row["value"]
+        return series
+
+    async def stats_games(self) -> List[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT game, SUM(played) AS played, SUM(won) AS won, SUM(net) AS net, COUNT(*) AS players "
+                "FROM game_stats GROUP BY game ORDER BY played DESC"
+            ) as cur:
+                return await cur.fetchall()
+
+    # ------------------------------------------------------------------ 後台：管理操作
+    async def admin_adjust(self, user_id: int, reason: str, *, delta: Optional[int] = None,
+                           set_to: Optional[int] = None) -> Tuple[int, int]:
+        """管理員調整積分（加減或直接設定），回傳 (調整前, 調整後)。積分不會低於 0。"""
+        async with self._lock:
+            await self._ensure_user(user_id)
+            old = await self._balance(user_id)
+            new = max(0, set_to if set_to is not None else old + (delta or 0))
+            await self.conn.execute("UPDATE users SET points = ? WHERE user_id = ?", (new, user_id))
+            if new != old:
+                await self._log(user_id, new - old, f"管理員調整：{reason}")
+            await self.conn.commit()
+            return old, new
+
+    async def admin_set_streak(self, user_id: int, streak: int, today: date) -> None:
+        """修改連續簽到天數。今天還沒簽到的話，讓他今天簽到時能接續這個天數。"""
+        async with self._lock:
+            await self._ensure_user(user_id)
+            async with self.conn.execute("SELECT last_checkin FROM users WHERE user_id = ?", (user_id,)) as cur:
+                last = (await cur.fetchone())["last_checkin"]
+            if streak > 0 and last != today.isoformat():
+                last = (today - timedelta(days=1)).isoformat()
+            await self.conn.execute("UPDATE users SET streak = ?, last_checkin = ? WHERE user_id = ?",
+                                    (streak, last, user_id))
+            await self.conn.commit()
+
+    async def admin_reset_work(self, user_id: int) -> None:
+        async with self._lock:
+            await self.conn.execute("UPDATE income SET last_work = NULL WHERE user_id = ?", (user_id,))
+            await self.conn.commit()
+
+    async def hold_info(self, hold_id: int) -> Optional[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute("SELECT id, user_id, amount, reason FROM holds WHERE id = ?",
+                                         (hold_id,)) as cur:
+                return await cur.fetchone()
+
+    async def audit(self, action: str, user_id: Optional[int], detail: str, ip: Optional[str]) -> None:
+        async with self._lock:
+            await self.conn.execute(
+                "INSERT INTO admin_audit (created_at, action, user_id, detail, ip) VALUES (?, ?, ?, ?, ?)",
+                (time.time(), action, user_id, detail, ip))
+            await self.conn.commit()
+
+    async def list_audit(self, limit: int = 100) -> List[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT a.*, n.name FROM admin_audit a LEFT JOIN user_names n ON n.user_id = a.user_id "
+                "ORDER BY a.id DESC LIMIT ?", (limit,)
+            ) as cur:
+                return await cur.fetchall()
+
+    # ------------------------------------------------------------------ 海龜湯題庫：記錄各伺服器玩過的題目
+    async def soup_played(self, guild_id: int) -> Dict[str, float]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT puzzle_id, played_at FROM soup_played WHERE guild_id = ?", (guild_id,)
+            ) as cur:
+                return {r["puzzle_id"]: r["played_at"] for r in await cur.fetchall()}
+
+    async def mark_soup_played(self, guild_id: int, puzzle_id: str) -> None:
+        async with self._lock:
+            await self.conn.execute(
+                "INSERT INTO soup_played (guild_id, puzzle_id, played_at) VALUES (?, ?, ?) "
+                "ON CONFLICT (guild_id, puzzle_id) DO UPDATE SET played_at = excluded.played_at",
+                (guild_id, puzzle_id, time.time()))
+            await self.conn.commit()

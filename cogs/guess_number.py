@@ -1,5 +1,6 @@
 """猜數字：全頻道一起猜，直接在頻道輸入數字即可，bot 用表情回應大小，不洗版。"""
 import asyncio
+import logging
 import math
 import random
 import time
@@ -10,6 +11,8 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core.ui import BaseView, Color, make_embed, respond, send_error
+
+log = logging.getLogger(__name__)
 
 IDLE_TIMEOUT = 10 * 60
 RANGE_CHOICES = [
@@ -207,7 +210,12 @@ class GuessNumber(commands.Cog):
     async def expire_idle(self):
         now = time.time()
         for game in [g for g in self.games.values() if now - g.last_activity > IDLE_TIMEOUT]:
-            await self.end(game, "⏰ 太久沒人猜，遊戲自動結束")
+            try:
+                await self.end(game, "⏰ 太久沒人猜，遊戲自動結束")
+            except Exception:
+                # 一局出錯不能讓整個計時器停掉
+                log.exception("自動結束猜數字失敗（頻道 %s）", game.channel_id)
+                self.games.pop(game.channel_id, None)
 
 
 class GuessModal(discord.ui.Modal, title="猜一個數字"):

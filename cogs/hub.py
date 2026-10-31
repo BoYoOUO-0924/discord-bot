@@ -76,7 +76,9 @@ class Hub(commands.Cog):
         embed.add_field(name="賺積分", value="✨ 每日簽到・💼 打工（每小時）・🎯 每日任務・💬 聊天也會累積", inline=False)
         games = []
         for game in GAMES:
-            unavailable = "（未啟用）" if game.needs_ai and not self.bot.ai.available else ""
+            unavailable = ""
+            if game.needs_ai and not self.bot.ai.available:
+                unavailable = "（暫停中）" if self.bot.ai.configured else "（未啟用）"
             games.append(f"{game.emoji} **{game.name}**{unavailable}　{game.tagline}")
         embed.add_field(name="遊戲", value="\n".join(games), inline=False)
         embed.add_field(name="工具", value="⏰ **提醒**　時間到通知你\n📊 **投票**　按鈕投票、自動截止", inline=False)
@@ -101,6 +103,8 @@ class Hub(commands.Cog):
         if interaction.guild_id:
             # 按鈕不經過斜線指令的入口，這裡也要記錄，排行榜才找得到人
             await self.bot.db.touch_member(interaction.guild_id, interaction.user.id)
+            await self.bot.db.remember_user(interaction.user.id, interaction.user.display_name,
+                                            interaction.user.display_avatar.url)
         economy = self.bot.get_cog("Economy")
         if action == "checkin":
             return await economy.do_checkin(interaction)
