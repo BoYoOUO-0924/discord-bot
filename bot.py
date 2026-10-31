@@ -158,13 +158,19 @@ def main() -> None:
     discord.utils.setup_logging()
     setup_file_logging()
     keep_system_awake()
-    bot = Bot()
-    if not bot.settings.discord_token:
-        raise SystemExit("找不到 Bot Token：請在 .env 設定 DISCORD_TOKEN（範本見 .env.example）。")
-    if legacy_keys:
-        log.warning("這些設定還寫在舊的 config.py：%s。請搬到 .env（範本見 .env.example），之後就可以刪掉 config.py",
-                    "、".join(legacy_keys))
-    bot.run(bot.settings.discord_token, log_handler=None)
+    try:
+        bot = Bot()
+        if not bot.settings.discord_token:
+            log.critical("找不到 Bot Token：請在 .env 設定 DISCORD_TOKEN（範本見 .env.example）。")
+            raise SystemExit(1)
+        if legacy_keys:
+            log.warning("這些設定還寫在舊的 config.py：%s。請搬到 .env（範本見 .env.example），之後就可以刪掉 config.py",
+                        "、".join(legacy_keys))
+        bot.run(bot.settings.discord_token, log_handler=None)
+    except Exception:
+        # 啟動失敗或異常結束也寫進 logs/bot.log，管理後台的「伺服器紀錄」才看得到
+        log.critical("bot 異常結束", exc_info=True)
+        raise
     if bot.restart_requested:
         sys.exit(RESTART_EXIT_CODE)
 

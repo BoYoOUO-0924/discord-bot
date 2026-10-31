@@ -21,16 +21,22 @@ echo and updates itself when a new version is pushed to GitHub.
 echo Close this window to stop the bot. Log file: logs\bot.log
 echo.
 
+rem Problems are also written to logs\bot.log so they show up in the web admin
+if not exist "logs" mkdir "logs"
+
 :loop
 rem Install any new packages that a new version may need (fast when nothing changed)
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt --quiet --disable-pip-version-check
+if errorlevel 1 echo [%date% %time%] [WARNING ] start: Installing packages failed. Check the internet connection.>> "logs\bot.log"
 ".venv\Scripts\python.exe" bot.py
-if "%errorlevel%"=="3" (
+set "CODE=%errorlevel%"
+if "%CODE%"=="3" (
     echo [%date% %time%] Updated to a new version. Restarting now...
     goto loop
 )
+echo [%date% %time%] [ERROR   ] start: Bot stopped with exit code %CODE%. Restarting in 10 seconds.>> "logs\bot.log"
 echo.
-echo [%date% %time%] Bot stopped with exit code %errorlevel%. Restarting in 10 seconds...
+echo [%date% %time%] Bot stopped with exit code %CODE%. Restarting in 10 seconds...
 echo Close this window now if you want to stop it.
 ping -n 11 127.0.0.1 >nul
 goto loop

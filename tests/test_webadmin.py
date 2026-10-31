@@ -65,6 +65,35 @@ class AdminApiTest(unittest.IsolatedAsyncioTestCase):
         resp = await self.client.post("/api/login", json={"password": PASSWORD}, headers=HEADERS)
         self.assertEqual(resp.status, 200)
 
+    async def test_server_log_groups_tracebacks_and_filters(self):
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(os.path.join(self.tmp.name, "bot.log"), "w", encoding="utf-8") as f:
+            f.write(f"[{now}] [INFO    ] bot: 已登入\n"
+                    f"[{now}] [ERROR   ] bot: 指令 /? 發生錯誤\n"
+                    "Traceback (most recent call last):\n"
+                    '  File "tree.py", line 1138, in wrapper\n'
+                    "discord.app_commands.errors.CommandNotFound: Application command 'poker' not found\n"
+                    f"[{now}] [WARNING ] cogs.weather: 每日天氣預報傳送失敗\n")
+        self.assertEqual((await self.client.get("/api/logs")).status, 401)
+        await self.login()
+
+        data = await (await self.client.get("/api/logs")).json()
+        self.assertEqual(len(data["records"]), 3)
+        self.assertEqual((data["errors_24h"], data["warnings_24h"]), (1, 1))
+
+        errors = (await (await self.client.get("/api/logs?level=ERROR")).json())["records"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("CommandNotFound", errors[0]["text"])   # Traceback 最後一行不能被篩掉
+
+        found = (await (await self.client.get("/api/logs?q=天氣")).json())["records"]
+        self.assertEqual([r["level"] for r in found], ["WARNING"])
+
+        resp = await self.client.get("/api/logs/download")
+        self.assertEqual(resp.status, 200)
+        self.assertIn("attachment", resp.headers["Content-Disposition"])
+        self.assertIn("CommandNotFound", await resp.text())
+
     async def test_requires_login(self):
         self.assertEqual((await self.client.get("/api/overview")).status, 401)
         self.assertEqual((await self.client.get("/api/users")).status, 401)

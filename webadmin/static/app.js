@@ -148,7 +148,8 @@ async function render() {
     if (page === "users" && id) await renderUser(view, id);
     else if (page === "users") await renderUsers(view);
     else if (page === "games") await renderGames(view);
-    else if (page === "logs") await renderLogs(view);
+    else if (page === "serverlog") await renderServerLog(view);
+    else if (page === "logs") await renderAudit(view);
     else await renderOverview(view);
   } catch (e) {
     if (e.message !== "請先登入") view.replaceChildren(h("div", { class: "card error", text: e.message }));
@@ -522,49 +523,85 @@ async function renderGames(view) {
   every(10000, () => load().catch(() => {}));
 }
 
-// ---------------------------------------------------------------- 紀錄
+// ---------------------------------------------------------------- 管理操作紀錄
 const ACTIONS = { login: "登入後台", points: "調整積分", streak: "修改連續簽到", reset_work: "重設打工冷卻",
                   end_game: "結束遊戲", refund_hold: "退還賭注" };
-let logsTab = "audit";
 
-async function renderLogs(view) {
-  const body = h("div", {});
-  const tabs = [["audit", "管理操作紀錄"], ["bot", "bot 執行紀錄"]].map(([value, label]) =>
-    h("button", { type: "button", "aria-pressed": logsTab === value ? "true" : "false", text: label,
-      onclick: () => { logsTab = value; render(); } }));
+async function renderAudit(view) {
+  const data = await api("/api/audit");
   view.replaceChildren(h("section", { class: "card" },
-    h("div", { class: "card-head" }, h("h2", { text: "紀錄" }), h("span", { class: "spacer" }), h("div", { class: "segmented" }, tabs)), body));
-
-  if (logsTab === "audit") {
-    const data = await api("/api/audit");
-    body.replaceChildren(data.items.length ? h("div", { class: "table-wrap" }, h("table", {},
+    h("div", { class: "card-head" }, h("h2", { text: "管理操作紀錄" })),
+    data.items.length ? h("div", { class: "table-wrap" }, h("table", {},
       h("thead", {}, h("tr", {}, ["時間", "動作", "對象", "內容", "來源 IP"].map((t) => h("th", { text: t })))),
       h("tbody", {}, data.items.map((a) => h("tr", {}, h("td", { text: fmtTime(a.at) }), h("td", { text: ACTIONS[a.action] || a.action }),
         h("td", {}, a.user_id ? h("a", { href: `#/users/${a.user_id}`, text: a.name || a.user_id }) : "—"),
         h("td", { text: a.detail }), h("td", { class: "id", text: a.ip || "" }))))))
-      : h("p", { class: "empty", text: "還沒有管理操作。" }));
-    return;
-  }
+      : h("p", { class: "empty", text: "還沒有管理操作。" })));
+}
 
+// ---------------------------------------------------------------- 伺服器紀錄（logs/bot.log）
+const logState = { level: "", q: "", live: true };
+
+function copyText(text) {
+  // 區域網路用 http 開時沒有 navigator.clipboard，退回用隱藏的文字框複製
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const area = h("textarea", { style: { position: "fixed", opacity: "0" } });
+  area.value = text;
+  document.body.append(area);
+  area.select();
+  const ok = document.execCommand("copy");
+  area.remove();
+  return ok ? Promise.resolve() : Promise.reject(new Error("無法複製"));
+}
+
+async function renderServerLog(view) {
   const level = h("select", { "aria-label": "紀錄等級" },
-    [["", "全部"], ["WARNING", "警告以上"], ["ERROR", "只看錯誤"]].map(([v, t]) => h("option", { value: v, text: t })));
-  const box = h("div", { class: "logbox" });
+    [["", "全部"], ["WARNING", "警告以上"], ["ERROR", "只看錯誤"]].map(([v, t]) =>
+      h("option", { value: v, text: t, selected: logState.level === v })));
+  const search = h("input", { type: "search", placeholder: "搜尋紀錄（例如 poker、天氣、Traceback）", "aria-label": "搜尋紀錄" });
+  search.value = logState.q;
+  const live = h("input", { type: "checkbox", id: "log-live", checked: logState.live });
+  const summary = h("button", { type: "button", class: "btn small ghost", title: "只看錯誤" });
+  const box = h("div", { class: "logbox", tabindex: 0, "aria-label": "伺服器紀錄" });
+  let shown = [];
+
   const load = async () => {
-    const data = await api(`/api/logs?lines=400&level=${level.value}`);
+    const params = new URLSearchParams({ lines: 500, level: logState.level, q: logState.q });
+    const data = await api(`/api/logs?${params}`);
+    shown = data.records;
     const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
-    box.replaceChildren(...(data.lines.length ? data.lines.map((line) => {
-      const lv = (line.match(/\[(ERROR|WARNING|INFO)/) || [])[1] || "";
-      return h("div", { class: lv ? `lv-${lv}` : "", text: line });
-    }) : [h("div", { class: "muted", text: "還沒有紀錄（logs/bot.log）。" })]));
+    box.replaceChildren(...(shown.length ? shown.map((r) => h("div", { class: r.level ? `lv-${r.level}` : "", text: r.text }))
+      : [h("div", { class: "muted", text: logState.q || logState.level ? "沒有符合條件的紀錄。" : "還沒有紀錄（logs/bot.log）。" })]));
     if (atBottom) box.scrollTop = box.scrollHeight;
+    summary.textContent = data.errors_24h
+      ? `⚠️ 最近 24 小時：${data.errors_24h} 個錯誤、${data.warnings_24h} 個警告`
+      : `✅ 最近 24 小時沒有錯誤（${data.warnings_24h} 個警告）`;
+    summary.classList.toggle("bad", data.errors_24h > 0);
   };
-  level.addEventListener("change", load);
-  body.replaceChildren(h("div", { class: "toolbar", style: { marginBottom: "10px" } }, level,
-    h("button", { class: "btn small", type: "button", text: "重新整理", onclick: load }),
-    h("span", { class: "muted", text: "每 5 秒自動更新" })), box);
+
+  level.addEventListener("change", () => { logState.level = level.value; load(); });
+  let typing;
+  search.addEventListener("input", () => {
+    clearTimeout(typing);
+    typing = setTimeout(() => { logState.q = search.value.trim(); load(); }, 300);
+  });
+  live.addEventListener("change", () => { logState.live = live.checked; });
+  summary.addEventListener("click", () => { logState.level = level.value = "ERROR"; load(); });
+
+  view.replaceChildren(h("section", { class: "card" },
+    h("div", { class: "card-head" }, h("h2", { text: "伺服器紀錄" }), h("span", { class: "spacer" }), summary),
+    h("div", { class: "toolbar", style: { marginBottom: "10px" } }, search, level,
+      h("label", { class: "muted", for: "log-live" }, live, " 每 5 秒自動更新"),
+      h("button", { class: "btn small", type: "button", text: "重新整理", onclick: load }),
+      h("button", { class: "btn small", type: "button", text: "複製目前顯示的紀錄", onclick: () =>
+        copyText(shown.map((r) => r.text).join("\n")).then(() => toast(`已複製 ${shown.length} 筆紀錄`), (e) => toast(e.message, true)) }),
+      h("a", { class: "btn small", href: "/api/logs/download", text: "下載完整紀錄檔" })),
+    box,
+    h("p", { class: "muted", style: { marginTop: "8px" },
+      text: "遇到問題時，把「只看錯誤」的內容複製起來，或下載完整紀錄檔傳給開發者，比較容易找到原因。" })));
   await load();
   box.scrollTop = box.scrollHeight;
-  every(5000, () => load().catch(() => {}));
+  every(5000, () => { if (logState.live) load().catch(() => {}); });
 }
 
 // ---------------------------------------------------------------- 啟動
