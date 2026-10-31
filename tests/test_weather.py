@@ -215,6 +215,11 @@ class EnvDiagnosticsTest(unittest.TestCase):
         self.assertEqual(values, {"CWA_API_KEY": "abc", "WEATHER_WEBHOOK_URL": "https://x"})
         self.assertEqual(status.problems, [])
 
+    def test_values_typed_into_example_are_reported(self):
+        status, values = self.load({".env.example": b"# CWA_API_KEY=x\nCWA_API_KEY=real-key\nDISCORD_TOKEN=YOUR_DISCORD_BOT_TOKEN\n"})
+        self.assertIsNone(values["CWA_API_KEY"])
+        self.assertTrue(any(p.startswith("CWA_API_KEY 填在 .env.example") for p in status.problems))
+
     def test_placeholder_reported(self):
         status, values = self.load({".env": b"CWA_API_KEY=YOUR_CWA_API_KEY\nWEATHER_WEBHOOK_URL=\n"})
         self.assertEqual(len([p for p in status.problems if "還沒有填值" in p]), 2)
