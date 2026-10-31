@@ -185,6 +185,41 @@ class SendNowTest(unittest.IsolatedAsyncioTestCase):
         error.assert_awaited_once()
 
 
+class EnvDiagnosticsTest(unittest.TestCase):
+    def load(self, files):
+        from unittest.mock import patch
+        from core.config import load_dotenv
+
+        with tempfile.TemporaryDirectory() as folder:
+            for name, content in files.items():
+                with open(os.path.join(folder, name), "wb") as f:
+                    f.write(content)
+            with patch.dict(os.environ, {}, clear=False):
+                status = load_dotenv(os.path.join(folder, ".env"))
+                values = {k: os.environ.get(k) for k in ("CWA_API_KEY", "WEATHER_WEBHOOK_URL")}
+        return status, values
+
+    def test_txt_extension_is_reported(self):
+        status, _ = self.load({".env.txt": b"CWA_API_KEY=abc\n"})
+        self.assertFalse(status.found)
+        self.assertIn(".env.txt", status.problems[0])
+
+    def test_misspelled_key_gets_suggestion(self):
+        status, values = self.load({".env": "CAW_API_KEY=abc\n天氣\n".encode("utf-8")})
+        self.assertIsNone(values["CWA_API_KEY"])
+        self.assertTrue(any("CAW_API_KEY" in p and "CWA_API_KEY" in p for p in status.problems))
+        self.assertTrue(any("第 2 行" in p for p in status.problems))
+
+    def test_utf16_file_from_powershell_still_works(self):
+        status, values = self.load({".env": "CWA_API_KEY=abc\r\nWEATHER_WEBHOOK_URL=https://x\r\n".encode("utf-16")})
+        self.assertEqual(values, {"CWA_API_KEY": "abc", "WEATHER_WEBHOOK_URL": "https://x"})
+        self.assertEqual(status.problems, [])
+
+    def test_placeholder_reported(self):
+        status, values = self.load({".env": b"CWA_API_KEY=YOUR_CWA_API_KEY\nWEATHER_WEBHOOK_URL=\n"})
+        self.assertEqual(len([p for p in status.problems if "還沒有填值" in p]), 2)
+
+
 class SettingsSourceTest(unittest.TestCase):
     def test_env_first_then_legacy_config_py(self):
         from unittest.mock import patch

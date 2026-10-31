@@ -73,7 +73,9 @@ class Weather(commands.Cog):
 
     async def cog_load(self):
         if not self.api_key or not self.webhook_url:
-            log.info("每日天氣預報未啟用（需要在 .env 設定 CWA_API_KEY 與 WEATHER_WEBHOOK_URL）")
+            missing = [name for name, value in (("CWA_API_KEY", self.api_key),
+                                                ("WEATHER_WEBHOOK_URL", self.webhook_url)) if not value]
+            log.info("每日天氣預報未啟用：.env 裡沒有讀到 %s", "、".join(missing))
             return
         if not parse_clock(self.bot.settings.weather_time):
             log.warning("WEATHER_TIME 格式錯誤（%s），改用 06:00", self.bot.settings.weather_time)

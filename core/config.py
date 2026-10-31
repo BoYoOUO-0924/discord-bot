@@ -2,35 +2,81 @@
 
 讀取順序：環境變數 → .env → 舊版 config.py（相容用，之後會提示搬到 .env）。
 """
+import difflib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(ROOT, ".env")
 
+KNOWN_KEYS = [
+    "DISCORD_TOKEN", "GEMINI_API_KEY", "GEMINI_MODEL", "DEV_GUILD_ID", "DATABASE_PATH", "AUTO_UPDATE",
+    "ADMIN_PASSWORD", "ADMIN_HOST", "ADMIN_PORT", "AI_PROVIDER", "OLLAMA_URL", "OLLAMA_MODEL",
+    "CWA_API_KEY", "WEATHER_WEBHOOK_URL", "WEATHER_TIME",
+]
 
-def load_dotenv(path: str) -> None:
-    """讀取 .env 的 KEY=VALUE 到環境變數；已經存在的環境變數不覆蓋。"""
+
+@dataclass
+class EnvStatus:
+    """.env 讀取結果，啟動時寫進紀錄，設定沒生效時一看就知道原因。"""
+    path: str
+    found: bool = False
+    keys: List[str] = field(default_factory=list)
+    problems: List[str] = field(default_factory=list)
+
+
+def _decode(raw: bytes) -> str:
+    # 記事本存 UTF-8；PowerShell 5 的 echo > .env 會存成 UTF-16
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or raw[1:2] == b"\x00":
+        return raw.decode("utf-16")
     try:
-        with open(path, encoding="utf-8-sig") as f:
-            lines = f.readlines()
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp950", errors="replace")   # 繁體中文 Windows 的 ANSI
+
+
+def load_dotenv(path: str) -> EnvStatus:
+    """讀取 .env 的 KEY=VALUE 到環境變數；已經存在的環境變數不覆蓋。"""
+    status = EnvStatus(path)
+    try:
+        with open(path, "rb") as f:
+            text = _decode(f.read())
     except OSError:
-        return
-    for line in lines:
+        folder = os.path.dirname(path)
+        misnamed = [name for name in (".env.txt", "env", "env.txt", ".env.example.txt")
+                    if os.path.exists(os.path.join(folder, name))]
+        if misnamed:
+            status.problems.append(f"找不到 .env，但有 {'、'.join(misnamed)}：請把檔名改成 .env"
+                                   "（檔案總管要開啟「副檔名」才看得到 .txt）")
+        return status
+    status.found = True
+    for number, line in enumerate(text.splitlines(), 1):
         line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            status.problems.append(f".env 第 {number} 行沒有「=」，已略過（格式是 名稱=值）")
             continue
         key, value = line.split("=", 1)
         key = key.strip().removeprefix("export ").strip()
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
-        if key:
-            os.environ.setdefault(key, value)
+        if not key:
+            continue
+        status.keys.append(key)
+        if key not in KNOWN_KEYS:
+            guess = difflib.get_close_matches(key.upper(), KNOWN_KEYS, n=1, cutoff=0.6)
+            status.problems.append(f".env 第 {number} 行的 {key} 不是認得的設定名稱"
+                                   + (f"，是不是要寫 {guess[0]}？" if guess else ""))
+        elif not value or value.startswith(("YOUR_", "PUT_YOUR_")):
+            status.problems.append(f".env 第 {number} 行的 {key} 還沒有填值")
+        os.environ.setdefault(key, value)
+    return status
 
 
-load_dotenv(ENV_PATH)
+env_status = load_dotenv(ENV_PATH)
 
 try:
     import config as _legacy_config  # 舊版的 config.py（已被 .gitignore 排除），只為了相容
