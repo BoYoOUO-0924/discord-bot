@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.ai import create_ai
-from core.config import legacy_keys, load_settings
+from core.config import env_status, legacy_keys, load_settings
 from core.db import Database
 from core.instance import acquire_single_instance
 from core.i18n import ZhTranslator
@@ -167,6 +167,12 @@ def main() -> None:
         if lock is None:
             log.critical("已經有另一個 bot 在執行（可能開了兩個 Gawa Bot 視窗），這個不啟動。")
             sys.exit(ALREADY_RUNNING_EXIT_CODE)
+        if env_status.found:
+            log.info("已讀取 %s：%s", env_status.path, "、".join(env_status.keys) or "（沒有任何設定）")
+        else:
+            log.warning("找不到 %s（設定檔要放在和 bot.py 同一個資料夾）", env_status.path)
+        for problem in env_status.problems:
+            log.warning("設定檔問題：%s", problem)
         if not bot.settings.discord_token:
             log.critical("找不到 Bot Token：請在 .env 設定 DISCORD_TOKEN（範本見 .env.example）。")
             raise SystemExit(1)
