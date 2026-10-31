@@ -112,7 +112,7 @@ class Weather(commands.Cog):
         embeds = await self.build_embeds(now)
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             webhook = discord.Webhook.from_url(self.webhook_url, session=session)
-            await webhook.send(content="☀️ **早安！今天的天氣預報**", embeds=embeds, username="天氣預報",
+            await webhook.send(content="☀️ **早安！今天的天氣預報**", embeds=embeds,
                                allowed_mentions=discord.AllowedMentions.none())
 
     @tasks.loop(minutes=1)
