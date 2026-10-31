@@ -100,6 +100,15 @@ class FetchTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([f.source for f in forecasts], ["臺北市", "新北市淡水區"])
 
 
+class SslContextTest(unittest.TestCase):
+    def test_uses_os_verification_with_checks_on(self):
+        import ssl
+        ctx = weather.ssl_context()
+        self.assertEqual(type(ctx).__module__.split(".")[0], "truststore")   # 由作業系統驗證憑證
+        self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)                 # 不是關掉驗證
+        self.assertTrue(ctx.check_hostname)
+
+
 class AdviceTest(unittest.TestCase):
     def P(self, low, high, pop, wx="多雲"):
         return weather.Period(wx, low, high, pop)
