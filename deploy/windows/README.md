@@ -89,8 +89,14 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 - **備份資料**：先關掉 bot，再複製 `data\bot.db`
 
 ## 常見問題
-**每個指令都被回應兩次**
-主電腦和筆電的 bot 同時在線。關掉其中一台。
+**每個指令都被回應兩次，或常出現「Unknown interaction」**
+有兩個 bot 同時在線，常見原因是主電腦和筆電都開著，關掉其中一台。
+同一台電腦重複開啟（例如開機自動啟動後又雙擊桌面捷徑）的話，第二個視窗會顯示
+「Gawa Bot is already running in another window」並停下來，不會真的啟動第二個，把那個視窗關掉就好。
+
+**紀錄裡一直出現 `getaddrinfo failed`、`Attempting a reconnect`**
+筆電暫時斷網（Wi-Fi 斷線或網卡省電），bot 會自動重連，網路恢復後就正常。
+常常發生的話，參考下方「蓋上螢幕後 bot 還是離線」的 Wi-Fi 省電設定。
 
 **一直沒有自動更新**
 打開 `logs\bot.log`，搜尋「自動更新」看原因：

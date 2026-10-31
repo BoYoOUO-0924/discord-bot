@@ -34,6 +34,13 @@ if "%CODE%"=="3" (
     echo [%date% %time%] Updated to a new version. Restarting now...
     goto loop
 )
+if "%CODE%"=="4" (
+    echo.
+    echo Gawa Bot is already running in another window. This window will not start a second copy.
+    echo Two copies at the same time make every command fail or answer twice.
+    pause
+    exit /b 0
+)
 echo [%date% %time%] [ERROR   ] start: Bot stopped with exit code %CODE%. Restarting in 10 seconds.>> "logs\bot.log"
 echo.
 echo [%date% %time%] Bot stopped with exit code %CODE%. Restarting in 10 seconds...
