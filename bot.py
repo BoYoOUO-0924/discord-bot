@@ -29,6 +29,7 @@ EXTENSIONS = [
     "cogs.tictactoe",
     "cogs.poker",
     "cogs.seatortoise",
+    "cogs.weather",
     "cogs.updater",
 ]
 

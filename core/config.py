@@ -1,7 +1,32 @@
-"""讀取設定：優先使用 config.py，其次是環境變數。"""
+"""讀取設定：優先使用 config.py，其次是環境變數（含專案根目錄的 .env）。"""
 import os
 from dataclasses import dataclass
 from typing import Optional
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def load_dotenv(path: str) -> None:
+    """讀取 .env 的 KEY=VALUE 到環境變數；已經存在的環境變數不覆蓋。"""
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            lines = f.readlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key:
+            os.environ.setdefault(key, value)
+
+
+load_dotenv(os.path.join(ROOT, ".env"))
 
 try:
     import config as _local_config  # 本地 config.py（已被 .gitignore 排除）
@@ -27,10 +52,13 @@ class Settings:
     dev_guild_id: Optional[int]
     database_path: str
     auto_update: bool
+    cwa_api_key: Optional[str]
+    weather_webhook_url: Optional[str]
+    weather_time: str
 
 
 def load_settings() -> Settings:
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = ROOT
     dev_guild = _read("DEV_GUILD_ID")
     return Settings(
         discord_token=_read("DISCORD_TOKEN"),
@@ -41,4 +69,8 @@ def load_settings() -> Settings:
         database_path=_read("DATABASE_PATH", os.path.join(root, "data", "bot.db")),
         # 從 GitHub 自動更新；deploy/windows/2_start.bat 會設定 AUTO_UPDATE=1
         auto_update=str(_read("AUTO_UPDATE", "0")).strip().lower() in ("1", "true", "yes", "on"),
+        # 每日天氣預報：中央氣象署開放資料 API 授權碼、要傳送的 Discord Webhook、傳送時間（台灣時間）
+        cwa_api_key=_read("CWA_API_KEY"),
+        weather_webhook_url=_read("WEATHER_WEBHOOK_URL"),
+        weather_time=str(_read("WEATHER_TIME", "06:00")),
     )
