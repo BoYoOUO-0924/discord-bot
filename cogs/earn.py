@@ -76,7 +76,7 @@ class Earn(commands.Cog):
     # ------------------------------------------------------------------ 每日任務
     async def build_quests(self, user: discord.abc.User) -> discord.Embed:
         today = today_tw()
-        quests = daily_quests(user.id, today, self.bot.ai.available)
+        quests = daily_quests(user.id, today, self.bot.ai.configured)
         progress = await self.db.quest_progress(user.id, today)
         lines, done_count = [], 0
         for quest in quests:
@@ -106,7 +106,7 @@ class Earn(commands.Cog):
         if user_id <= 0:   # 撲克電腦玩家
             return
         today = today_tw()
-        quests = daily_quests(user_id, today, self.bot.ai.available)
+        quests = daily_quests(user_id, today, self.bot.ai.configured)
         finished = []
         for quest in quests:
             if quest.matches(kind, meta):
@@ -139,6 +139,7 @@ class Earn(commands.Cog):
             self.chat_reward_at[user_id] = now
             await self.db.add_chat_reward(user_id, today_tw(), CHAT_REWARD, CHAT_DAILY_CAP)
             await self.db.touch_member(message.guild.id, user_id)
+            await self.db.remember_user(user_id, message.author.display_name, message.author.display_avatar.url)
         if now - self.chat_quest_at.get(user_id, 0) >= CHAT_QUEST_COOLDOWN:
             self.chat_quest_at[user_id] = now
             self.bot.dispatch("activity", user_id, "chat", message.channel.id, {})

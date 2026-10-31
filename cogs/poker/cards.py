@@ -1,6 +1,15 @@
 import secrets
 from typing import List
 
+# 顯示用的花色：實心黑桃、梅花在 Windows 會被畫成黑色表情，深色背景上看不清楚，
+# 改用空心符號跟著文字顏色顯示；紅心、方塊本來就是紅色，維持不變。
+SUIT_DISPLAY = {"♠": "♤", "♥": "♥", "♦": "♦", "♣": "♧"}
+
+
+def card_label(rank: str, suit: str) -> str:
+    return f"{rank}{SUIT_DISPLAY.get(suit, suit)}"
+
+
 class Card:
     SUITS = ["♠", "♥", "♦", "♣"]
     RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
@@ -11,7 +20,7 @@ class Card:
         self.suit = suit
 
     def __str__(self) -> str:
-        return f"{self.rank}{self.suit}"
+        return card_label(self.rank, self.suit)
 
     def value(self) -> int:
         return Card.RANK_VALUES[self.rank]

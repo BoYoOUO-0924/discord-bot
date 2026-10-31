@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.ai import GeminiClient
+from core.ai import create_ai
 from core.config import load_settings
 from core.db import Database
 from core.i18n import ZhTranslator
@@ -31,6 +31,7 @@ EXTENSIONS = [
     "cogs.seatortoise",
     "cogs.weather",
     "cogs.updater",
+    "cogs.webadmin",
 ]
 
 # 結束代碼 3 代表「已更新，請立刻重新啟動」，deploy/windows/2_start.bat 會依此重啟
@@ -43,7 +44,11 @@ class AppTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         # 自動完成每打一個字就會觸發一次，不需要記錄
         if interaction.guild_id and interaction.type is discord.InteractionType.application_command:
-            await interaction.client.db.touch_member(interaction.guild_id, interaction.user.id)
+            db = interaction.client.db
+            await db.touch_member(interaction.guild_id, interaction.user.id)
+            # 記下名稱，管理後台才能用名字搜尋（名稱沒變就不會寫資料庫）
+            await db.remember_user(interaction.user.id, interaction.user.display_name,
+                                   interaction.user.display_avatar.url)
         return True
 
     async def on_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
@@ -72,7 +77,7 @@ class Bot(commands.Bot):
                          help_command=None, tree_cls=AppTree)
         self.settings = load_settings()
         self.db = Database(self.settings.database_path)
-        self.ai = GeminiClient(self.settings.gemini_api_key, self.settings.gemini_model)
+        self.ai = create_ai(self.settings)
         self.restart_requested = False
 
     async def request_restart(self) -> None:
@@ -89,8 +94,10 @@ class Bot(commands.Bot):
         refunded = await self.db.refund_all_holds()
         if refunded:
             log.info("已退還 %d 筆上次未結算的賭注", refunded)
-        if not self.ai.available:
-            log.warning("未設定 GEMINI_API_KEY，海龜湯會停用")
+        if self.ai.configured:
+            await self.ai.check()   # 實際測試一次，不能用的話海龜湯會顯示「暫停」
+        else:
+            log.warning("沒有設定 AI（OLLAMA_URL 或 GEMINI_API_KEY），海龜湯會停用")
 
         await self.tree.set_translator(ZhTranslator())
         for ext in EXTENSIONS:
