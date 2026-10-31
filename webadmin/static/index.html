@@ -11,7 +11,7 @@
   <main id="login" class="login" hidden>
     <form id="login-form" class="login-card">
       <h1>🎮 嘎哇管理後台</h1>
-      <p class="muted">請輸入 config.py 裡設定的 ADMIN_PASSWORD</p>
+      <p class="muted">請輸入 .env 裡設定的 ADMIN_PASSWORD</p>
       <label for="password">密碼</label>
       <input id="password" type="password" autocomplete="current-password" required autofocus>
       <p id="login-error" class="error" role="alert"></p>
@@ -27,7 +27,8 @@
         <a href="#/overview" data-tab="overview">總覽</a>
         <a href="#/users" data-tab="users">使用者</a>
         <a href="#/games" data-tab="games">遊戲</a>
-        <a href="#/logs" data-tab="logs">紀錄</a>
+        <a href="#/serverlog" data-tab="serverlog">伺服器紀錄</a>
+        <a href="#/logs" data-tab="logs">操作紀錄</a>
       </nav>
       <div class="topbar-right">
         <span id="bot-status" class="status-pill" title="bot 狀態">…</span>

@@ -10,11 +10,13 @@
 import hmac
 import logging
 import os
+import re
 import secrets
 import time
 from collections import defaultdict, deque
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Deque, Dict, Optional
+from typing import Deque, Dict, List, Optional
 
 from aiohttp import web
 
@@ -30,9 +32,45 @@ LOGIN_WINDOW, LOGIN_MAX_FAILS = 600, 5
 CSRF_HEADER, CSRF_VALUE = "X-Requested-With", "gawa-admin"
 PAGE_SIZE = 50
 PLACEHOLDER_PASSWORDS = {"請改成你自己的密碼", "YOUR_ADMIN_PASSWORD"}
+LOG_TAIL_BYTES = 1024 * 1024
+LOG_LEVELS = {"WARNING": ("WARNING", "ERROR", "CRITICAL"), "ERROR": ("ERROR", "CRITICAL")}
+LOG_LEVEL_RE = re.compile(r"\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s*\]")
+LOG_TIME_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
 
 GAME_NAMES = {"blackjack": "21點", "slots": "拉霸機", "guess": "猜數字", "tictactoe": "井字遊戲",
               "poker": "德州撲克", "seatortoise": "海龜湯"}
+
+
+def read_log_tail(path: str, max_bytes: int = LOG_TAIL_BYTES) -> str:
+    """讀紀錄檔最後一段；目前的檔案剛輪替、內容太少時，連同上一份（bot.log.1）的結尾一起讀。"""
+    chunks: List[bytes] = []
+    remaining = max_bytes
+    for candidate in (path, path + ".1"):
+        if remaining <= 0 or not os.path.exists(candidate):
+            continue
+        with open(candidate, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - remaining))
+            chunks.insert(0, f.read())
+        remaining -= size
+    text = b"".join(chunks).decode("utf-8", errors="replace")
+    return text if remaining > 0 else text.split("\n", 1)[-1]   # 從中間切開的第一行丟掉
+
+
+def parse_log_records(text: str) -> List[dict]:
+    """把紀錄切成一筆一筆：以「[時間]」開頭的是新的一筆，Traceback 等多行內容併到上一筆，
+    這樣篩選錯誤時不會漏掉錯誤訊息的最後一行（例如 CommandNotFound: ...）。"""
+    records: List[dict] = []
+    for line in text.splitlines():
+        if line.startswith("[") or not records:
+            level = LOG_LEVEL_RE.search(line[:60])
+            time_match = LOG_TIME_RE.match(line)
+            records.append({"time": time_match.group(1) if time_match else None,
+                            "level": level.group(1) if level else "", "text": line})
+        else:
+            records[-1]["text"] += "\n" + line
+    return records
 
 
 def password_problem(password: Optional[str]) -> Optional[str]:
@@ -76,7 +114,8 @@ class AdminServer:
             ("POST", "/api/users/{user_id:\\d+}/reset-work", self.reset_work),
             ("GET", "/api/games", self.games), ("POST", "/api/games/end", self.end_game),
             ("POST", "/api/holds/{hold_id:\\d+}/refund", self.refund_hold),
-            ("GET", "/api/logs", self.logs), ("GET", "/api/audit", self.audit_log),
+            ("GET", "/api/logs", self.logs), ("GET", "/api/logs/download", self.download_log),
+            ("GET", "/api/audit", self.audit_log),
         ]
         for method, path, handler in routes:
             app.router.add_route(method, path, handler)
@@ -424,18 +463,31 @@ class AdminServer:
 
     # ================================================================== 紀錄
     async def logs(self, request: web.Request):
-        lines = min(2000, max(10, int(request.query.get("lines", 300) or 300)))
-        level = request.query.get("level", "")
+        limit = min(2000, max(10, int(request.query.get("lines", 300) or 300)))
+        levels = LOG_LEVELS.get(request.query.get("level", ""))
+        query = request.query.get("q", "").strip().lower()
         if not os.path.exists(self.log_path):
-            return web.json_response({"lines": []})
-        with open(self.log_path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - 512 * 1024))   # 只讀最後 512 KB
-            text = f.read().decode("utf-8", errors="replace")
-        rows = text.splitlines()
-        if level:
-            rows = [r for r in rows if f"[{level}" in r or (level == "ERROR" and r.startswith(("Traceback", "  ")))]
-        return web.json_response({"lines": rows[-lines:]})
+            return web.json_response({"records": [], "errors_24h": 0, "warnings_24h": 0})
+        records = parse_log_records(read_log_tail(self.log_path))
+
+        since = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        recent = [r for r in records if r["time"] and r["time"] >= since]
+        errors = sum(r["level"] in ("ERROR", "CRITICAL") for r in recent)
+        warnings = sum(r["level"] == "WARNING" for r in recent)
+
+        if levels:
+            records = [r for r in records if r["level"] in levels]
+        if query:
+            records = [r for r in records if query in r["text"].lower()]
+        return web.json_response({"records": records[-limit:], "errors_24h": errors, "warnings_24h": warnings})
+
+    async def download_log(self, request: web.Request):
+        if not os.path.exists(self.log_path):
+            return web.json_response({"error": "還沒有紀錄檔"}, status=404)
+        name = f"bot-{datetime.now():%Y%m%d-%H%M}.log"
+        return web.Response(body=read_log_tail(self.log_path, 5 * 1024 * 1024).encode("utf-8"),
+                            content_type="text/plain", charset="utf-8",
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     async def audit_log(self, request: web.Request):
         rows = await self.db.list_audit(200)

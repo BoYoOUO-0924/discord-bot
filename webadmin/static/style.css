@@ -65,6 +65,7 @@ h3 { font-size: 15px; }
   padding: 7px 14px; border-radius: 8px; cursor: pointer; white-space: nowrap;
 }
 .btn:hover { background: var(--surface-2); }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.danger { color: var(--critical); }
@@ -193,7 +194,9 @@ tbody tr.clickable:hover { background: var(--surface-2); }
   border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 60vh; overflow: auto; white-space: pre-wrap;
   word-break: break-all;
 }
-.logbox .lv-ERROR { color: var(--critical); }
+.logbox > div { padding: 1px 0; }
+.logbox .lv-ERROR, .logbox .lv-CRITICAL { color: var(--critical); }
+.btn.bad { color: var(--critical); border-color: var(--critical); }
 .logbox .lv-WARNING { color: #b07400; }
 :root[data-theme="dark"] .logbox .lv-WARNING { color: #fab219; }
 @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .logbox .lv-WARNING { color: #fab219; } }
