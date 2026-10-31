@@ -234,7 +234,7 @@ matched 是一個長度 {len(puzzle.key_points)} 的陣列，依序判斷玩家�
             return await send_error(interaction, "海龜湯要在伺服器頻道裡玩。")
         if not self.ai.available:
             reason = "湯主暫時離線（AI 無法連線），請稍後再試。" if self.ai.configured else \
-                     "海龜湯需要 AI，請管理員在 config.py 設定 OLLAMA_URL 或 GEMINI_API_KEY。"
+                     "海龜湯需要 AI，請管理員在 .env 設定 OLLAMA_URL 或 GEMINI_API_KEY。"
             return await send_error(interaction, reason)
         channel_id = interaction.channel_id
         if channel_id in self.games:

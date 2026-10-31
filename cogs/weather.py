@@ -1,6 +1,6 @@
 """每日天氣預報：每天早上用 Webhook 傳送台北、淡水的天氣、降雨機率與穿衣建議。
 
-資料來自中央氣象署開放資料，需要在 .env（或 config.py）設定 CWA_API_KEY 與 WEATHER_WEBHOOK_URL。
+資料來自中央氣象署開放資料，需要在 .env 設定 CWA_API_KEY 與 WEATHER_WEBHOOK_URL。
 筆電在傳送時間剛好關機或重啟時，開機後中午前會補送；同一天不會重複傳送。
 """
 import logging

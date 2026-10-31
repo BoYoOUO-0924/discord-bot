@@ -7,7 +7,7 @@
 ### 1. 在主電腦準備兩個檔案
 1. **先關掉主電腦上的 bot**。同一時間只能有一個 bot 在線，不然每個指令都會被回應兩次。
 2. 把這兩個檔案複製到隨身碟：
-   - `config.py`：裡面有 Bot Token，**不要傳給別人，也不要放進公開的地方**
+   - `.env`：裡面有 Bot Token 和各種 API 金鑰，**不要傳給別人，也不要放進公開的地方**
    - `data\bot.db`：大家的積分、簽到等資料。如果旁邊有 `bot.db-wal`，也一起複製。
 
 ### 2. 在筆電安裝 Python 和 Git
@@ -25,7 +25,7 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 > 建議放在 `C:\GawaBot`，不要放在桌面：桌面常被 OneDrive 同步，資料庫一直被同步容易出問題。
 
 ### 4. 放回設定和資料
-- `config.py` → 放到 `C:\GawaBot\config.py`
+- `.env` → 放到 `C:\GawaBot\.env`（還沒有的話，`1_install.bat` 會用 `.env.example` 幫你建一個並用記事本打開）
 - `bot.db`（和 `bot.db-wal`）→ 放到 `C:\GawaBot\data\`
 
 ### 5. 依序執行腳本
@@ -54,12 +54,12 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 海龜湯的題目來自題庫，AI 只負責回答是非題和判斷猜答。筆電可以透過 Tailscale 使用另一台電腦上的 Ollama：
 
 1. 筆電安裝 Tailscale 並登入**同一個帳號**，確認筆電能連到 Ollama 那台電腦（`100.123.111.120`）。
-2. 在筆電的 `config.py` 加上：
-   ```python
-   OLLAMA_URL = "http://100.123.111.120:11434"
-   OLLAMA_MODEL = "gemma4:e4b-it-q4_K_M"
+2. 在筆電的 `.env` 加上：
    ```
-3. 重新啟動 bot。`logsot.log` 會出現「AI（ollama …）狀態：正常」，管理後台右上角也會顯示「AI 湯主正常」。
+   OLLAMA_URL=http://100.123.111.120:11434
+   OLLAMA_MODEL=gemma4:e4b-it-q4_K_M
+   ```
+3. 重新啟動 bot。`logs\bot.log` 會出現「AI（ollama …）狀態：正常」，管理後台右上角也會顯示「AI 湯主正常」。
 
 注意：
 - Ollama 那台電腦關機或沒有回應時，海龜湯會自動顯示「暫停中」，其他功能不受影響；恢復後 5 分鐘內會自動重新開放。
@@ -68,9 +68,9 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 ## 管理後台（網頁）
 可以用瀏覽器查看所有人的積分、收支紀錄、統計圖表，並調整積分、修正連續簽到、結束卡住的牌局。
 
-1. 在筆電的 `config.py` 加一行，設定至少 8 個字元的密碼：
-   ```python
-   ADMIN_PASSWORD = "你自己想的密碼"
+1. 在筆電的 `.env` 加一行，設定至少 8 個字元的密碼：
+   ```
+   ADMIN_PASSWORD=你自己想的密碼
    ```
 2. 重新啟動 bot（關掉視窗再打開桌面的 Gawa Bot）。第一次啟動時，Windows 防火牆可能會詢問是否允許 Python 連線，請勾選 **私人網路** 並允許。
 3. bot 視窗或 `logs\bot.log` 會出現「管理後台已啟動：http://192.168.x.x:8080」，在同一個 Wi-Fi 下的電腦或手機用瀏覽器打開這個網址，輸入密碼即可。
@@ -78,7 +78,7 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 注意：
 - 後台只給家裡的網路使用，**不要在路由器把 8080 連接埠轉發到網際網路**。
 - 所有管理操作（調整積分、結束牌局等）都會記在後台的「紀錄 → 管理操作紀錄」。
-- 想換連接埠的話，在 `config.py` 加上 `ADMIN_PORT = 8090` 之類的設定。
+- 想換連接埠的話，在 `.env` 加上 `ADMIN_PORT=8090` 之類的設定。
 
 ## 日常操作
 - **看狀態**：工作列上的 bot 視窗，或 `C:\GawaBot\logs\bot.log`
@@ -92,7 +92,7 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 
 **一直沒有自動更新**
 打開 `logs\bot.log`，搜尋「自動更新」看原因：
-- 「本機有自己的修改」：筆電上的程式被改過。如果確定不需要那些修改，在 `C:\GawaBot` 開 PowerShell 執行 `git reset --hard origin/main`。這只會還原程式檔，`config.py` 和 `data\` 裡的資料不受影響。
+- 「本機有自己的修改」：筆電上的程式被改過。如果確定不需要那些修改，在 `C:\GawaBot` 開 PowerShell 執行 `git reset --hard origin/main`。這只會還原程式檔，`.env` 和 `data\` 裡的資料不受影響。
 - 「找不到 git」：回到步驟 2 安裝 Git。
 
 **明明設定「蓋上螢幕不執行任何動作」，蓋上後 bot 還是離線**
@@ -110,5 +110,9 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 
 另外，bot 執行時本身也會阻止 Windows 因「閒置」而自動睡眠，但擋不住蓋上螢幕造成的待命。
 
+**紀錄裡出現「這些設定還寫在舊的 config.py」**
+設定檔已經改成 `.env`。舊的 `config.py` 還能用，但請把裡面的設定照 `.env.example` 的格式搬到 `.env`
+（例如 `DISCORD_TOKEN = "abc"` 改寫成 `DISCORD_TOKEN=abc`），重新啟動確認沒有這行提醒後，就可以刪掉 `config.py`。
+
 **bot 一直重啟**
-看 `logs\bot.log` 最後的錯誤訊息。常見原因是 `config.py` 的 Token 填錯或過期，要到 Discord Developer Portal 重新產生。
+看 `logs\bot.log` 最後的錯誤訊息。常見原因是 `.env` 的 `DISCORD_TOKEN` 填錯或過期，要到 Discord Developer Portal 重新產生。

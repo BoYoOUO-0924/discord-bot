@@ -49,11 +49,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist "config.py" (
-    copy /y config_example.py config.py >nul
+if not exist ".env" if not exist "config.py" (
+    copy /y .env.example .env >nul
     echo.
-    echo config.py has been created. Fill in DISCORD_TOKEN and GEMINI_API_KEY, then save it.
-    start "" notepad config.py
+    echo .env has been created. Fill in DISCORD_TOKEN and the other keys, then save it.
+    start "" notepad .env
 )
 
 echo Creating desktop shortcut "Gawa Bot"...

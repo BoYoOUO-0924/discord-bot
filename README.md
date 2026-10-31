@@ -37,15 +37,16 @@
    pip install -r requirements.txt
    ```
 
-2. **設定金鑰**：把 `config_example.py` 複製成 `config.py`，填入：
-   ```python
-   DISCORD_TOKEN = "你的 Discord Bot Token"
-   # 選填：海龜湯的 AI 湯主，二選一（沒設定只會停用海龜湯）
-   OLLAMA_URL = "http://100.123.111.120:11434"   # 自架的 Ollama，可透過 Tailscale 連線
-   OLLAMA_MODEL = "gemma4:e4b-it-q4_K_M"
-   # GEMINI_API_KEY = "你的 Gemini API Key"
+2. **設定金鑰**：所有 Token、API 金鑰、網址都放在 `.env`。把 `.env.example` 複製成 `.env`（和 `bot.py` 同一層），填入：
    ```
-   `config.py` 已被 `.gitignore` 排除，不會上傳。也可以改用同名的環境變數。
+   DISCORD_TOKEN=你的 Discord Bot Token
+   # 選填：海龜湯的 AI 湯主，二選一（沒設定只會停用海龜湯）
+   OLLAMA_URL=http://100.123.111.120:11434
+   OLLAMA_MODEL=gemma4:e4b-it-q4_K_M
+   # GEMINI_API_KEY=你的 Gemini API Key
+   ```
+   格式是 `名稱=值`，不用加引號。`.env` 已被 `.gitignore` 排除，不會上傳。也可以改用同名的環境變數（環境變數優先）。
+   > 以前用 `config.py` 的話還是能讀到，但啟動時會提醒把設定搬到 `.env`，搬完就可以刪掉 `config.py`。
 
 3. **Discord Developer Portal 設定**
    - Bot 頁面開啟 **Message Content Intent**（猜數字與海龜湯要讀取頻道訊息）
@@ -57,7 +58,7 @@
    python bot.py
    ```
    第一次啟動會自動把舊版 `data/points.json`、`data/checkin.json` 匯入資料庫（原檔不會被修改）。
-   開發時可以在 `config.py` 設定 `DEV_GUILD_ID`，斜線指令只同步到該伺服器並立即生效。
+   開發時可以在 `.env` 設定 `DEV_GUILD_ID`，斜線指令只同步到該伺服器並立即生效。
 
 ## 每日天氣預報
 
@@ -66,14 +67,13 @@
 
 1. 到中央氣象署開放資料平台註冊並登入，在「取得授權碼」複製 API 授權碼。
 2. 在 Discord 要接收預報的頻道：**編輯頻道 → 整合 → Webhook → 新 Webhook**，複製 Webhook 網址。
-3. 在專案根目錄（和 `bot.py` 同一層）建立 `.env`，可以參考 `.env.example`：
+3. 在 `.env` 加上：
    ```
    CWA_API_KEY=你的授權碼
    WEATHER_WEBHOOK_URL=https://discord.com/api/webhooks/...
    # 選填，預設 06:00
    WEATHER_TIME=06:00
    ```
-   `.env` 已被 `.gitignore` 排除，不會上傳；自動更新也不會動到它。
 4. 重新啟動 bot。紀錄裡出現「每日天氣預報已啟用」就成功了，可以用 `/weather` 立即預覽。
 
 - 傳送時間剛好關機或重啟時，開機後中午前會補送；同一天不會重複傳送。
@@ -86,7 +86,7 @@
 
 ## 管理後台
 
-在 `config.py` 設定 `ADMIN_PASSWORD`（至少 8 個字元）後，bot 會同時啟動一個網頁後台（預設連接埠 8080），
+在 `.env` 設定 `ADMIN_PASSWORD`（至少 8 個字元）後，bot 會同時啟動一個網頁後台（預設連接埠 8080），
 同一個網路裡的裝置可以用瀏覽器登入：
 
 - **總覽**：使用者數、流通積分、每日發放積分圖表、各遊戲損益
@@ -101,7 +101,7 @@
 ```
 bot.py              主程式：載入功能、同步斜線指令、統一錯誤處理
 core/
-  config.py         讀取 config.py / 環境變數 / .env
+  config.py         讀取 .env / 環境變數（相容舊版 config.py）
   weather.py        中央氣象署預報解析、穿衣與降雨建議
   db.py             SQLite 資料層（積分、簽到、下注保管、提醒、投票）
   ui.py             共用的顏色、訊息格式、按鈕介面基底
