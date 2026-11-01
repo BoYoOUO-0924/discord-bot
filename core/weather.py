@@ -7,7 +7,7 @@ import asyncio
 import logging
 import ssl
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 API_BASE = "https://opendata.cwa.gov.tw/api/v1/rest/datastore"
 COUNTY_36H = "F-C0032-001"          # 各縣市未來 36 小時天氣預報（12 小時一段）
+TOWN_3DAY_TAIPEI = "F-D0047-061"      # 臺北市各區未來 3 天預報（逐 3 小時）
 TOWN_3DAY_NEW_TAIPEI = "F-D0047-069"  # 新北市各鄉鎮未來 3 天預報（逐 3 小時）
 
 
@@ -31,7 +32,7 @@ class Place:
 
 
 PLACES = [
-    Place("台北", "臺北市"),
+    Place("台北", "臺北市", "中正區", TOWN_3DAY_TAIPEI),
     Place("淡水", "新北市", "淡水區", TOWN_3DAY_NEW_TAIPEI),
 ]
 
@@ -65,6 +66,7 @@ class Forecast:
     day: Period          # 今天 06–18
     night: Period        # 今晚 18–明天 06
     source: str          # 顯示用的資料範圍說明
+    parts: List[Tuple[str, Period]] = field(default_factory=list)   # 早上／中午／晚上
 
 
 # ---------------------------------------------------------------------- 解析工具
@@ -169,22 +171,27 @@ def summarize(elements: Dict[str, List[Sample]], start: datetime, end: datetime)
     )
 
 
-def windows(day: datetime, start_hour: int = 6) -> Tuple[Tuple[datetime, datetime], Tuple[datetime, datetime]]:
-    """那一天的白天（start_hour–18，預設 06 開始）、晚上 18–隔天 06。中午的預報用 start_hour=12。"""
+def windows(day: datetime) -> Tuple[Tuple[datetime, datetime], Tuple[datetime, datetime]]:
+    """那一天的白天 06–18、晚上 18–隔天 06。"""
     six = day.astimezone(TAIPEI).replace(hour=6, minute=0, second=0, microsecond=0)
-    start = six + timedelta(hours=min(max(start_hour, 6), 17) - 6)
-    return (start, six + timedelta(hours=12)), (six + timedelta(hours=12), six + timedelta(hours=24))
+    return (six, six + timedelta(hours=12)), (six + timedelta(hours=12), six + timedelta(hours=24))
 
 
-def build_forecast(label: str, payload: dict, location_name: str, day: datetime, source: str,
-                   start_hour: int = 6) -> Forecast:
-    """day：要預報的那一天（今天或明天）；start_hour：白天從幾點開始算。"""
+# 早中晚三段：(名稱, 開始時, 結束時)，以當天 0 點起算
+PARTS = (("早上", 6, 12), ("中午", 12, 18), ("晚上", 18, 30))
+
+
+def build_forecast(label: str, payload: dict, location_name: str, day: datetime, source: str) -> Forecast:
+    """day：要預報的那一天（今天或明天）。"""
     elements = _elements(_find_location(payload, location_name))
-    (ds, de), (ns, ne) = windows(day, start_hour)
+    (ds, de), (ns, ne) = windows(day)
     daytime, night = summarize(elements, ds, de), summarize(elements, ns, ne)
     if daytime.max_t is None and daytime.pop is None:
         raise WeatherError(f"「{location_name}」沒有 {day.month}/{day.day} 白天的預報資料")
-    return Forecast(label, daytime, night, source)
+    midnight = ds - timedelta(hours=6)
+    parts = [(name, summarize(elements, midnight + timedelta(hours=a), midnight + timedelta(hours=b)))
+             for name, a, b in PARTS]
+    return Forecast(label, daytime, night, source, parts)
 
 
 # ---------------------------------------------------------------------- 建議
@@ -303,9 +310,8 @@ async def _fetch(session: aiohttp.ClientSession, api_key: str, dataset: str, **p
     return data
 
 
-async def fetch_forecasts(api_key: str, day: datetime, places: List[Place] = PLACES,
-                          start_hour: int = 6) -> List[Forecast]:
-    """day：要預報的那一天；start_hour：白天從幾點開始算（中午的預報用 12）。36 小時縣市預報在任何時間查詢都會涵蓋明天白天，鄉鎮預報涵蓋 3 天。"""
+async def fetch_forecasts(api_key: str, day: datetime, places: List[Place] = PLACES) -> List[Forecast]:
+    """day：要預報的那一天。36 小時縣市預報在任何時間查詢都會涵蓋明天白天，鄉鎮預報涵蓋 3 天。"""
     if not api_key:
         raise WeatherError("沒有設定 CWA_API_KEY")
     timeout = aiohttp.ClientTimeout(total=30)
@@ -320,14 +326,14 @@ async def fetch_forecasts(api_key: str, day: datetime, places: List[Place] = PLA
                     if place.town_dataset not in town_data:
                         town_data[place.town_dataset] = await _fetch(session, api_key, place.town_dataset)
                     forecasts.append(build_forecast(place.label, town_data[place.town_dataset], place.town, day,
-                                                    f"{place.county}{place.town}", start_hour))
+                                                    f"{place.county}{place.town}"))
                     continue
                 except (WeatherError, aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
                     # 鄉鎮預報抓不到時，退回用縣市預報
                     log.warning("%s 的鄉鎮預報無法使用（%s），改用%s預報", place.label, e, place.county)
             try:
                 forecasts.append(build_forecast(place.label, county, place.county, day,
-                                                place.county + ("（全市預報）" if place.town else ""), start_hour))
+                                                place.county + ("（全市預報）" if place.town else "")))
             except WeatherError as e:
                 # 某個地點壞掉時，其他地點照常傳送
                 log.warning("%s 的天氣預報無法使用：%s", place.label, e)
