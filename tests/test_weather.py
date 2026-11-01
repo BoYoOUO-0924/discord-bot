@@ -26,7 +26,7 @@ def county_payload():
     }]}}
 
 
-def town_payload_new_format():
+def town_payload_new_format(name="淡水區"):
     """F-D0047-069 新版格式：鍵名大寫、元素名稱中文、數值放在具名欄位。"""
     temps = [{"DataTime": f"2026-10-31T{h:02d}:00:00+08:00", "ElementValue": [{"Temperature": str(t)}]}
              for h, t in ((6, 18), (9, 21), (12, 24), (15, 23), (18, 20), (21, 17))]
@@ -38,7 +38,7 @@ def town_payload_new_format():
                                                                                 (18, "陰"))]
     return {"success": "true", "records": {"Locations": [{"Location": [
         {"LocationName": "板橋區", "WeatherElement": []},
-        {"LocationName": "淡水區", "WeatherElement": [
+        {"LocationName": name, "WeatherElement": [
             {"ElementName": "溫度", "Time": temps},
             {"ElementName": "3小時降雨機率", "Time": pops},
             {"ElementName": "天氣現象", "Time": wx},
@@ -69,7 +69,7 @@ class WeatherParseTest(unittest.TestCase):
         self.assertIsNone(f.night.pop)   # 36 小時預報還沒涵蓋明晚，顯示「—」而不是出錯
         embed = forecast_embed(f, tomorrow, tomorrow=True)
         self.assertIn("明天 11/1（日）", embed.title)
-        self.assertTrue(any(field.name == "🌙 明晚" for field in embed.fields))
+        self.assertTrue(any(field.name == "🌙 晚上" and "—" in field.value for field in embed.fields))
 
     def test_missing_location(self):
         with self.assertRaises(weather.WeatherError):
@@ -93,11 +93,14 @@ class FetchTest(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import patch
 
         async def fake_fetch(session, api_key, dataset, **params):
-            return county_payload() if dataset == weather.COUNTY_36H else town_payload_new_format()
+            if dataset == weather.COUNTY_36H:
+                return county_payload()
+            return town_payload_new_format("中正區" if dataset == weather.TOWN_3DAY_TAIPEI else "淡水區")
 
         with patch.object(weather, "_fetch", fake_fetch):
             forecasts = await weather.fetch_forecasts("KEY", NOW)
-        self.assertEqual([f.source for f in forecasts], ["臺北市", "新北市淡水區"])
+        self.assertEqual([f.source for f in forecasts], ["臺北市中正區", "新北市淡水區"])
+        self.assertTrue(all(len(f.parts) == 3 for f in forecasts))
 
 
 class SslContextTest(unittest.TestCase):
@@ -151,7 +154,7 @@ class GreetingTest(unittest.TestCase):
 
 
 class WeatherCogTest(unittest.TestCase):
-    def make_cog(self, folder, time_text="06:00,12:00"):
+    def make_cog(self, folder, time_text="06:00"):
         from cogs.weather import Weather
 
         settings = SimpleNamespace(cwa_api_key="k", weather_webhook_url="u", weather_time=time_text,
@@ -164,32 +167,22 @@ class WeatherCogTest(unittest.TestCase):
             self.assertFalse(cog.is_due(NOW.replace(hour=5, minute=59)))
             self.assertTrue(cog.is_due(NOW))
             self.assertTrue(cog.is_due(NOW.replace(hour=9)))     # 早上開機補送
+            self.assertFalse(cog.is_due(NOW.replace(hour=12)))   # 只傳一次，中午不再傳
             cog.mark_sent(cog.slot_key(NOW, (6, 0)))
             self.assertFalse(cog.is_due(NOW.replace(minute=5)))  # 重啟後不重複傳送
-            self.assertFalse(cog.is_due(NOW.replace(hour=11, minute=59)))
-            self.assertEqual(cog.due_slot(NOW.replace(hour=12)), (12, 0))   # 中午那則
-            self.assertTrue(cog.is_due(NOW.replace(hour=17)))
-            self.assertFalse(cog.is_due(NOW.replace(hour=18, minute=1)))    # 太晚就不補了
-            cog.mark_sent(cog.slot_key(NOW, (12, 0)))
-            self.assertFalse(cog.is_due(NOW.replace(hour=12, minute=30)))
 
-    def test_missed_morning_is_skipped_at_noon(self):
-        with tempfile.TemporaryDirectory() as folder:
-            cog = self.make_cog(folder)
-            self.assertEqual(cog.due_slot(NOW.replace(hour=13)), (12, 0))
-
-    def test_old_state_file_counts_as_morning_sent(self):
+    def test_old_state_file_counts_as_sent(self):
         with tempfile.TemporaryDirectory() as folder:
             cog = self.make_cog(folder)
             with open(cog.state_path, "w", encoding="utf-8") as f:
                 f.write(NOW.date().isoformat())
             self.assertFalse(cog.is_due(NOW.replace(hour=7)))
-            self.assertTrue(cog.is_due(NOW.replace(hour=12)))
 
     def test_parse_times(self):
         from cogs.weather import parse_times
 
         self.assertEqual(parse_times("06:00, 12:00"), [(6, 0), (12, 0)])
+        self.assertEqual(parse_times("06:00"), [(6, 0)])
         self.assertEqual(parse_times("07:30"), [(7, 30)])
         self.assertEqual(parse_times("abc"), [])
 
@@ -201,10 +194,20 @@ class WeatherCogTest(unittest.TestCase):
         self.assertFalse(any("穿衣" in n for n in names))
         self.assertTrue(any("穿衣" in field.name for field in forecast_embed(f, NOW).fields))
 
-    def test_noon_forecast_covers_afternoon_only(self):
-        f = weather.build_forecast("淡水", town_payload_new_format(), "淡水區", NOW, "x", start_hour=12)
-        self.assertEqual((f.day.min_t, f.day.max_t), (23, 24))
-        self.assertEqual(f.day.pop, 10)
+    def test_morning_noon_evening_parts(self):
+        f = weather.build_forecast("淡水", town_payload_new_format(), "淡水區", NOW, "x")
+        parts = dict(f.parts)
+        self.assertEqual(list(parts), ["早上", "中午", "晚上"])
+        self.assertEqual((parts["早上"].min_t, parts["早上"].max_t, parts["早上"].pop), (18, 21, 20))
+        self.assertEqual((parts["中午"].min_t, parts["中午"].max_t, parts["中午"].pop), (23, 24, 10))
+        self.assertEqual((parts["晚上"].min_t, parts["晚上"].max_t, parts["晚上"].wx), (17, 20, "陰"))
+
+    def test_embed_shows_three_parts(self):
+        from cogs.weather import forecast_embed
+
+        f = weather.build_forecast("淡水", town_payload_new_format(), "淡水區", NOW, "x")
+        names = [field.name for field in forecast_embed(f, NOW, clothing=False).fields]
+        self.assertEqual(names, ["🌅 早上", "☀️ 中午", "🌙 晚上"])
 
     def test_embed_renders(self):
         from cogs.weather import forecast_embed
@@ -259,11 +262,10 @@ class SendNowTest(unittest.IsolatedAsyncioTestCase):
             hook = MagicMock(send=AsyncMock())
             with patch.object(weather, "fetch_forecasts", AsyncMock(return_value=[forecast])) as fetch, \
                  patch.object(weather_cog.discord.Webhook, "from_url", return_value=hook):
-                await cog.send_daily(NOW.replace(hour=12))
-            self.assertEqual(fetch.await_args.kwargs["start_hour"], 12)
+                await cog.send_daily(NOW)
             kwargs = hook.send.await_args.kwargs
             self.assertTrue(kwargs["content"].startswith(weather.GREETINGS[weather.RAIN]))
-            self.assertIn("中午的天氣預報", kwargs["content"])
+            self.assertIn("今天的天氣預報", kwargs["content"])
             self.assertFalse(any("穿衣" in f.name for e in kwargs["embeds"] for f in e.fields))
 
     async def test_non_admin_cannot_send(self):

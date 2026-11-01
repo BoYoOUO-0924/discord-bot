@@ -1,7 +1,7 @@
-"""每日天氣預報：每天早上、中午用 Webhook 傳送台北、淡水的天氣與降雨機率。
+"""每日天氣預報：每天早上 6 點用 Webhook 一次傳送台北、淡水今天早上、中午、晚上的天氣與降雨機率。
 
 資料來自中央氣象署開放資料，需要在 .env 設定 CWA_API_KEY 與 WEATHER_WEBHOOK_URL。
-筆電在傳送時間剛好關機或重啟時，開機後會在下一個傳送時間之前補送；同一個時段不會重複傳送。
+筆電在傳送時間剛好關機或重啟時，開機後中午前會補送；同一天不會重複傳送。
 Webhook 的開頭問候會依天氣（下雨／放晴／陰天）改變；穿衣建議只在 /weather 指令裡顯示。
 """
 import logging
@@ -22,7 +22,7 @@ from core.ui import Color, defer, respond, send_error, success_embed
 
 log = logging.getLogger(__name__)
 
-DEFAULT_TIMES = "06:00,12:00"
+DEFAULT_TIMES = "06:00"
 CATCH_UP_HOURS = 6         # 最後一個時段錯過時，最多補送幾小時
 RETRY_SECONDS = 10 * 60    # 失敗後隔多久再試
 WEEKDAYS = "一二三四五六日"
@@ -36,13 +36,9 @@ def parse_clock(text: str) -> Optional[tuple]:
 
 
 def parse_times(text: str) -> List[tuple]:
-    """「06:00,12:00」→ [(6, 0), (12, 0)]；格式錯的部分略過。"""
+    """「06:00」→ [(6, 0)]；也可以用逗號設定多個時間。格式錯的部分略過。"""
     times = {parse_clock(part) for part in re.split(r"[,，、\s]+", text or "") if part.strip()}
     return sorted(t for t in times if t)
-
-
-def slot_label(hour: int) -> str:
-    return "早上" if hour < 11 else ("中午" if hour < 14 else ("下午" if hour < 18 else "晚上"))
 
 
 def fmt_temp(period: weather.Period) -> str:
@@ -57,22 +53,28 @@ def fmt_pop(pop: Optional[int]) -> str:
     return "—" if pop is None else f"{pop}%"
 
 
+PART_EMOJI = {"早上": "🌅", "中午": "☀️", "晚上": "🌙"}
+
+
+def part_text(period: weather.Period) -> str:
+    return f"{period.wx or '—'}\n🌡️ {fmt_temp(period)}\n☔ {fmt_pop(period.pop)}"
+
+
 def forecast_embed(forecast: weather.Forecast, date: datetime, tomorrow: bool = False,
-                   clothing: bool = True, afternoon: bool = False) -> discord.Embed:
-    """clothing：要不要附穿衣建議（Webhook 不附）；afternoon：白天只算中午之後（中午的預報）。"""
+                   clothing: bool = True) -> discord.Embed:
+    """早上、中午、晚上三段並排；clothing：要不要附穿衣建議（Webhook 不附）。"""
     day, night = forecast.day, forecast.night
-    part = "下午" if afternoon else "白天"
     emoji, rain_text = weather.rain_advice(day, night)
     top_pop = max([p for p in (day.pop, night.pop) if p is not None], default=0)
     color = Color.PRIMARY if top_pop >= 40 else (Color.WARNING if top_pop < 20 else Color.MUTED)
     date_text = f"{'明天 ' if tomorrow else ''}{date.month}/{date.day}（{WEEKDAYS[date.weekday()]}）"
-    embed = discord.Embed(title=f"{emoji} {forecast.label}・{date_text}", color=color)
-    embed.description = (f"{part}　" if afternoon else "") + f"**{day.wx or '—'}**　🌡️ {fmt_temp(day)}" + (f"　・　{day.ci}" if day.ci else "")
-    embed.add_field(name="☔ 會不會下雨", value=f"**{rain_text}**\n{part} {fmt_pop(day.pop)}・晚上 {fmt_pop(night.pop)}",
-                    inline=False)
+    embed = discord.Embed(title=f"{emoji} {forecast.label}・{date_text}", color=color,
+                          description=f"☔ **{rain_text}**")
+    parts = forecast.parts or [("早上", day), ("中午", day), ("晚上", night)]
+    for name, period in parts:
+        embed.add_field(name=f"{PART_EMOJI.get(name, '')} {name}", value=part_text(period), inline=True)
     if clothing:
         embed.add_field(name="👕 穿衣建議", value=weather.clothing_advice(day, night), inline=False)
-    embed.add_field(name="🌙 明晚" if tomorrow else "🌙 今晚", value=f"{night.wx or '—'}　🌡️ {fmt_temp(night)}", inline=False)
     embed.set_footer(text=f"{forecast.source}・資料來源：中央氣象署")
     return embed
 
@@ -148,20 +150,18 @@ class Weather(commands.Cog):
 
     # ------------------------------------------------------------------ 傳送
     async def fetch(self, now: datetime, tomorrow: bool = False) -> tuple:
-        """回傳 (那一天, 是否只算下午, 預報列表)。今天過了中午就只看下午到晚上。"""
+        """回傳 (那一天, 預報列表)。"""
         day = now + timedelta(days=1) if tomorrow else now
-        afternoon = not tomorrow and now.hour >= 12
-        forecasts = await weather.fetch_forecasts(self.api_key, day, start_hour=12 if afternoon else 6)
-        return day, afternoon, forecasts
+        return day, await weather.fetch_forecasts(self.api_key, day)
 
     async def build_embeds(self, now: datetime, tomorrow: bool = False) -> List[discord.Embed]:
-        day, afternoon, forecasts = await self.fetch(now, tomorrow)
-        return [forecast_embed(f, day, tomorrow, afternoon=afternoon) for f in forecasts]
+        day, forecasts = await self.fetch(now, tomorrow)
+        return [forecast_embed(f, day, tomorrow) for f in forecasts]
 
     async def send_daily(self, now: datetime, tomorrow: bool = False) -> None:
-        day, afternoon, forecasts = await self.fetch(now, tomorrow)
-        embeds = [forecast_embed(f, day, tomorrow, clothing=False, afternoon=afternoon) for f in forecasts]
-        heading = "明天的天氣預報" if tomorrow else f"{slot_label(now.hour)}的天氣預報"
+        day, forecasts = await self.fetch(now, tomorrow)
+        embeds = [forecast_embed(f, day, tomorrow, clothing=False) for f in forecasts]
+        heading = "明天的天氣預報" if tomorrow else "今天的天氣預報"
         content = f"{weather.greeting(forecasts)}\n-# 📅 {day.month}/{day.day}（{WEEKDAYS[day.weekday()]}）{heading}"
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             webhook = discord.Webhook.from_url(self.webhook_url, session=session)
