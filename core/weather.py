@@ -169,16 +169,18 @@ def summarize(elements: Dict[str, List[Sample]], start: datetime, end: datetime)
     )
 
 
-def windows(day: datetime) -> Tuple[Tuple[datetime, datetime], Tuple[datetime, datetime]]:
-    """那一天的白天 06–18、晚上 18–隔天 06。"""
+def windows(day: datetime, start_hour: int = 6) -> Tuple[Tuple[datetime, datetime], Tuple[datetime, datetime]]:
+    """那一天的白天（start_hour–18，預設 06 開始）、晚上 18–隔天 06。中午的預報用 start_hour=12。"""
     six = day.astimezone(TAIPEI).replace(hour=6, minute=0, second=0, microsecond=0)
-    return (six, six + timedelta(hours=12)), (six + timedelta(hours=12), six + timedelta(hours=24))
+    start = six + timedelta(hours=min(max(start_hour, 6), 17) - 6)
+    return (start, six + timedelta(hours=12)), (six + timedelta(hours=12), six + timedelta(hours=24))
 
 
-def build_forecast(label: str, payload: dict, location_name: str, day: datetime, source: str) -> Forecast:
-    """day：要預報的那一天（今天或明天）。"""
+def build_forecast(label: str, payload: dict, location_name: str, day: datetime, source: str,
+                   start_hour: int = 6) -> Forecast:
+    """day：要預報的那一天（今天或明天）；start_hour：白天從幾點開始算。"""
     elements = _elements(_find_location(payload, location_name))
-    (ds, de), (ns, ne) = windows(day)
+    (ds, de), (ns, ne) = windows(day, start_hour)
     daytime, night = summarize(elements, ds, de), summarize(elements, ns, ne)
     if daytime.max_t is None and daytime.pop is None:
         raise WeatherError(f"「{location_name}」沒有 {day.month}/{day.day} 白天的預報資料")
@@ -186,6 +188,34 @@ def build_forecast(label: str, payload: dict, location_name: str, day: datetime,
 
 
 # ---------------------------------------------------------------------- 建議
+RAIN, SUNNY, CLOUDY = "rain", "sunny", "cloudy"
+
+# 每日預報開頭的問候，依整體天氣（下雨／放晴／陰天）挑一句
+GREETINGS = {
+    RAIN: "今日有雨，或許是天空也在思念那個遲遲未歸的人。",
+    SUNNY: "天氣總會放晴，只是不知道，你何時才會歸來。",
+    CLOUDY: "星海依舊，潮汐如常，只是少了一個能一起看天氣的人。",
+}
+
+
+def is_rainy(period: Period) -> bool:
+    if period.pop is not None and period.pop >= 50:
+        return True
+    return bool(period.wx and "雨" in period.wx and (period.pop is None or period.pop >= 30))
+
+
+def sky(forecasts: List[Forecast]) -> str:
+    """所有地點的整體天氣：任一地點白天或晚上可能下雨 → 下雨；多數地點白天天晴 → 放晴；其他 → 陰天。"""
+    if any(is_rainy(p) for f in forecasts for p in (f.day, f.night)):
+        return RAIN
+    sunny = sum(1 for f in forecasts if f.day.wx and "晴" in f.day.wx)
+    return SUNNY if forecasts and sunny * 2 >= len(forecasts) else CLOUDY
+
+
+def greeting(forecasts: List[Forecast]) -> str:
+    return GREETINGS[sky(forecasts)]
+
+
 def rain_advice(day: Period, night: Period) -> Tuple[str, str]:
     """回傳 (表情, 說明)。"""
     pops = [p for p in (day.pop, night.pop) if p is not None]
@@ -273,8 +303,9 @@ async def _fetch(session: aiohttp.ClientSession, api_key: str, dataset: str, **p
     return data
 
 
-async def fetch_forecasts(api_key: str, day: datetime, places: List[Place] = PLACES) -> List[Forecast]:
-    """day：要預報的那一天。36 小時縣市預報在任何時間查詢都會涵蓋明天白天，鄉鎮預報涵蓋 3 天。"""
+async def fetch_forecasts(api_key: str, day: datetime, places: List[Place] = PLACES,
+                          start_hour: int = 6) -> List[Forecast]:
+    """day：要預報的那一天；start_hour：白天從幾點開始算（中午的預報用 12）。36 小時縣市預報在任何時間查詢都會涵蓋明天白天，鄉鎮預報涵蓋 3 天。"""
     if not api_key:
         raise WeatherError("沒有設定 CWA_API_KEY")
     timeout = aiohttp.ClientTimeout(total=30)
@@ -289,14 +320,14 @@ async def fetch_forecasts(api_key: str, day: datetime, places: List[Place] = PLA
                     if place.town_dataset not in town_data:
                         town_data[place.town_dataset] = await _fetch(session, api_key, place.town_dataset)
                     forecasts.append(build_forecast(place.label, town_data[place.town_dataset], place.town, day,
-                                                    f"{place.county}{place.town}"))
+                                                    f"{place.county}{place.town}", start_hour))
                     continue
                 except (WeatherError, aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
                     # 鄉鎮預報抓不到時，退回用縣市預報
                     log.warning("%s 的鄉鎮預報無法使用（%s），改用%s預報", place.label, e, place.county)
             try:
                 forecasts.append(build_forecast(place.label, county, place.county, day,
-                                                place.county + ("（全市預報）" if place.town else "")))
+                                                place.county + ("（全市預報）" if place.town else ""), start_hour))
             except WeatherError as e:
                 # 某個地點壞掉時，其他地點照常傳送
                 log.warning("%s 的天氣預報無法使用：%s", place.label, e)
