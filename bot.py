@@ -31,6 +31,7 @@ EXTENSIONS = [
     "cogs.poker",
     "cogs.seatortoise",
     "cogs.weather",
+    "cogs.earthquake",
     "cogs.updater",
     "cogs.webadmin",
 ]

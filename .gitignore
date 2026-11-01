@@ -25,5 +25,6 @@ data/*.json
 data/*.db
 data/*.db-*
 data/bot.lock
+data/*.txt
 !data/.gitkeep
 

@@ -28,6 +28,7 @@ COMMAND_NAMES = {
     "poker": "德州撲克",
     "seatortoise": "海龜湯",
     "weather": "天氣",
+    "earthquake": "地震",
 }
 
 # 同名參數在不同指令可能有不同意思，所以用「指令.參數」當 key，找不到再退回只看參數名
@@ -50,6 +51,7 @@ PARAMETER_NAMES = {
     "theme": "主題",
     "weather.send": "立即傳送",
     "weather.day": "日期",
+    "earthquake.send": "立即傳送",
 }
 
 
