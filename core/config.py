@@ -168,5 +168,5 @@ def load_settings() -> Settings:
         # 每日天氣預報：中央氣象署開放資料 API 授權碼、要傳送的 Discord Webhook、傳送時間（台灣時間）
         cwa_api_key=_read("CWA_API_KEY"),
         weather_webhook_url=_read("WEATHER_WEBHOOK_URL"),
-        weather_time=str(_read("WEATHER_TIME", "06:00")),
+        weather_time=str(_read("WEATHER_TIME", "06:00,12:00")),
     )
