@@ -1,6 +1,6 @@
 """地震報告：中央氣象署發布新的地震報告時，用 Webhook 傳送到頻道。
 
-- 顯著有感地震（有編號的）一律傳送；小區域有感地震只在台北或新北有感時傳送。
+- 只有台北（臺北市）震度 4 級以上才主動傳送；/地震 指令可以查最近有沒有這種大地震。
 - 需要 .env 的 CWA_API_KEY，以及 EARTHQUAKE_WEBHOOK_URL（沒設定時用 WEATHER_WEBHOOK_URL）。
 - 已傳送過的報告記在 data/earthquake_seen.txt，重啟不會重複傳送；第一次啟動只記錄、不補送舊報告。
 - 這是地震報告（地震後幾分鐘發布），不是搖晃前的強震即時警報。
@@ -18,11 +18,15 @@ from discord.ext import commands, tasks
 
 from core import earthquake as eq
 from core.timeutil import now_tw
-from core.ui import defer, respond, send_error, success_embed
+from core.ui import Color, defer, make_embed, respond, send_error, success_embed
 
 log = logging.getLogger(__name__)
 
 MAX_AGE = timedelta(hours=1)        # 筆電離線很久後，太舊的報告就不補送了
+ALERT_COUNTY = "臺北市"
+ALERT_LEVEL = "4"                   # 台北震度達到這個等級才主動通報
+RECENT_DAYS = 7                     # /地震 查詢多久以內的大地震
+GREETING = "即使大地偶有震顫，也希望你所在的地方始終安穩。"
 ERROR_LOG_EVERY = 30 * 60           # 一直連不上時，多久記一次警告
 KEEP_SEEN = 200
 WEEKDAYS = "一二三四五六日"
@@ -68,12 +72,13 @@ def report_embed(report: eq.Report) -> discord.Embed:
     return embed
 
 
+def is_big(report: eq.Report) -> bool:
+    """台北震度達到通報門檻。"""
+    return report.rank_in(ALERT_COUNTY) >= eq.INTENSITY_ORDER.index(ALERT_LEVEL)
+
+
 def alert_text(report: eq.Report) -> str:
-    if report.local_rank >= eq.INTENSITY_ORDER.index("4"):
-        return f"⚠️ **剛剛的地震在{local_summary(report)}，搖晃較大，請注意安全並檢查周遭環境！**"
-    if report.felt_locally:
-        return f"🌏 剛剛有地震，{local_summary(report)}。"
-    return "🌏 中央氣象署發布了新的地震報告。"
+    return f"{GREETING}\n-# 🌏 {local_summary(report)}"
 
 
 class Earthquake(commands.Cog):
@@ -128,7 +133,7 @@ class Earthquake(commands.Cog):
     def worth_sending(report: eq.Report, now: datetime) -> bool:
         if report.origin_time and now - report.origin_time > MAX_AGE:
             return False
-        return report.significant or report.felt_locally
+        return is_big(report)
 
     # ------------------------------------------------------------------ 傳送
     async def send(self, report: eq.Report) -> None:
@@ -177,7 +182,7 @@ class Earthquake(commands.Cog):
 
     # ------------------------------------------------------------------ 指令
     @app_commands.command(name="earthquake", description="查看中央氣象署最新的地震報告")
-    @app_commands.describe(send="管理員：把最新的報告用 Webhook 傳送到頻道（測試用）")
+    @app_commands.describe(send="管理員：把最新的一筆報告用 Webhook 傳送到頻道（測試用，不論震度）")
     async def earthquake_command(self, interaction: discord.Interaction, send: bool = False):
         if not self.api_key:
             return await send_error(interaction, "還沒有設定中央氣象署 API 金鑰（CWA_API_KEY）。")
@@ -189,8 +194,8 @@ class Earthquake(commands.Cog):
                 return await send_error(interaction, "還沒有設定 Webhook（EARTHQUAKE_WEBHOOK_URL）。")
         await defer(interaction, ephemeral=True)
         try:
-            reports = await eq.fetch_reports(self.api_key, limit=1)
-            if not reports:
+            reports = await eq.fetch_reports(self.api_key, limit=20)
+            if not reports and send:
                 return await send_error(interaction, "目前沒有地震報告。")
             if send:
                 await self.send(reports[0])
@@ -200,8 +205,21 @@ class Earthquake(commands.Cog):
         if send:
             await respond(interaction, embed=success_embed("已經用 Webhook 傳送最新的地震報告了，去頻道看看吧！"),
                           ephemeral=True)
-        else:
-            await respond(interaction, content=alert_text(reports[0]), embed=report_embed(reports[0]), ephemeral=True)
+            return
+        now = now_tw()
+        big = [r for r in reports if is_big(r)
+               and (not r.origin_time or now - r.origin_time <= timedelta(days=RECENT_DAYS))]
+        if big:
+            return await respond(interaction, content=alert_text(big[0]), embed=report_embed(big[0]), ephemeral=True)
+        embed = make_embed("🌿 沒有大地震", f"最近 {RECENT_DAYS} 天台北沒有震度 {eq.intensity_text(ALERT_LEVEL)}以上的地震。",
+                           Color.SUCCESS)
+        if reports:
+            latest = reports[0]
+            magnitude = f"規模 {latest.magnitude:.1f}" if latest.magnitude is not None else "規模不明"
+            embed.add_field(name="最新一筆地震報告", value=f"{fmt_time(latest.origin_time)}　"
+                            f"{eq.short_location(latest.location)} {magnitude}・台北 "
+                            f"{eq.intensity_text(latest.local.get(ALERT_COUNTY)) if ALERT_COUNTY in latest.local else '無感'}")
+        await respond(interaction, embed=embed, ephemeral=True)
 
 
 async def setup(bot):

@@ -83,6 +83,9 @@ class Report:
     def local_rank(self) -> int:
         return max((intensity_rank(v) for v in self.local.values()), default=-1)
 
+    def rank_in(self, county: str) -> int:
+        return intensity_rank(self.local.get(county))
+
     @property
     def felt_locally(self) -> bool:
         return self.local_rank >= 1
