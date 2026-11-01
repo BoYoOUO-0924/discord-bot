@@ -31,6 +31,9 @@ def quake(time="2026-11-01 08:00:12", location="花蓮縣政府南南東方 25.0
     }
 
 
+BIG = [{"CountyName": "臺北市", "AreaIntensity": "4級"}, {"CountyName": "宜蘭縣", "AreaIntensity": "5弱"}]
+
+
 def payload(*items):
     return {"success": "true", "records": {"datasetDescription": "地震報告", "Earthquake": list(items)}}
 
@@ -67,6 +70,11 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(eq.short_location(r.location), "宜蘭縣")
 
 
+def report_title(report):
+    from cogs.earthquake import report_embed
+    return report_embed(report).title
+
+
 class CogTest(unittest.IsolatedAsyncioTestCase):
     def make_cog(self, folder):
         from cogs.earthquake import Earthquake
@@ -89,7 +97,7 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
             cog.send.assert_not_awaited()
             await cog.handle(old, NOW)
             cog.send.assert_not_awaited()
-            new = self.reports(quake(time="2026-11-01 08:03:00")) + old
+            new = self.reports(quake(time="2026-11-01 08:03:00", areas=BIG)) + old
             await cog.handle(new, NOW)
             cog.send.assert_awaited_once()
             await cog.handle(new, NOW)   # 不重複傳送
@@ -99,14 +107,16 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as folder:
             cog = self.make_cog(folder)
             await cog.handle([], NOW)
-            far_small = self.reports(quake(time="2026-11-01 08:01:00", areas=[
-                {"CountyName": "花蓮縣", "AreaIntensity": "2級"}]), dataset=eq.LOCAL)
-            near_small = self.reports(quake(time="2026-11-01 08:02:00"), dataset=eq.LOCAL)
-            too_old = self.reports(quake(time="2026-11-01 05:00:00"))
-            await cog.handle(far_small + near_small + too_old, NOW)
+            taipei_3 = self.reports(quake(time="2026-11-01 08:01:00", areas=[
+                {"CountyName": "臺北市", "AreaIntensity": "3級"}, {"CountyName": "花蓮縣", "AreaIntensity": "6弱"}]))
+            new_taipei_5 = self.reports(quake(time="2026-11-01 08:01:30", areas=[
+                {"CountyName": "新北市", "AreaIntensity": "5弱"}]))   # 只有新北大，台北無感
+            taipei_4 = self.reports(quake(time="2026-11-01 08:02:00", areas=BIG), dataset=eq.LOCAL)
+            too_old = self.reports(quake(time="2026-11-01 05:00:00", areas=BIG))
+            await cog.handle(taipei_3 + new_taipei_5 + taipei_4 + too_old, NOW)
             self.assertEqual(cog.send.await_count, 1)
-            self.assertEqual(cog.send.await_args.args[0].key, near_small[0].key)
-            self.assertEqual(len(cog.seen()), 4)   # 沒傳的也記下來（含第一次啟動的標記）
+            self.assertEqual(cog.send.await_args.args[0].key, taipei_4[0].key)
+            self.assertEqual(len(cog.seen()), 5)   # 沒傳的也記下來（含第一次啟動的標記）
 
     async def test_failed_send_is_retried(self):
         import discord
@@ -114,7 +124,7 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as folder:
             cog = self.make_cog(folder)
             await cog.handle([], NOW)
-            report = self.reports(quake())
+            report = self.reports(quake(areas=BIG))
             cog.send.side_effect = discord.HTTPException(MagicMock(status=500), "boom")
             await cog.handle(report, NOW)
             cog.send.side_effect = None
@@ -129,9 +139,8 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("臺灣東部海域 規模 5.8", embed.title)
         self.assertIn("第 115045 號", embed.footer.text)
         self.assertTrue(any("台北 2 級、新北 1 級" in f.value for f in embed.fields))
+        self.assertTrue(alert_text(r).startswith("即使大地偶有震顫，也希望你所在的地方始終安穩。"))
         self.assertIn("台北 2 級", alert_text(r))
-        [strong] = self.reports(quake(areas=[{"CountyName": "新北市", "AreaIntensity": "5弱"}]))
-        self.assertIn("注意安全", alert_text(strong))
 
     async def test_send_uses_webhook(self):
         from cogs import earthquake as cog_module
@@ -143,6 +152,32 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
             with patch.object(cog_module.discord.Webhook, "from_url", return_value=hook):
                 await Earthquake.send(cog, self.reports(quake())[0])
             self.assertIn("embed", hook.send.await_args.kwargs)
+
+    async def run_query(self, reports):
+        from cogs import earthquake as cog_module
+
+        with tempfile.TemporaryDirectory() as folder:
+            cog = self.make_cog(folder)
+            with patch.object(cog_module.eq, "fetch_reports", AsyncMock(return_value=reports)), \
+                 patch.object(cog_module, "now_tw", return_value=NOW), \
+                 patch.object(cog_module, "defer", AsyncMock()), \
+                 patch.object(cog_module, "respond", AsyncMock()) as respond:
+                await cog.earthquake_command.callback(cog, SimpleNamespace())
+            return respond.await_args.kwargs
+
+    async def test_query_says_none_without_big_quake(self):
+        kwargs = await self.run_query(self.reports(quake()))
+        self.assertIn("沒有", kwargs["embed"].title)
+        self.assertIn("4 級以上", kwargs["embed"].description)
+        self.assertIn("台北 2 級", kwargs["embed"].fields[0].value)
+        kwargs = await self.run_query([])
+        self.assertIn("沒有", kwargs["embed"].title)
+
+    async def test_query_shows_big_quake(self):
+        big = self.reports(quake(time="2026-10-30 10:00:00", areas=BIG))
+        kwargs = await self.run_query(self.reports(quake()) + big)
+        self.assertEqual(kwargs["embed"].title, report_title(big[0]))
+        self.assertIn("即使大地", kwargs["content"])
 
     async def test_command_non_admin_cannot_send(self):
         from cogs import earthquake as cog_module
