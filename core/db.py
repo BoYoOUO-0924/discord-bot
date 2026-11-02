@@ -1,6 +1,6 @@
 """SQLite 資料層。
 
-所有積分異動都走這裡，並以單一連線加上 asyncio.Lock 序列化，
+所有金額（新台幣，存在 users.points）異動都走這裡，並以單一連線加上 asyncio.Lock 序列化，
 避免舊版 JSON 檔「多人同時操作互相覆蓋」的問題。
 """
 import asyncio
@@ -10,6 +10,7 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
 import aiosqlite
@@ -126,11 +127,42 @@ CREATE TABLE IF NOT EXISTS quest_progress (
     done     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, day, quest)
 );
+CREATE TABLE IF NOT EXISTS stock_holdings (
+    user_id  INTEGER NOT NULL,
+    symbol   TEXT NOT NULL,
+    shares   INTEGER NOT NULL,                 -- 持有股數（含委託賣出中的）
+    reserved INTEGER NOT NULL DEFAULT 0,       -- 委託賣出中、暫時不能再賣的股數
+    cost     INTEGER NOT NULL,                 -- 持有成本（含買進手續費），移動平均法
+    PRIMARY KEY (user_id, symbol)
+);
+CREATE TABLE IF NOT EXISTS stock_orders (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    side       TEXT NOT NULL,                  -- buy / sell
+    symbol     TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    shares     INTEGER NOT NULL,
+    status     TEXT NOT NULL,                  -- pending / filled / cancelled
+    not_before TEXT,                           -- 委託單最早可成交的日期，用那天之後第一個交易日的開盤價
+    reserved   INTEGER NOT NULL DEFAULT 0,     -- 委託買進預扣的現金
+    price      TEXT,                           -- 成交價（字串保留小數，避免浮點誤差）
+    gross      INTEGER,
+    fee        INTEGER,
+    tax        INTEGER,
+    realized   INTEGER,                        -- 賣出的已實現損益
+    note       TEXT,
+    created_at REAL NOT NULL,
+    filled_at  REAL
+);
+CREATE INDEX IF NOT EXISTS idx_stock_orders_user ON stock_orders (user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_orders_status ON stock_orders (status);
 """
 
-CHECKIN_BASE = 100
-CHECKIN_FIRST_BONUS = 500
-CHECKIN_STREAK_STEP = 20
+TWD_PER_POINT = 100          # 舊版積分換成新台幣的比例（舊資料庫第一次啟動時換算）
+
+CHECKIN_BASE = 10_000
+CHECKIN_FIRST_BONUS = 50_000
+CHECKIN_STREAK_STEP = 2_000
 
 
 def checkin_reward(streak: int, first_time: bool) -> Tuple[int, int, int]:
@@ -164,6 +196,29 @@ class Profile:
 
 
 @dataclass
+class StockFill:
+    """一筆股票成交的結果。"""
+    order_id: int
+    user_id: int
+    side: str
+    symbol: str
+    name: str
+    shares: int
+    price: Decimal
+    gross: int
+    fee: int
+    tax: int
+    realized: Optional[int]   # 賣出才有
+    cash: int                 # 成交後的可用現金
+    refund: int = 0           # 委託買進預扣多的、成交後退回的現金
+
+    @property
+    def amount(self) -> int:
+        """實付（買進）或實拿（賣出）的金額。"""
+        return self.gross + self.fee if self.side == "buy" else self.gross - self.fee - self.tax
+
+
+@dataclass
 class Poll:
     id: int
     channel_id: int
@@ -193,6 +248,19 @@ class Database:
         await self._conn.execute("PRAGMA synchronous=NORMAL")
         await self._conn.executescript(SCHEMA)
         await self._conn.commit()
+        await self._migrate_to_twd()
+
+    async def _migrate_to_twd(self) -> None:
+        """積分改成新台幣：1 分 = 100 元。舊資料的金額全部乘以 100，只執行一次。"""
+        async with self.conn.execute("SELECT value FROM meta WHERE key = 'currency_twd'") as cur:
+            if await cur.fetchone():
+                return
+        for table, column in (("users", "points"), ("holds", "amount"), ("transactions", "amount"),
+                              ("game_stats", "net"), ("income", "chat_earned")):
+            await self.conn.execute(f"UPDATE {table} SET {column} = {column} * {TWD_PER_POINT}")
+        await self.conn.execute(f"UPDATE stats_daily SET value = value * {TWD_PER_POINT} WHERE metric = 'chat_reward'")
+        await self.conn.execute("INSERT INTO meta (key, value) VALUES ('currency_twd', ?)", (str(time.time()),))
+        await self.conn.commit()
 
     async def close(self) -> None:
         if self._conn:
@@ -253,7 +321,7 @@ class Database:
                     "VALUES (?, ?, ?, ?, ?, ?)",
                     (
                         int(uid),
-                        max(0, int(points.get(uid, 0))),
+                        max(0, int(points.get(uid, 0))) * TWD_PER_POINT,   # 舊檔是積分
                         int(record.get("consecutive_days", 0)),
                         last_date,
                         int(record.get("consecutive_days", 0)),
@@ -265,7 +333,7 @@ class Database:
             await self.conn.commit()
             return imported
 
-    # ------------------------------------------------------------------ 積分
+    # ------------------------------------------------------------------ 錢包（新台幣）
     async def touch_member(self, guild_id: int, user_id: int) -> None:
         """記錄使用者出現在哪個伺服器，排行榜只列出同伺服器的人。
 
@@ -374,7 +442,7 @@ class Database:
                 await self.conn.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (row["amount"], row["user_id"]))
                 await self.conn.execute(
                     "INSERT INTO transactions (user_id, amount, reason, created_at) VALUES (?, ?, ?, ?)",
-                    (row["user_id"], 0, f"{row['reason']}：bot 重啟，已退還 {row['amount']} 分", time.time()),
+                    (row["user_id"], 0, f"{row['reason']}：bot 重啟，已退還 {row['amount']:,} 元", time.time()),
                 )
             await self.conn.execute("DELETE FROM holds")
             await self.conn.commit()
@@ -776,7 +844,7 @@ class Database:
             }
 
     async def stats_daily_series(self, today: date, days: int) -> Dict[str, Dict[str, int]]:
-        """最近 days 天每天各來源發出的積分與活躍人數。回傳 {日期: {分類: 數值}}。"""
+        """最近 days 天每天各來源發出的金額與活躍人數。回傳 {日期: {分類: 數值}}。"""
         start = (today - timedelta(days=days - 1)).isoformat()
         series: Dict[str, Dict[str, int]] = {
             (today - timedelta(days=i)).isoformat(): {} for i in range(days - 1, -1, -1)}
@@ -814,7 +882,7 @@ class Database:
     # ------------------------------------------------------------------ 後台：管理操作
     async def admin_adjust(self, user_id: int, reason: str, *, delta: Optional[int] = None,
                            set_to: Optional[int] = None) -> Tuple[int, int]:
-        """管理員調整積分（加減或直接設定），回傳 (調整前, 調整後)。積分不會低於 0。"""
+        """管理員調整存款（加減或直接設定），回傳 (調整前, 調整後)。不會低於 0。"""
         async with self._lock:
             await self._ensure_user(user_id)
             old = await self._balance(user_id)
@@ -878,3 +946,222 @@ class Database:
                 "ON CONFLICT (guild_id, puzzle_id) DO UPDATE SET played_at = excluded.played_at",
                 (guild_id, puzzle_id, time.time()))
             await self.conn.commit()
+
+    # ------------------------------------------------------------------ 股票模擬
+    # 股票用的錢就是錢包裡的新台幣（users.points），每筆進出都寫進收支紀錄。
+    # 金額都是整數元，由 core.stocks 算好手續費與交易稅後傳進來；這裡只負責帳務一致。
+    # 委託買進先從錢包預扣，委託賣出先鎖住股數，成交或取消時再結清。
+    # 預扣的錢放在 stock_orders.reserved，不是 holds，所以 bot 重啟不會被當成賭注退還。
+    async def _stock_holding(self, user_id: int, symbol: str) -> Optional[aiosqlite.Row]:
+        async with self.conn.execute("SELECT shares, reserved, cost FROM stock_holdings WHERE user_id = ? AND symbol = ?",
+                                     (user_id, symbol)) as cur:
+            return await cur.fetchone()
+
+    async def _stock_buy(self, user_id: int, symbol: str, shares: int, total: int) -> None:
+        await self.conn.execute(
+            "INSERT INTO stock_holdings (user_id, symbol, shares, cost) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (user_id, symbol) DO UPDATE SET shares = shares + excluded.shares, cost = cost + excluded.cost",
+            (user_id, symbol, shares, total))
+
+    async def _stock_sell(self, user_id: int, symbol: str, shares: int, proceeds: int, reason: str) -> int:
+        """扣掉持股並把賣出所得存回錢包，回傳已實現損益。成本依股數比例扣除（移動平均法）。"""
+        row = await self._stock_holding(user_id, symbol)
+        if shares >= row["shares"]:
+            cost_part = row["cost"]
+            await self.conn.execute("DELETE FROM stock_holdings WHERE user_id = ? AND symbol = ?", (user_id, symbol))
+        else:
+            cost_part = (row["cost"] * shares + row["shares"] // 2) // row["shares"]
+            await self.conn.execute("UPDATE stock_holdings SET shares = shares - ?, cost = cost - ? "
+                                    "WHERE user_id = ? AND symbol = ?", (shares, cost_part, user_id, symbol))
+        await self.conn.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (proceeds, user_id))
+        await self._log(user_id, proceeds, reason)
+        return proceeds - cost_part
+
+    async def stock_account(self, user_id: int) -> Tuple[int, int, int, List[aiosqlite.Row]]:
+        """回傳 (錢包餘額, 委託買進預扣中的金額, 累計已實現損益, 持股)。"""
+        async with self._lock:
+            balance = await self._balance(user_id)
+            async with self.conn.execute(
+                "SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN reserved END), 0) AS reserved, "
+                "COALESCE(SUM(CASE WHEN status = 'filled' THEN realized END), 0) AS realized "
+                "FROM stock_orders WHERE user_id = ?", (user_id,)) as cur:
+                row = await cur.fetchone()
+            async with self.conn.execute(
+                "SELECT symbol, shares, reserved, cost FROM stock_holdings WHERE user_id = ? ORDER BY cost DESC",
+                (user_id,)) as cur:
+                holdings = await cur.fetchall()
+        return balance, row["reserved"], row["realized"], holdings
+
+    async def stock_holding(self, user_id: int, symbol: str) -> Tuple[int, int, int]:
+        """回傳 (持有股數, 可賣股數, 持有成本)。"""
+        async with self._lock:
+            row = await self._stock_holding(user_id, symbol)
+        if not row:
+            return 0, 0, 0
+        return row["shares"], row["shares"] - row["reserved"], row["cost"]
+
+    async def stock_trade(self, user_id: int, side: str, symbol: str, name: str, shares: int, price: Decimal,
+                          gross: int, fee: int, tax: int) -> Tuple[Optional[StockFill], Optional[str]]:
+        """盤中立刻成交。回傳 (成交結果, None)，或 (None, 不能成交的原因)。"""
+        label = f"{symbol} {name} {shares:,} 股 @ {price}"
+        async with self._lock:
+            await self._ensure_user(user_id)
+            realized = None
+            if side == "buy":
+                total = gross + fee
+                cur = await self.conn.execute(
+                    "UPDATE users SET points = points - ? WHERE user_id = ? AND points >= ?", (total, user_id, total))
+                if cur.rowcount == 0:
+                    balance = await self._balance(user_id)
+                    await self.conn.rollback()
+                    return None, f"存款不足：需要 {total:,} 元，你目前有 {balance:,} 元。"
+                await self._log(user_id, -total, f"股票買進 {label}")
+                await self._stock_buy(user_id, symbol, shares, total)
+            else:
+                row = await self._stock_holding(user_id, symbol)
+                available = row["shares"] - row["reserved"] if row else 0
+                if available < shares:
+                    await self.conn.rollback()
+                    return None, f"可賣股數不足：你目前可以賣 {available:,} 股。"
+                realized = await self._stock_sell(user_id, symbol, shares, gross - fee - tax, f"股票賣出 {label}")
+            now = time.time()
+            cur = await self.conn.execute(
+                "INSERT INTO stock_orders (user_id, side, symbol, name, shares, status, price, gross, fee, tax, realized, "
+                "created_at, filled_at) VALUES (?, ?, ?, ?, ?, 'filled', ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, side, symbol, name, shares, str(price), gross, fee, tax, realized, now, now))
+            balance = await self._balance(user_id)
+            await self.conn.commit()
+            return StockFill(cur.lastrowid, user_id, side, symbol, name, shares, price, gross, fee, tax,
+                             realized, balance), None
+
+    async def stock_queue(self, user_id: int, side: str, symbol: str, name: str, shares: int,
+                          not_before: date, reserve: int) -> Tuple[Optional[int], Optional[str]]:
+        """盤後委託：買進先從錢包預扣 reserve 元，賣出先鎖住股數。回傳 (委託編號, None) 或 (None, 原因)。"""
+        async with self._lock:
+            await self._ensure_user(user_id)
+            if side == "buy":
+                cur = await self.conn.execute(
+                    "UPDATE users SET points = points - ? WHERE user_id = ? AND points >= ?", (reserve, user_id, reserve))
+                if cur.rowcount == 0:
+                    balance = await self._balance(user_id)
+                    await self.conn.rollback()
+                    return None, (f"存款不足：委託買進要先預扣 {reserve:,} 元（參考價 × 1.1，防開盤上漲），"
+                                  f"你目前有 {balance:,} 元。")
+            else:
+                row = await self._stock_holding(user_id, symbol)
+                available = row["shares"] - row["reserved"] if row else 0
+                if available < shares:
+                    await self.conn.rollback()
+                    return None, f"可賣股數不足：你目前可以賣 {available:,} 股。"
+                await self.conn.execute("UPDATE stock_holdings SET reserved = reserved + ? WHERE user_id = ? AND symbol = ?",
+                                        (shares, user_id, symbol))
+                reserve = 0
+            cur = await self.conn.execute(
+                "INSERT INTO stock_orders (user_id, side, symbol, name, shares, status, not_before, reserved, created_at) "
+                "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
+                (user_id, side, symbol, name, shares, not_before.isoformat(), reserve, time.time()))
+            if reserve:
+                await self._log(user_id, -reserve, f"股票委託 #{cur.lastrowid} 買進 {symbol} {name} {shares:,} 股（預扣）")
+            await self.conn.commit()
+            return cur.lastrowid, None
+
+    async def _stock_close(self, order: aiosqlite.Row, note: str) -> None:
+        """取消委託：退回預扣的錢或鎖住的股數。"""
+        if order["side"] == "buy":
+            await self.conn.execute("UPDATE users SET points = points + ? WHERE user_id = ?",
+                                    (order["reserved"], order["user_id"]))
+            await self._log(order["user_id"], order["reserved"], f"股票委託 #{order['id']} 取消，退回預扣")
+        else:
+            await self.conn.execute("UPDATE stock_holdings SET reserved = MAX(0, reserved - ?) "
+                                    "WHERE user_id = ? AND symbol = ?", (order["shares"], order["user_id"], order["symbol"]))
+        await self.conn.execute("UPDATE stock_orders SET status = 'cancelled', note = ?, filled_at = ? WHERE id = ?",
+                                (note, time.time(), order["id"]))
+
+    async def _stock_order(self, order_id: int) -> Optional[aiosqlite.Row]:
+        async with self.conn.execute("SELECT * FROM stock_orders WHERE id = ? AND status = 'pending'",
+                                     (order_id,)) as cur:
+            return await cur.fetchone()
+
+    async def stock_cancel(self, order_id: int, note: str, user_id: Optional[int] = None) -> Optional[aiosqlite.Row]:
+        """取消委託並退回預扣。user_id 有給時只能取消自己的。已經不是委託中的回傳 None。"""
+        async with self._lock:
+            order = await self._stock_order(order_id)
+            if not order or (user_id is not None and order["user_id"] != user_id):
+                return None
+            await self._stock_close(order, note)
+            await self.conn.commit()
+            return order
+
+    async def stock_fill(self, order_id: int, price: Decimal, gross: int, fee: int,
+                         tax: int) -> Tuple[Optional[StockFill], Optional[str]]:
+        """委託單成交。錢不夠付（理論上不會發生）或持股不見時取消並退回，回傳 (None, 原因)。"""
+        async with self._lock:
+            order = await self._stock_order(order_id)
+            if not order:
+                return None, None
+            user_id, symbol, shares = order["user_id"], order["symbol"], order["shares"]
+            label = f"{symbol} {order['name']} {shares:,} 股 @ {price}"
+            realized, refund = None, 0
+            if order["side"] == "buy":
+                total = gross + fee
+                extra = total - order["reserved"]          # 正數 = 預扣不夠、要再從錢包扣
+                if extra > 0 and await self._balance(user_id) < extra:
+                    note = f"開盤價 {price} 成交需要 {total:,} 元，存款不足，已取消並退回預扣"
+                    await self._stock_close(order, note)
+                    await self.conn.commit()
+                    return None, note
+                await self.conn.execute("UPDATE users SET points = points - ? WHERE user_id = ?", (extra, user_id))
+                await self._log(user_id, -extra, f"股票委託 #{order_id} 成交 {label}，"
+                                + ("退回多扣的預扣" if extra < 0 else "補扣差額"))
+                await self._stock_buy(user_id, symbol, shares, total)
+                refund = max(0, -extra)
+            else:
+                row = await self._stock_holding(user_id, symbol)
+                if not row or row["shares"] < shares:
+                    await self._stock_close(order, "持股不足，已取消")
+                    await self.conn.commit()
+                    return None, "持股不足，已取消"
+                await self.conn.execute("UPDATE stock_holdings SET reserved = MAX(0, reserved - ?) "
+                                        "WHERE user_id = ? AND symbol = ?", (shares, user_id, symbol))
+                realized = await self._stock_sell(user_id, symbol, shares, gross - fee - tax,
+                                                  f"股票委託 #{order_id} 賣出 {label}")
+            await self.conn.execute(
+                "UPDATE stock_orders SET status = 'filled', price = ?, gross = ?, fee = ?, tax = ?, realized = ?, "
+                "filled_at = ? WHERE id = ?", (str(price), gross, fee, tax, realized, time.time(), order_id))
+            balance = await self._balance(user_id)
+            await self.conn.commit()
+            return StockFill(order_id, user_id, order["side"], symbol, order["name"], shares, price, gross, fee, tax,
+                             realized, balance, refund), None
+
+    async def stock_pending(self, user_id: Optional[int] = None) -> List[aiosqlite.Row]:
+        sql = "SELECT * FROM stock_orders WHERE status = 'pending'"
+        params: tuple = ()
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            params = (user_id,)
+        async with self._lock:
+            async with self.conn.execute(sql + " ORDER BY id", params) as cur:
+                return await cur.fetchall()
+
+    async def stock_history(self, user_id: int, limit: int = 15) -> List[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT * FROM stock_orders WHERE user_id = ? AND status != 'pending' ORDER BY id DESC LIMIT ?",
+                (user_id, limit)) as cur:
+                return await cur.fetchall()
+
+    async def stock_players(self, guild_id: int) -> Tuple[Dict[int, int], List[aiosqlite.Row]]:
+        """伺服器裡交易過股票的人：({user_id: 累計已實現損益}, 這些人的持股)。"""
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT o.user_id, COALESCE(SUM(o.realized), 0) AS realized FROM stock_orders o "
+                "JOIN guild_members g ON g.user_id = o.user_id WHERE g.guild_id = ? AND o.status = 'filled' "
+                "GROUP BY o.user_id", (guild_id,)) as cur:
+                realized = {r["user_id"]: r["realized"] for r in await cur.fetchall()}
+            if not realized:
+                return {}, []
+            marks = ",".join("?" * len(realized))
+            async with self.conn.execute(
+                f"SELECT user_id, symbol, shares, cost FROM stock_holdings WHERE user_id IN ({marks})", list(realized)
+            ) as cur:
+                return realized, await cur.fetchall()

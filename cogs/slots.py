@@ -12,7 +12,7 @@ from core.ui import AmountModal, BaseView, Color, fmt_points, fmt_signed, make_e
 SYMBOLS = ["💎", "7️⃣", "⭐", "🍀", "🔔", "🍇", "🍒", "🍋"]
 WEIGHTS = [2, 4, 6, 8, 10, 15, 25, 30]
 TRIPLE_PAYOUTS = {"💎": 100, "7️⃣": 50, "⭐": 25, "🍀": 15, "🔔": 10, "🍇": 7, "🍒": 5, "🍋": 3}
-DEFAULT_BET = 50
+DEFAULT_BET = 5_000
 
 
 def spin() -> list:
@@ -45,7 +45,7 @@ class Slots(commands.Cog):
 
     def _frame(self, user, bet: int, reels: list, status: str, color: int) -> discord.Embed:
         embed = make_embed("🎰 拉霸機", f"# {' │ '.join(reels)}\n{status}", color)
-        embed.set_author(name=f"{user.display_name} 下注 {bet:,} 分", icon_url=user.display_avatar.url)
+        embed.set_author(name=f"{user.display_name} 下注 {bet:,} 元", icon_url=user.display_avatar.url)
         return embed
 
     async def play(self, interaction: discord.Interaction, bet: int) -> None:
@@ -53,7 +53,7 @@ class Slots(commands.Cog):
         hold_id = await self.bot.db.hold(user.id, bet, "拉霸機")
         if hold_id is None:
             balance = await self.bot.db.get_points(user.id)
-            return await send_error(interaction, f"積分不足，你目前有 {fmt_points(balance)}。")
+            return await send_error(interaction, f"存款不足，你目前有 {fmt_points(balance)}。")
 
         message = await respond(interaction, embed=self._frame(user, bet, ["❓"] * 3, "*滾輪轉動中…*", Color.GAME))
         final = spin()
@@ -70,7 +70,7 @@ class Slots(commands.Cog):
             self.bot.dispatch("activity", user.id, "game", interaction.channel_id, {"game": "slots", "won": payout > bet})
         color = Color.GOLD if multiplier >= 10 else Color.SUCCESS if payout > bet else Color.MUTED if payout == bet else Color.DANGER
         embed = self._frame(user, bet, final, f"**{text}**", color)
-        embed.set_footer(text=f"損益 {fmt_signed(payout - bet)}・餘額 {balance:,} 分")
+        embed.set_footer(text=f"損益 {fmt_signed(payout - bet)}・餘額 {balance:,} 元")
         view = SlotsView(self, user.id, bet)
         await message.edit(embed=embed, view=view)
         view.message = message
@@ -79,9 +79,9 @@ class Slots(commands.Cog):
         await interaction.response.send_modal(AmountModal("🎰 拉霸機", "賭注", self.play, default=DEFAULT_BET, min_value=1))
 
     @app_commands.command(name="slots", description="拉霸機：三個一樣就中獎，最高 100 倍")
-    @app_commands.describe(bet="下注的積分")
+    @app_commands.describe(bet="下注金額（新台幣）")
     @app_commands.checks.cooldown(1, 3.0)
-    async def slots(self, interaction: discord.Interaction, bet: app_commands.Range[int, 1, 10_000_000]):
+    async def slots(self, interaction: discord.Interaction, bet: app_commands.Range[int, 1, 1_000_000_000]):
         await self.play(interaction, bet)
 
 
@@ -91,7 +91,7 @@ class SlotsView(BaseView):
     def __init__(self, cog: Slots, owner_id: int, bet: int):
         super().__init__(owner_id=owner_id, timeout=180)
         self.cog, self.bet = cog, bet
-        self.again.label = f"再轉一次（{bet:,} 分）"
+        self.again.label = f"再轉一次（{bet:,} 元）"
 
     @discord.ui.button(label="再轉一次", emoji="🔄", style=discord.ButtonStyle.primary)
     async def again(self, interaction: discord.Interaction, button: discord.ui.Button):

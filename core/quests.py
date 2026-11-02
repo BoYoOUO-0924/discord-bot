@@ -9,9 +9,9 @@ from datetime import date
 from typing import Callable, Dict, List
 
 DAILY_COUNT = 3
-ALL_DONE_BONUS = 200
+ALL_DONE_BONUS = 20_000
 ALL_DONE_KEY = "__all__"
-MIN_QUEST_BET = 50   # 下注太小不算任務進度，避免用 1 分刷任務
+MIN_QUEST_BET = 5_000   # 下注太小不算任務進度，避免用 1 元刷任務
 
 
 @dataclass(frozen=True)
@@ -39,16 +39,16 @@ def _kind(expected: str):
 
 
 QUEST_POOL: List[Quest] = [
-    Quest("play3", "玩 3 場遊戲", 3, 150, _game()),
-    Quest("win2", "贏 2 場遊戲", 2, 200, _game(won=True)),
-    Quest("chat20", "在伺服器聊天 20 則", 20, 100, _kind("chat")),
-    Quest("work2", "打工 2 次", 2, 120, _kind("work")),
-    Quest("blackjack2", f"玩 2 局 21 點（賭注 {MIN_QUEST_BET} 以上）", 2, 120, _game("blackjack")),
-    Quest("slots5", f"拉霸 5 次（賭注 {MIN_QUEST_BET} 以上）", 5, 120, _game("slots")),
-    Quest("ttt_win", "井字遊戲贏 1 場（簡單電腦不算）", 1, 120, _game("tictactoe", won=True)),
-    Quest("poker5", "德州撲克玩 5 手", 5, 150, _game("poker")),
-    Quest("guess5", "猜數字猜 5 次", 5, 80, _kind("guess")),
-    Quest("soup3", "海龜湯提問 3 題", 3, 100, _kind("soup_question"), needs_ai=True),
+    Quest("play3", "玩 3 場遊戲", 3, 15_000, _game()),
+    Quest("win2", "贏 2 場遊戲", 2, 20_000, _game(won=True)),
+    Quest("chat20", "在伺服器聊天 20 則", 20, 10_000, _kind("chat")),
+    Quest("work2", "打工 2 次", 2, 12_000, _kind("work")),
+    Quest("blackjack2", f"玩 2 局 21 點（賭注 {MIN_QUEST_BET:,} 元以上）", 2, 12_000, _game("blackjack")),
+    Quest("slots5", f"拉霸 5 次（賭注 {MIN_QUEST_BET:,} 元以上）", 5, 12_000, _game("slots")),
+    Quest("ttt_win", "井字遊戲贏 1 場（簡單電腦不算）", 1, 12_000, _game("tictactoe", won=True)),
+    Quest("poker5", "德州撲克玩 5 手", 5, 15_000, _game("poker")),
+    Quest("guess5", "猜數字猜 5 次", 5, 8_000, _kind("guess")),
+    Quest("soup3", "海龜湯提問 3 題", 3, 10_000, _kind("soup_question"), needs_ai=True),
 ]
 QUESTS_BY_KEY = {q.key: q for q in QUEST_POOL}
 

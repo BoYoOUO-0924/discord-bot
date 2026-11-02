@@ -314,7 +314,7 @@ class AdminServer:
             return web.json_response({"error": "請填寫調整原因"}, status=400)
         if mode == "set":
             if not 0 <= amount <= 10**12:
-                return web.json_response({"error": "積分必須介於 0 到 1 兆"}, status=400)
+                return web.json_response({"error": "金額必須介於 0 到 1 兆元"}, status=400)
             old, new = await self.db.admin_adjust(user_id, reason, set_to=amount)
         elif mode == "add":
             if amount == 0 or abs(amount) > 10**12:
@@ -322,7 +322,7 @@ class AdminServer:
             old, new = await self.db.admin_adjust(user_id, reason, delta=amount)
         else:
             return web.json_response({"error": "未知的調整方式"}, status=400)
-        await self.record(request, "points", user_id, f"積分 {old:,} → {new:,}（{reason}）")
+        await self.record(request, "points", user_id, f"存款 {old:,} → {new:,} 元（{reason}）")
         return web.json_response({"ok": True, "old": old, "new": new})
 
     async def set_streak(self, request: web.Request):
@@ -417,7 +417,7 @@ class AdminServer:
             if not game:
                 return web.json_response({"error": "這局已經結束了"}, status=404)
             async with game.lock:
-                await cog.end_game(game, f"{reason}，剩餘籌碼已退回積分。")
+                await cog.end_game(game, f"{reason}，剩餘籌碼已換回現金。")
         elif kind == "poker_lobby":
             cog = self.bot.get_cog("Poker")
             lobby = cog.lobbies.get(key) if cog else None

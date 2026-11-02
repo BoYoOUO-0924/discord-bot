@@ -1,4 +1,4 @@
-"""積分系統：簽到、個人資料、排行榜、轉帳。"""
+"""錢包（新台幣）：簽到、個人資料、排行榜、轉帳。"""
 import time
 from typing import Optional
 
@@ -48,18 +48,18 @@ class Economy(commands.Cog):
             parts.append(f"連續加成 +{result.streak_bonus}")
         tomorrow = sum(checkin_reward(result.streak + 1, first_time=False))
 
-        embed = make_embed("✨ 簽到成功！", f"## +{result.gained:,} 分\n" + "・".join(parts), Color.SUCCESS)
+        embed = make_embed("✨ 簽到成功！", f"## +{result.gained:,} 元\n" + "・".join(parts), Color.SUCCESS)
         embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
         streak_text = f"{result.streak} 天"
         if result.streak_broken:
             streak_text += "（中斷後重新開始）"
         embed.add_field(name="🔥 連續簽到", value=streak_text)
-        embed.add_field(name="💰 目前積分", value=fmt_points(result.balance))
-        embed.add_field(name="⏭️ 明天再簽", value=f"+{tomorrow:,} 分")
+        embed.add_field(name="💰 錢包餘額", value=fmt_points(result.balance))
+        embed.add_field(name="⏭️ 明天再簽", value=f"+{tomorrow:,} 元")
         embed.set_footer(text="每天台灣時間 00:00 換日，斷簽會重新計算連續天數")
         await respond(interaction, embed=embed)
 
-    @app_commands.command(name="checkin", description="每日簽到領積分，連續簽到加成越來越多")
+    @app_commands.command(name="checkin", description="每日簽到領錢，連續簽到加成越來越多")
     async def checkin(self, interaction: discord.Interaction):
         await self.do_checkin(interaction)
 
@@ -71,7 +71,7 @@ class Economy(commands.Cog):
 
         embed = make_embed(f"👤 {member.display_name}", color=Color.PRIMARY)
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="💰 積分", value=fmt_points(profile.points))
+        embed.add_field(name="💰 錢包", value=fmt_points(profile.points))
         embed.add_field(name="🏆 伺服器排名", value=f"第 {rank} 名" if rank else "—")
         checked_today = profile.last_checkin == today
         embed.add_field(name="📅 今日簽到", value="✅ 已簽到" if checked_today else "❗ 尚未簽到")
@@ -82,7 +82,7 @@ class Economy(commands.Cog):
             work_text = f"{ts(last_work + WORK_COOLDOWN, 'R')}可打工"
         else:
             work_text = "現在可以打工"
-        embed.add_field(name="💼 今日收入", value=f"{work_text}\n聊天獎勵 {chat_earned}/{CHAT_DAILY_CAP}")
+        embed.add_field(name="💼 今日收入", value=f"{work_text}\n聊天獎勵 {chat_earned:,}/{CHAT_DAILY_CAP:,} 元")
 
         stats = await self.db.game_stats(member.id)
         if stats:
@@ -119,7 +119,7 @@ class Economy(commands.Cog):
                 view = QuickCheckinView(self, member.id)
         await respond(interaction, embed=embed, view=view or discord.utils.MISSING, ephemeral=True)
 
-    @app_commands.command(name="profile", description="查看積分、排名、簽到紀錄與遊戲戰績")
+    @app_commands.command(name="profile", description="查看錢包、排名、簽到紀錄與遊戲戰績")
     @app_commands.describe(user="要查看的人，不填就是自己")
     async def profile(self, interaction: discord.Interaction, user: Optional[discord.User] = None):
         await self.send_profile(interaction, user)
@@ -128,7 +128,7 @@ class Economy(commands.Cog):
     async def build_leaderboard(self, guild: discord.Guild, viewer_id: int, by: str) -> discord.Embed:
         today = today_tw()
         rows = await self.db.leaderboard(guild.id, by, today)
-        title = "🏆 積分排行榜" if by == "points" else "🔥 連續簽到排行榜"
+        title = "🏆 財富排行榜" if by == "points" else "🔥 連續簽到排行榜"
         embed = make_embed(title, color=Color.GOLD)
         if not rows:
             embed.description = "目前還沒有人上榜，快用 `/checkin` 簽到吧！"
@@ -143,7 +143,7 @@ class Economy(commands.Cog):
         if by == "points" and viewer_id not in [uid for uid, _ in rows]:
             rank = await self.db.points_rank(guild.id, viewer_id)
             points = await self.db.get_points(viewer_id)
-            embed.set_footer(text=f"你目前第 {rank} 名・{points:,} 分" if rank else "你還沒有積分，簽到就能上榜")
+            embed.set_footer(text=f"你目前第 {rank} 名・{points:,} 元" if rank else "你的錢包還是空的，簽到就能上榜")
         return embed
 
     async def send_leaderboard(self, interaction: discord.Interaction, *, ephemeral: bool = False) -> None:
@@ -154,26 +154,26 @@ class Economy(commands.Cog):
         view = LeaderboardView(self)
         view.message = await respond(interaction, embed=embed, view=view, ephemeral=ephemeral)
 
-    @app_commands.command(name="leaderboard", description="伺服器積分與連續簽到排行榜")
+    @app_commands.command(name="leaderboard", description="伺服器財富與連續簽到排行榜")
     @app_commands.guild_only()
     async def leaderboard(self, interaction: discord.Interaction):
         await self.send_leaderboard(interaction)
 
     # ------------------------------------------------------------------ 轉帳
-    @app_commands.command(name="give", description="把積分轉給其他人")
-    @app_commands.describe(user="要轉給誰", amount="轉出的積分")
+    @app_commands.command(name="give", description="把錢轉給其他人")
+    @app_commands.describe(user="要轉給誰", amount="轉出的金額（新台幣）")
     @app_commands.guild_only()
     async def give(self, interaction: discord.Interaction, user: discord.Member,
-                   amount: app_commands.Range[int, 1, 10_000_000]):
+                   amount: app_commands.Range[int, 1, 1_000_000_000]):
         if user.bot or user.id == interaction.user.id:
             return await send_error(interaction, "不能轉給自己或機器人。")
         balance = await self.db.transfer(interaction.user.id, user.id, amount)
         if balance is None:
             current = await self.db.get_points(interaction.user.id)
-            return await send_error(interaction, f"積分不足，你目前有 {fmt_points(current)}。")
+            return await send_error(interaction, f"存款不足，你目前有 {fmt_points(current)}。")
         embed = make_embed("💸 轉帳成功", f"{interaction.user.mention} 轉了 **{fmt_points(amount)}** 給 {user.mention}",
                            Color.SUCCESS)
-        embed.set_footer(text=f"你的餘額：{balance:,} 分")
+        embed.set_footer(text=f"你的餘額：{balance:,} 元")
         await interaction.response.send_message(embed=embed)
 
 
@@ -198,7 +198,7 @@ class LeaderboardView(BaseView):
         embed = await self.cog.build_leaderboard(interaction.guild, interaction.user.id, by)
         await respond(interaction, embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="積分", emoji="💰", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="財富", emoji="💰", style=discord.ButtonStyle.secondary)
     async def by_points(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch(interaction, "points")
 

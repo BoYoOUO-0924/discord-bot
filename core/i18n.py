@@ -29,6 +29,15 @@ COMMAND_NAMES = {
     "seatortoise": "海龜湯",
     "weather": "天氣",
     "earthquake": "地震",
+    # 股票模擬（/股票 底下的子指令）
+    "stock": "股票",
+    "quote": "查詢",
+    "buy": "買進",
+    "sell": "賣出",
+    "account": "帳戶",
+    "orders": "委託",
+    "history": "紀錄",
+    "rank": "排行",
 }
 
 # 同名參數在不同指令可能有不同意思，所以用「指令.參數」當 key，找不到再退回只看參數名
@@ -52,6 +61,8 @@ PARAMETER_NAMES = {
     "weather.send": "立即傳送",
     "weather.day": "日期",
     "earthquake.send": "立即傳送",
+    "symbol": "股票",
+    "shares": "股數",
 }
 
 

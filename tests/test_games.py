@@ -124,8 +124,8 @@ class MiscGameTest(unittest.TestCase):
         self.assertEqual(game.guess(6, 30), "higher")
         self.assertEqual((game.low, game.high, game.attempts), (31, 49, 2))
         self.assertEqual(game.guess(6, 42), "correct")
-        self.assertEqual(reward_for(3, 100), 100)
-        self.assertEqual(reward_for(20, 100), 20)
+        self.assertEqual(reward_for(3, 100), 10_000)
+        self.assertEqual(reward_for(20, 100), 2_000)
 
 
 
