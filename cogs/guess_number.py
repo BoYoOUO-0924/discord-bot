@@ -26,10 +26,10 @@ def reward_for(attempts: int, maximum: int) -> int:
     """以二分搜尋的最佳次數為基準給分。"""
     optimal = math.ceil(math.log2(maximum))
     if attempts <= optimal:
-        return 100
+        return 10_000
     if attempts <= optimal * 2:
-        return 50
-    return 20
+        return 5_000
+    return 2_000
 
 
 def range_bar(low: int, high: int, maximum: int, length: int = 20) -> str:
@@ -88,7 +88,7 @@ class GuessNumber(commands.Cog):
                            Color.GAME)
         embed.add_field(name="已猜", value=f"{game.attempts} 次")
         embed.add_field(name="參與", value=f"{len(game.players)} 人")
-        embed.add_field(name="猜中可得", value=f"{reward_for(game.attempts + 1, game.maximum)} 分")
+        embed.add_field(name="猜中可得", value=fmt_points(reward_for(game.attempts + 1, game.maximum)))
         if game.last_guess:
             embed.add_field(name="最近一次", value=game.last_guess, inline=False)
         embed.set_footer(text="直接在頻道輸入數字就能猜！⬆️ 代表答案更大，⬇️ 代表更小")
@@ -162,7 +162,7 @@ class GuessNumber(commands.Cog):
         embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
         embed.add_field(name="全頻道共猜", value=f"{game.attempts} 次")
         embed.add_field(name="參與人數", value=f"{len(game.players)} 人")
-        embed.add_field(name="獎勵", value=f"+{reward} 分（餘額 {balance:,}）")
+        embed.add_field(name="獎勵", value=f"+{reward:,} 元（餘額 {balance:,} 元）")
         view = AgainView(self, game.maximum)
         if interaction:
             await interaction.response.send_message(embed=embed, view=view)

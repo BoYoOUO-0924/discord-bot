@@ -212,7 +212,7 @@ function stackedColumns(container, days) {
     const totals = days.map((d) => SERIES.reduce((sum, ser) => sum + (d[ser.key] || 0), 0));
     const max = niceMax(Math.max(...totals));
     const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img",
-                           "aria-label": "每日發放積分堆疊長條圖" });
+                           "aria-label": "每日發放金額堆疊長條圖" });
     for (let i = 0; i <= 4; i++) {
       const value = (max / 4) * i, y = m.t + innerH - (value / max) * innerH;
       svg.append(s("line", { class: i ? "gridline" : "baseline", x1: m.l, x2: W - m.r, y1: y, y2: y }));
@@ -310,20 +310,20 @@ async function renderOverview(view) {
 
   view.replaceChildren(
     h("div", { class: "kpis" },
-      tile("使用者", fmt(kpi.users), "有積分紀錄的人數"),
-      tile("流通積分", fmt(kpi.points), "所有人的積分總和"),
-      tile("保管中的賭注", fmt(kpi.held), "進行中遊戲先扣下的積分"),
+      tile("使用者", fmt(kpi.users), "有存款紀錄的人數"),
+      tile("流通存款", fmt(kpi.points), "所有人的存款總和"),
+      tile("保管中的賭注", fmt(kpi.held), "進行中遊戲先扣下的存款"),
       tile("今日活躍", fmt(kpi.active_today), "近 14 天", sparkline(actives)),
       tile("今日簽到", fmt(kpi.checkins_today), "人")),
     h("section", { class: "card" },
-      h("div", { class: "card-head" }, h("h2", { text: "每日發放積分（近 14 天）" }), h("span", { class: "spacer" }), toggle),
+      h("div", { class: "card-head" }, h("h2", { text: "每日發放金額（近 14 天）" }), h("span", { class: "spacer" }), toggle),
       h("div", { class: "legend" }, SERIES.map((ser) =>
         h("span", {}, h("span", { class: "swatch", style: { background: cssVar(ser.color) } }), ser.label))),
       chartBox, tableBox,
       h("p", { class: "muted", text: "遊戲輸贏不計入發放（是玩家之間或與莊家的移轉），請看下方各遊戲損益。" })),
     h("section", { class: "card" },
       h("div", { class: "card-head" }, h("h2", { text: "各遊戲玩家累計損益" }),
-        h("span", { class: "muted", text: "正數＝玩家整體贏、莊家發出積分；負數＝玩家整體輸、積分被回收" })),
+        h("span", { class: "muted", text: "正數＝玩家整體贏、莊家發出存款；負數＝玩家整體輸、存款被回收" })),
       games.length ? h("div", { class: "table-wrap" }, h("table", {},
         h("thead", {}, h("tr", {}, ["遊戲", "場次", "玩家數", "勝率", "損益分布", "玩家累計損益"].map((t, i) =>
           h("th", { class: [1, 2, 3, 5].includes(i) ? "num" : "", text: t })))),
@@ -339,7 +339,7 @@ const usersState = { q: "", sort: "points", page: 1 };
 async function renderUsers(view) {
   const search = h("input", { type: "search", placeholder: "搜尋名稱或 Discord ID…", value: usersState.q, "aria-label": "搜尋使用者" });
   const sort = h("select", { "aria-label": "排序" },
-    [["points", "依積分"], ["streak", "依連續簽到"], ["checkins", "依累計簽到"], ["games", "依遊戲場次"]].map(([v, t]) =>
+    [["points", "依存款"], ["streak", "依連續簽到"], ["checkins", "依累計簽到"], ["games", "依遊戲場次"]].map(([v, t]) =>
       h("option", { value: v, text: t, selected: usersState.sort === v })));
   const body = h("div", {});
   view.replaceChildren(h("section", { class: "card" },
@@ -362,7 +362,7 @@ async function renderUsers(view) {
       onclick: () => { usersState.page++; load(); } });
     body.replaceChildren(
       data.items.length ? h("div", { class: "table-wrap" }, h("table", {},
-        h("thead", {}, h("tr", {}, ["使用者", "積分", "連續簽到", "今日", "累計簽到", "遊戲場次"].map((t, i) =>
+        h("thead", {}, h("tr", {}, ["使用者", "存款", "連續簽到", "今日", "累計簽到", "遊戲場次"].map((t, i) =>
           h("th", { class: [1, 2, 4, 5].includes(i) ? "num" : "", text: t })))), h("tbody", {}, rows)))
         : h("p", { class: "empty", text: "找不到符合的使用者。" }),
       h("div", { class: "pager" }, `共 ${fmt(data.total)} 人・第 ${usersState.page} / ${pages} 頁`, prev, next));
@@ -383,12 +383,12 @@ async function renderUser(view, id) {
   const name = u.name || `使用者 ${u.id}`;
   const workReady = !u.last_work || Date.now() / 1000 - u.last_work >= 3600;
 
-  // 調整積分
+  // 調整存款
   let mode = "add";
   const modeButtons = [["add", "增減"], ["set", "設定為"]].map(([value, label]) =>
     h("button", { type: "button", "aria-pressed": value === mode ? "true" : "false", text: label,
       onclick: (e) => { mode = value; modeButtons.forEach((b) => b.setAttribute("aria-pressed", b === e.target ? "true" : "false"));
-                        amount.placeholder = mode === "add" ? "例如 500 或 -200" : "新的積分"; } }));
+                        amount.placeholder = mode === "add" ? "例如 500 或 -200" : "新的存款"; } }));
   const amount = h("input", { type: "number", placeholder: "例如 500 或 -200", required: true, step: 1, "aria-label": "金額" });
   const reason = h("input", { type: "text", placeholder: "原因（會記在對方的收支紀錄）", maxlength: 100, required: true, "aria-label": "原因" });
   const pointsForm = h("form", { class: "form" },
@@ -399,7 +399,7 @@ async function renderUser(view, id) {
     const value = parseInt(amount.value, 10);
     if (Number.isNaN(value)) return toast("請輸入整數金額", true);
     const ask = mode === "add" ? `確定幫「${name}」${value >= 0 ? "加" : "扣"} ${fmt(Math.abs(value))} 分？`
-                               : `確定把「${name}」的積分從 ${fmt(u.points)} 設為 ${fmt(value)}？`;
+                               : `確定把「${name}」的存款從 ${fmt(u.points)} 設為 ${fmt(value)}？`;
     if (!confirm(`${ask}\n原因：${reason.value}`)) return;
     try {
       const res = await api(`/api/users/${id}/points`, { method: "POST", body: { mode, amount: value, reason: reason.value } });
@@ -454,14 +454,14 @@ async function renderUser(view, id) {
     h("section", { class: "card" },
       h("div", { class: "profile-head" }, avatar(u.avatar, true),
         h("div", {}, h("h2", { text: name }), h("div", { class: "id", text: `Discord ID ${u.id}` })),
-        h("div", { class: "points" }, h("div", { class: "muted", text: "積分" }), h("div", { class: "value", text: fmt(u.points) }))),
+        h("div", { class: "points" }, h("div", { class: "muted", text: "存款" }), h("div", { class: "value", text: fmt(u.points) }))),
       h("div", { class: "facts" },
         h("span", { text: `🔥 連續簽到 ${u.streak} 天` }), h("span", { text: `🗓️ 累計簽到 ${fmt(u.checkins)} 天` }),
         h("span", { text: `📅 最後簽到 ${u.last_checkin || "—"}` }),
         h("span", { text: workReady ? "💼 現在可以打工" : `💼 ${fmtDuration(u.last_work + 3600 - Date.now() / 1000)}後可打工` }),
         h("span", { text: `💬 今日聊天獎勵 ${u.chat_today}/200` }))),
     h("div", { class: "grid-2" },
-      h("section", { class: "card" }, h("div", { class: "card-head" }, h("h3", { text: "調整積分" })), pointsForm),
+      h("section", { class: "card" }, h("div", { class: "card-head" }, h("h3", { text: "調整存款" })), pointsForm),
       h("section", { class: "card" }, h("div", { class: "card-head" }, h("h3", { text: "簽到與打工" })), streakForm,
         h("div", { style: { marginTop: "12px" } }, resetWork))),
     h("div", { class: "grid-2" },
@@ -518,13 +518,13 @@ async function renderGames(view) {
     h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "進行中的遊戲" }),
       h("span", { class: "muted", text: "每 10 秒自動更新" })), gamesBox),
     h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "保管中的賭注" }),
-      h("span", { class: "muted", text: "遊戲開局時先扣下的積分。沒有對應遊戲的（例如卡住的）可以手動退還。" })), holdsBox));
+      h("span", { class: "muted", text: "遊戲開局時先扣下的存款。沒有對應遊戲的（例如卡住的）可以手動退還。" })), holdsBox));
   await load();
   every(10000, () => load().catch(() => {}));
 }
 
 // ---------------------------------------------------------------- 管理操作紀錄
-const ACTIONS = { login: "登入後台", points: "調整積分", streak: "修改連續簽到", reset_work: "重設打工冷卻",
+const ACTIONS = { login: "登入後台", points: "調整存款", streak: "修改連續簽到", reset_work: "重設打工冷卻",
                   end_game: "結束遊戲", refund_hold: "退還賭注" };
 
 async function renderAudit(view) {

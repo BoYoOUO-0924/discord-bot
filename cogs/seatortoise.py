@@ -29,9 +29,9 @@ QUESTION_COOLDOWN = 3
 GUESS_COOLDOWN = 10
 MIN_EVIDENCE = 2           # 判定猜中時，推理裡至少要出現幾個湯面沒提過的關鍵詞組
 DIFFICULTIES = {
-    "easy": ("簡單", 100),
-    "normal": ("普通", 150),
-    "hard": ("困難", 250),
+    "easy": ("簡單", 10_000),
+    "normal": ("普通", 15_000),
+    "hard": ("困難", 25_000),
 }
 DIFFICULTY_CHOICES = [app_commands.Choice(name="隨機", value="random")] + [
     app_commands.Choice(name=name, value=key) for key, (name, _) in DIFFICULTIES.items()]
@@ -202,7 +202,7 @@ matched 是一個長度 {len(puzzle.key_points)} 的陣列，依序判斷玩家�
         embed = make_embed(f"🐢 {puzzle.title}", f"**湯面**\n> {puzzle.premise}", Color.TABLE)
         embed.add_field(name="難度", value=DIFFICULTIES[puzzle.difficulty][0])
         embed.add_field(name="已提問", value=f"{len(game.qa)} 題")
-        embed.add_field(name="猜中可得", value=f"{game.reward} 分")
+        embed.add_field(name="猜中可得", value=fmt_points(game.reward))
         if game.hints_used:
             hints = "\n".join(f"{i + 1}. {h}" for i, h in enumerate(puzzle.hints[:game.hints_used]))
             embed.add_field(name="💡 提示", value=hints, inline=False)
@@ -287,7 +287,7 @@ matched 是一個長度 {len(puzzle.key_points)} 的陣列，依序判斷玩家�
                               {"game": "seatortoise", "won": True})
             embed = make_embed(f"🎉 {interaction.user.display_name} 猜中了！",
                                f"{quoted}\n\n**湯底**\n{game.puzzle.answer}", Color.GOLD)
-            embed.add_field(name="獎勵", value=f"+{reward} 分（餘額 {balance:,}）")
+            embed.add_field(name="獎勵", value=f"+{reward:,} 元（餘額 {balance:,} 元）")
             embed.add_field(name="共提問", value=f"{len(game.qa)} 題")
             embed.add_field(name="參與人數", value=f"{len(game.participants)} 人")
             await interaction.followup.send(embed=embed, view=AgainView(self, game.puzzle.difficulty))
@@ -435,7 +435,7 @@ class SoupView(BaseView):
         game.last_activity = time.time()
         await interaction.response.send_message(
             f"🔍 **提示 {game.hints_used}**（{interaction.user.display_name} 要求）：{game.puzzle.hints[game.hints_used - 1]}\n"
-            f"猜中獎勵降為 {game.reward} 分")
+            f"猜中獎勵降為 {game.reward:,} 元")
         await self.cog.refresh(game)
 
     @discord.ui.button(label="問答紀錄", emoji="📜", style=discord.ButtonStyle.secondary)

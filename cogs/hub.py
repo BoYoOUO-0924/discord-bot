@@ -37,7 +37,7 @@ class HubView(discord.ui.View):
             self._add(f"hub:{key}", label, emoji, style, 0)
         for i, game in enumerate(GAMES):
             self._add(f"hub:game:{game.key}", game.name, game.emoji, discord.ButtonStyle.secondary, 1 + i // 5)
-        tools = [("remind", "提醒", "⏰"), ("poll", "投票", "📊"), ("help", "指令說明", "📖")]
+        tools = [("stocks", "股票", "📈"), ("remind", "提醒", "⏰"), ("poll", "投票", "📊"), ("help", "指令說明", "📖")]
         for key, label, emoji in tools:
             self._add(f"hub:{key}", label, emoji, discord.ButtonStyle.secondary, 3)
 
@@ -73,7 +73,7 @@ class Hub(commands.Cog):
                             value=f"💰 {fmt_points(profile.points)}・🔥 連續 {profile.streak} 天・{checked}", inline=False)
         else:
             embed.description = "點下方按鈕就能開始，所有結果只會顯示給操作的人或在頻道開局。"
-        embed.add_field(name="賺積分", value="✨ 每日簽到・💼 打工（每小時）・🎯 每日任務・💬 聊天也會累積", inline=False)
+        embed.add_field(name="賺錢", value="✨ 每日簽到・💼 打工（每小時）・🎯 每日任務・💬 聊天也會累積", inline=False)
         games = []
         for game in GAMES:
             unavailable = ""
@@ -81,7 +81,8 @@ class Hub(commands.Cog):
                 unavailable = "（暫停中）" if self.bot.ai.configured else "（未啟用）"
             games.append(f"{game.emoji} **{game.name}**{unavailable}　{game.tagline}")
         embed.add_field(name="遊戲", value="\n".join(games), inline=False)
-        embed.add_field(name="工具", value="⏰ **提醒**　時間到通知你\n📊 **投票**　按鈕投票、自動截止", inline=False)
+        embed.add_field(name="工具", value="📈 **股票**　用錢包的錢模擬買賣台股\n⏰ **提醒**　時間到通知你\n"
+                                          "📊 **投票**　按鈕投票、自動截止", inline=False)
         embed.set_footer(text="每個功能也都能用斜線指令操作，輸入 / 看看")
         if self.bot.user:
             embed.set_thumbnail(url=self.bot.user.display_avatar.url)
@@ -95,7 +96,7 @@ class Hub(commands.Cog):
                 usage = f"{self.bot.mention(name)} {args}".rstrip()
                 lines.append(f"{usage}\n　{desc}")
             embed.add_field(name=title, value="\n".join(lines), inline=False)
-        embed.set_footer(text="遊戲贏得的積分可以在 /profile 查看戰績")
+        embed.set_footer(text="遊戲贏得的錢可以在 /profile 查看戰績")
         return embed
 
     # ------------------------------------------------------------------ 按鈕分派
@@ -118,6 +119,8 @@ class Hub(commands.Cog):
             return await economy.send_leaderboard(interaction, ephemeral=True)
         if action == "help":
             return await interaction.response.send_message(embed=self.help_embed(), ephemeral=True)
+        if action == "stocks":
+            return await self.bot.get_cog("Stocks").send_account(interaction)
         if action == "remind":
             return await interaction.response.send_modal(RemindModal(self.bot.get_cog("Reminders")))
         if action == "poll":

@@ -20,15 +20,15 @@ class DatabaseTest(unittest.IsolatedAsyncioTestCase):
     async def test_checkin_streak(self):
         day = date(2026, 10, 1)
         first = await self.db.checkin(1, day)
-        self.assertEqual(first.gained, 600)           # 基礎 100 + 首次 500
+        self.assertEqual(first.gained, 60_000)        # 基礎 10,000 + 首次 50,000
         again = await self.db.checkin(1, day)
         self.assertTrue(again.already)
         second = await self.db.checkin(1, day + timedelta(days=1))
-        self.assertEqual((second.streak, second.gained), (2, 120))
+        self.assertEqual((second.streak, second.gained), (2, 12_000))
         broken = await self.db.checkin(1, day + timedelta(days=5))
         self.assertEqual(broken.streak, 1)
         self.assertTrue(broken.streak_broken)
-        self.assertEqual(await self.db.get_points(1), 600 + 120 + 100)
+        self.assertEqual(await self.db.get_points(1), 60_000 + 12_000 + 10_000)
 
     async def test_profile_streak_resets_after_gap(self):
         day = date(2026, 10, 1)
@@ -127,10 +127,10 @@ class DatabaseTest(unittest.IsolatedAsyncioTestCase):
                                "consecutive_days": 3, "first_bonus_received": True}}, f)
         self.assertEqual(await self.db.migrate_legacy_json(self.tmp.name), 2)
         self.assertEqual(await self.db.migrate_legacy_json(self.tmp.name), 0)   # 只匯入一次
-        self.assertEqual(await self.db.get_points(111), 1300)
+        self.assertEqual(await self.db.get_points(111), 130_000)   # 舊檔是積分，1 分 = 100 元
         profile = await self.db.get_profile(111, date(2026, 10, 12))
         self.assertEqual((profile.streak, profile.last_checkin), (3, date(2026, 10, 12)))
-        # 已經領過首次獎勵，不會再拿 500
+        # 已經領過首次獎勵，不會再拿 50,000
         result = await self.db.checkin(111, date(2026, 10, 13))
         self.assertEqual(result.first_bonus, 0)
 

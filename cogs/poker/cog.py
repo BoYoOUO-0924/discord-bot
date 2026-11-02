@@ -124,7 +124,7 @@ class PokerGame:
         self.bought_in = {uid: lobby.buy_in for uid in lobby.players}
         self.ai = dict(lobby.ai)
         seats = [Seat(uid, member.display_name, lobby.buy_in) for uid, member in lobby.players.items()]
-        # 電腦的籌碼由莊家提供，牌局結束時不會結算成任何人的積分
+        # 電腦的籌碼由莊家提供，牌局結束時不會結算成任何人的錢
         seats += [Seat(uid, p.name, lobby.buy_in) for uid, p in lobby.ai.items()]
         self.table = PokerTable(seats, lobby.small_blind, lobby.big_blind)
         self.table.dealer_id = random.choice(seats).user_id  # 第一手的莊家隨機
@@ -588,7 +588,7 @@ class Poker(commands.Cog):
         await self.refresh_panels(game)
         embed = make_embed("♠️ 牌局結束", reason, Color.MUTED)
         if lines:
-            embed.add_field(name="結算（剩餘籌碼已退回積分）", value="\n".join(lines), inline=False)
+            embed.add_field(name="結算（剩餘籌碼已換回現金）", value="\n".join(lines), inline=False)
         embed.set_footer(text=f"共進行 {t.hand_number} 手")
         if game.message:
             try:
@@ -629,7 +629,7 @@ class Poker(commands.Cog):
                 return await send_error(interaction, f"牌桌已滿（{MAX_SEATS} 人）。")
             hold_id = await self.bot.db.hold(interaction.user.id, game.buy_in, "德州撲克")
             if hold_id is None:
-                return await send_error(interaction, f"帶入籌碼需要 {fmt_points(game.buy_in)}，你的積分不夠。")
+                return await send_error(interaction, f"帶入籌碼需要 {fmt_points(game.buy_in)}，你的錢不夠。")
             game.holds[interaction.user.id] = hold_id
             game.bought_in[interaction.user.id] = game.buy_in
             t.seats.append(Seat(interaction.user.id, interaction.user.display_name, game.buy_in))
@@ -647,7 +647,7 @@ class Poker(commands.Cog):
             seat.leaving = True
             game.table.log.append(f"{seat.name} 準備離桌")
             await interaction.response.send_message(
-                f"👋 這手結束後會幫你結算，剩餘籌碼會退回積分。", ephemeral=True)
+                f"👋 這手結束後會幫你結算，剩餘籌碼會換回現金。", ephemeral=True)
             if game.table.current_seat is seat:
                 await self._after_change(game)   # 正輪到他就直接棄牌
             else:
@@ -669,16 +669,16 @@ class Poker(commands.Cog):
                            bots="一開始就加入幾位電腦對手（之後也能在大廳增減）")
     @app_commands.guild_only()
     async def poker(self, interaction: discord.Interaction,
-                    big_blind: app_commands.Range[int, 2, 100_000] = 20,
-                    buy_in: Optional[app_commands.Range[int, 20, 10_000_000]] = None,
+                    big_blind: app_commands.Range[int, 200, 10_000_000] = 2_000,
+                    buy_in: Optional[app_commands.Range[int, 2_000, 1_000_000_000]] = None,
                     bots: app_commands.Range[int, 0, MAX_SEATS - 1] = 0):
         await self.create_lobby(interaction, big_blind, buy_in, bots)
 
 
 # ====================================================================== 介面
 class PokerSetupModal(discord.ui.Modal, title="♠️ 開一桌德州撲克"):
-    big_blind = discord.ui.TextInput(label="大盲注（小盲注是一半）", default="20", max_length=6)
-    buy_in = discord.ui.TextInput(label="每人帶入籌碼（留空 = 大盲注 × 50）", required=False, max_length=9)
+    big_blind = discord.ui.TextInput(label="大盲注（小盲注是一半）", default="2000", max_length=8)
+    buy_in = discord.ui.TextInput(label="每人帶入籌碼（留空 = 大盲注 × 50）", required=False, max_length=10)
     bots = discord.ui.TextInput(label=f"電腦對手數量（0–{MAX_SEATS - 1}，自己玩就填 1 以上）", default="0", max_length=1)
 
     def __init__(self, cog: Poker):
@@ -687,8 +687,8 @@ class PokerSetupModal(discord.ui.Modal, title="♠️ 開一桌德州撲克"):
 
     async def on_submit(self, interaction: discord.Interaction):
         bb_text, buy_text, bots_text = self.big_blind.value.strip(), self.buy_in.value.strip(), self.bots.value.strip()
-        if not bb_text.isdigit() or not 2 <= int(bb_text) <= 100_000:
-            return await send_error(interaction, "大盲注需要是 2 到 100,000 的整數。")
+        if not bb_text.isdigit() or not 200 <= int(bb_text) <= 10_000_000:
+            return await send_error(interaction, "大盲注需要是 200 到 10,000,000 的整數。")
         if buy_text and not buy_text.isdigit():
             return await send_error(interaction, "帶入籌碼需要是整數。")
         if not bots_text.isdigit() or int(bots_text) > MAX_SEATS - 1:

@@ -34,7 +34,7 @@ def success_embed(message: str) -> discord.Embed:
 
 
 def fmt_points(n: int) -> str:
-    return f"{n:,} 分"
+    return f"{n:,} 元"
 
 
 def fmt_signed(n: int) -> str:

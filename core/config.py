@@ -14,6 +14,7 @@ KNOWN_KEYS = [
     "DISCORD_TOKEN", "GEMINI_API_KEY", "GEMINI_MODEL", "DEV_GUILD_ID", "DATABASE_PATH", "AUTO_UPDATE",
     "ADMIN_PASSWORD", "ADMIN_HOST", "ADMIN_PORT", "AI_PROVIDER", "OLLAMA_URL", "OLLAMA_MODEL",
     "CWA_API_KEY", "WEATHER_WEBHOOK_URL", "WEATHER_TIME", "EARTHQUAKE_WEBHOOK_URL",
+    "TWFOLIO_DB", "TWFOLIO_CONFIG",
 ]
 
 
@@ -144,6 +145,8 @@ class Settings:
     weather_webhook_url: Optional[str]
     weather_time: str
     earthquake_webhook_url: Optional[str] = None
+    twfolio_db: Optional[str] = None
+    twfolio_config: Optional[str] = None
 
 
 def load_settings() -> Settings:
@@ -172,4 +175,7 @@ def load_settings() -> Settings:
         weather_time=str(_read("WEATHER_TIME", "06:00")),
         # 地震報告通知：沒設定時傳到天氣預報的 Webhook
         earthquake_webhook_url=_read("EARTHQUAKE_WEBHOOK_URL"),
+        # 股票模擬：twfolio 的公開行情資料庫（唯讀）與手續費設定
+        twfolio_db=_read("TWFOLIO_DB", r"C:\twfolio\data\twfolio.db"),
+        twfolio_config=_read("TWFOLIO_CONFIG", r"C:\twfolio\config.yaml"),
     )

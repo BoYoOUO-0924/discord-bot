@@ -14,7 +14,7 @@ from core.ui import AmountModal, BaseView, Color, fmt_points, fmt_signed, make_e
 Card = Tuple[str, str]
 RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
 SUITS = ["♠", "♥", "♦", "♣"]
-DEFAULT_BET = 100
+DEFAULT_BET = 10_000
 
 
 def new_deck() -> List[Card]:
@@ -147,7 +147,7 @@ class Blackjack(commands.Cog):
             embed.add_field(name="結算", value=f"賭注 {fmt_points(game.bet)}{'（已加倍）' if game.doubled else ''}"
                                                f"・損益 **{fmt_signed(net)}**・餘額 {fmt_points(balance or 0)}", inline=False)
         elif game.bet:
-            embed.set_footer(text=f"賭注 {game.bet:,} 分{'（已加倍）' if game.doubled else ''}")
+            embed.set_footer(text=f"賭注 {game.bet:,} 元{'（已加倍）' if game.doubled else ''}")
         else:
             embed.set_footer(text="練習模式（沒有下注）")
         return embed
@@ -164,7 +164,7 @@ class Blackjack(commands.Cog):
             hold_id = await self.bot.db.hold(user.id, bet, "21點")
             if hold_id is None:
                 balance = await self.bot.db.get_points(user.id)
-                return await send_error(interaction, f"積分不足，你目前有 {fmt_points(balance)}。")
+                return await send_error(interaction, f"存款不足，你目前有 {fmt_points(balance)}。")
 
         game = BlackjackGame(user.id, bet, hold_id)
         game.channel_id = interaction.channel_id
@@ -194,8 +194,8 @@ class Blackjack(commands.Cog):
             "🃏 21點", "賭注（填 0 是練習模式）", self.start, default=DEFAULT_BET))
 
     @app_commands.command(name="blackjack", description="21點：跟莊家比誰最接近 21 點")
-    @app_commands.describe(bet="下注的積分，不填或填 0 是練習模式")
-    async def blackjack(self, interaction: discord.Interaction, bet: app_commands.Range[int, 0, 10_000_000] = 0):
+    @app_commands.describe(bet="下注金額（新台幣），不填或填 0 是練習模式")
+    async def blackjack(self, interaction: discord.Interaction, bet: app_commands.Range[int, 0, 1_000_000_000] = 0):
         await self.start(interaction, bet)
 
 
@@ -240,7 +240,7 @@ class BlackjackView(BaseView):
             if self.game.finished or len(self.game.player) != 2:
                 return await send_error(interaction, "只有拿到前兩張牌時可以加倍。")
             if not await self.cog.bot.db.extend_hold(self.game.hold_id, self.game.bet):
-                return await send_error(interaction, f"加倍需要再 {fmt_points(self.game.bet)}，你的積分不夠。")
+                return await send_error(interaction, f"加倍需要再 {fmt_points(self.game.bet)}，你的錢不夠。")
             self.game.double()
             await self._after_action(interaction)
 
@@ -266,7 +266,7 @@ class PlayAgainView(BaseView):
     def __init__(self, cog: Blackjack, owner_id: int, bet: int):
         super().__init__(owner_id=owner_id, timeout=180)
         self.cog, self.bet = cog, bet
-        self.again.label = f"再來一局（{bet:,} 分）" if bet else "再來一局"
+        self.again.label = f"再來一局（{bet:,} 元）" if bet else "再來一局"
 
     @discord.ui.button(label="再來一局", emoji="🔁", style=discord.ButtonStyle.success)
     async def again(self, interaction: discord.Interaction, button: discord.ui.Button):

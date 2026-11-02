@@ -32,6 +32,7 @@ EXTENSIONS = [
     "cogs.seatortoise",
     "cogs.weather",
     "cogs.earthquake",
+    "cogs.stocks",
     "cogs.updater",
     "cogs.webadmin",
 ]
@@ -118,8 +119,8 @@ class Bot(commands.Bot):
         log.info("已同步 %d 個斜線指令", len(synced))
 
     def mention(self, name: str) -> str:
-        """可點擊的指令連結；還沒同步時退回純文字。"""
-        command_id = getattr(self, "command_ids", {}).get(name)
+        """可點擊的指令連結；還沒同步時退回純文字。子指令（例如「stock buy」）用上層指令的 ID。"""
+        command_id = getattr(self, "command_ids", {}).get(name.split()[0])
         return f"</{name}:{command_id}>" if command_id else f"`/{name}`"
 
     async def on_message(self, message: discord.Message) -> None:
