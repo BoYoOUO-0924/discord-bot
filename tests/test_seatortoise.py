@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
-from cogs.seatortoise import (ANSWER_DISPLAY, SeaTortoise, SoupGame, evidence, load_bank, pick_puzzle,
-                              verdict_from)
+from cogs.seatortoise import (ANSWER_DISPLAY, SeaTortoise, SoupGame, evidence, find_puzzles, load_bank,
+                              pick_puzzle, verdict_from)
 from core.ai import AIError, OllamaClient
 
 
@@ -33,6 +33,41 @@ class BankTest(unittest.TestCase):
         played = {p.id: 100.0 + i for i, p in enumerate(easy)}
         self.assertEqual(pick_puzzle(bank, "easy", played).id, easy[0].id)
         self.assertIn(pick_puzzle(bank, "random", {}, random.Random(1)).difficulty, ("easy", "normal", "hard"))
+
+    def test_find_puzzles_for_choosing_one(self):
+        bank = load_bank()
+        self.assertEqual(find_puzzles(bank, "h22")[0].id, "h22")             # 編號
+        self.assertEqual(find_puzzles(bank, "沙灘")[0].id, "h22")            # 標題關鍵字
+        self.assertEqual(len(find_puzzles(bank, "")), 25)                    # Discord 選單最多 25 個
+        self.assertEqual(find_puzzles(bank, "沒有這題"), [])
+
+    def test_every_puzzle_can_be_found_by_id(self):
+        bank = load_bank()
+        for p in bank:
+            self.assertEqual(find_puzzles(bank, p.id, limit=1)[0].id, p.id)
+
+
+class ChoosePuzzleTest(unittest.IsolatedAsyncioTestCase):
+    async def start(self, puzzle_id):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from cogs import seatortoise as soup
+
+        db = MagicMock(soup_played=AsyncMock(return_value={}), mark_soup_played=AsyncMock())
+        cog = SeaTortoise(SimpleNamespace(db=db, ai=SimpleNamespace(available=True, configured=True)))
+        interaction = SimpleNamespace(guild=True, guild_id=1, channel_id=2, user=SimpleNamespace(id=3))
+        with patch.object(soup, "respond", AsyncMock()), patch.object(soup, "send_error", AsyncMock()) as error:
+            await cog.start(interaction, "random", puzzle_id)
+        return cog, error
+
+    async def test_chosen_puzzle_is_played(self):
+        cog, error = await self.start("h22")
+        error.assert_not_awaited()
+        self.assertEqual(cog.games[2].puzzle.id, "h22")
+
+    async def test_unknown_puzzle_is_rejected(self):
+        cog, error = await self.start("不存在的題目")
+        error.assert_awaited_once()
+        self.assertEqual(cog.games, {})
 
 
 class JudgeLogicTest(unittest.TestCase):

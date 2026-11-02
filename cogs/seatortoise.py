@@ -67,6 +67,14 @@ def load_bank(path: Path = BANK_PATH) -> List[Puzzle]:
                        tuple(p["key_points"]), tuple(p["hints"])) for p in json.load(f)]
 
 
+def find_puzzles(bank: List[Puzzle], text: str, limit: int = 25) -> List[Puzzle]:
+    """指定題目用：編號完全相同的排最前面，其次是編號開頭或標題包含關鍵字。"""
+    text = text.strip().lower()
+    exact = [p for p in bank if p.id == text]
+    rest = [p for p in bank if p not in exact and (not text or p.id.startswith(text) or text in p.title.lower())]
+    return (exact + rest)[:limit]
+
+
 def pick_puzzle(bank: List[Puzzle], difficulty: str, played: Dict[str, float],
                 rng: Optional[random.Random] = None) -> Puzzle:
     """優先挑這個伺服器沒玩過的題目；全部玩過的話，挑最久以前玩的。"""
@@ -229,7 +237,8 @@ matched 是一個長度 {len(puzzle.key_points)} 的陣列，依序判斷玩家�
             pass
 
     # ------------------------------------------------------------------ 流程
-    async def start(self, interaction: discord.Interaction, difficulty: str = "random") -> None:
+    async def start(self, interaction: discord.Interaction, difficulty: str = "random",
+                    puzzle_id: Optional[str] = None) -> None:
         if not interaction.guild:
             return await send_error(interaction, "海龜湯要在伺服器頻道裡玩。")
         if not self.ai.available:
@@ -240,7 +249,13 @@ matched 是一個長度 {len(puzzle.key_points)} 的陣列，依序判斷玩家�
         if channel_id in self.games:
             return await send_error(interaction, "這個頻道已經有一鍋海龜湯了！")
 
-        puzzle = pick_puzzle(self.bank, difficulty, await self.bot.db.soup_played(interaction.guild_id))
+        if puzzle_id:
+            found = find_puzzles(self.bank, puzzle_id, limit=1)
+            if not found:
+                return await send_error(interaction, f"找不到題目「{puzzle_id}」，請從選單挑一題。")
+            puzzle = found[0]
+        else:
+            puzzle = pick_puzzle(self.bank, difficulty, await self.bot.db.soup_played(interaction.guild_id))
         await self.bot.db.mark_soup_played(interaction.guild_id, puzzle.id)
         game = SoupGame(channel_id, interaction.user.id, puzzle)
         self.games[channel_id] = game
@@ -331,12 +346,18 @@ matched 是一個長度 {len(puzzle.key_points)} 的陣列，依序判斷玩家�
         await self.start(interaction)
 
     @app_commands.command(name="seatortoise", description="海龜湯：用是非題推理真相，AI 擔任湯主")
-    @app_commands.describe(difficulty="題目難度")
+    @app_commands.describe(difficulty="題目難度", puzzle="指定要玩哪一題（輸入編號或標題搜尋），不填就隨機出題")
     @app_commands.choices(difficulty=DIFFICULTY_CHOICES)
     @app_commands.guild_only()
     @app_commands.checks.cooldown(1, 10.0, key=lambda i: i.channel_id)
-    async def seatortoise(self, interaction: discord.Interaction, difficulty: str = "random"):
-        await self.start(interaction, difficulty)
+    async def seatortoise(self, interaction: discord.Interaction, difficulty: str = "random",
+                          puzzle: Optional[str] = None):
+        await self.start(interaction, difficulty, puzzle)
+
+    @seatortoise.autocomplete("puzzle")
+    async def _puzzle_choices(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        return [app_commands.Choice(name=f"{p.id}｜{DIFFICULTIES[p.difficulty][0]}｜{p.title}"[:100], value=p.id)
+                for p in find_puzzles(self.bank, current)]
 
     # ------------------------------------------------------------------ 頻道提問
     @commands.Cog.listener()

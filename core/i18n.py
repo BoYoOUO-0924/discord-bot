@@ -54,6 +54,7 @@ PARAMETER_NAMES = {
     "max": "範圍上限",
     "opponent": "對手",
     "difficulty": "難度",
+    "puzzle": "題目",
     "big_blind": "大盲注",
     "buy_in": "帶入籌碼",
     "bots": "電腦對手",
