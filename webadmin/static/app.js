@@ -123,6 +123,22 @@ $("#logout").addEventListener("click", async () => {
   showLogin();
 });
 
+// ---------------------------------------------------------------- 立即更新
+$("#update-now").addEventListener("click", async () => {
+  if (!confirm("立刻從 GitHub 更新並重新啟動 bot？
+進行中的遊戲會被中斷，未結算的賭注會自動退還。")) return;
+  const button = $("#update-now");
+  button.disabled = true;
+  try {
+    const { message } = await api("/api/update", { method: "POST" });
+    toast(message);
+  } catch (e) {
+    toast(e.message, true);
+  }
+  // 重新啟動期間後台會斷線，過一下再更新狀態列（版本號）
+  setTimeout(() => { button.disabled = false; refreshStatus(); }, 20000);
+});
+
 // ---------------------------------------------------------------- 路由與計時器
 let timers = [];
 function every(ms, fn) { timers.push(setInterval(fn, ms)); }
@@ -168,6 +184,7 @@ async function refreshStatus() {
     const pill = $("#bot-status");
     pill.replaceChildren(h("span", { class: "dot", style: { background: color } }), `${text}・${ai}`);
     pill.title = bot.ai_configured ? `${bot.ai_name}：${bot.ai_status}` : "沒有設定 OLLAMA_URL 或 GEMINI_API_KEY";
+    $("#update-now").hidden = !bot.auto_update;
   } catch (e) { /* 狀態列失敗不影響頁面 */ }
 }
 
@@ -525,7 +542,7 @@ async function renderGames(view) {
 
 // ---------------------------------------------------------------- 管理操作紀錄
 const ACTIONS = { login: "登入後台", points: "調整存款", streak: "修改連續簽到", reset_work: "重設打工冷卻",
-                  end_game: "結束遊戲", refund_hold: "退還賭注" };
+                  end_game: "結束遊戲", refund_hold: "退還賭注", update: "立即更新" };
 
 async function renderAudit(view) {
   const data = await api("/api/audit");
