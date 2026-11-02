@@ -1,6 +1,6 @@
-"""AI 連線層：支援 Gemini（google-genai）與 Ollama（可透過 Tailscale 連到別台電腦）。
+"""AI 連線層：使用 Ollama（可透過 Tailscale 連到別台電腦）。
 
-兩種都提供同樣的介面：text()、json()、check()。
+提供的介面：text()、json()、check()。
 - configured：有沒有設定（決定每日任務會不會出現海龜湯任務，所以一天內不能變動）
 - available：設定好而且最近一次實測可以用（決定海龜湯能不能開局）
 """
@@ -154,80 +154,6 @@ class OllamaClient(AIClient):
         return True
 
 
-class GeminiClient(AIClient):
-    provider = "gemini"
-
-    def __init__(self, api_key: Optional[str], model: str):
-        super().__init__(model)
-        self._client = None
-        self._types = None
-        if not api_key:
-            return
-        try:
-            from google import genai
-            from google.genai import types
-        except ImportError:
-            log.warning("找不到 google-genai 套件，Gemini 停用")
-            return
-        self._client = genai.Client(api_key=api_key)
-        self._types = types
-
-    @property
-    def configured(self) -> bool:
-        return self._client is not None
-
-    def _config(self, *, temperature: float, max_tokens: int, json_schema: Optional[Dict], thinking: bool):
-        types = self._types
-        # 海龜湯常涉及死亡、犯罪等懸疑情節，預設的安全過濾容易誤擋
-        safety = [types.SafetySetting(category=c, threshold=types.HarmBlockThreshold.BLOCK_NONE) for c in (
-            types.HarmCategory.HARM_CATEGORY_HARASSMENT, types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-            types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT)]
-        kwargs: Dict[str, Any] = dict(temperature=temperature, max_output_tokens=max_tokens, safety_settings=safety)
-        if not thinking:
-            kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-        if json_schema:
-            kwargs["response_mime_type"] = "application/json"
-            kwargs["response_json_schema"] = json_schema
-        return types.GenerateContentConfig(**kwargs)
-
-    async def _generate(self, prompt: str, *, temperature: float, max_tokens: int, json_schema: Optional[Dict]) -> str:
-        if not self.configured:
-            raise AIError("AI 功能尚未設定（缺少 GEMINI_API_KEY）。")
-        # 新模型可能不接受「關閉思考」，被拒絕時改用預設設定再試一次
-        for thinking in (False, True):
-            config = self._config(temperature=temperature, max_tokens=max_tokens, json_schema=json_schema,
-                                  thinking=thinking)
-            try:
-                response = await self._client.aio.models.generate_content(model=self.model, contents=prompt,
-                                                                           config=config)
-                break
-            except Exception as e:  # SDK 會丟出各種網路 / API 錯誤
-                code = getattr(e, "code", None)
-                if code == 400 and not thinking and "think" in str(e).lower():
-                    continue
-                if code in (401, 403):
-                    self._mark(False, f"金鑰無效或專案沒有權限（{code}）：{getattr(e, 'message', '') or e}")
-                elif code == 404:
-                    self._mark(False, f"找不到模型 {self.model}")
-                else:
-                    log.exception("Gemini API 呼叫失敗")
-                raise AIError("湯主暫時無法回應，請稍後再試。") from e
-        text = (response.text or "").strip()
-        if not text:
-            raise AIError("AI 沒有產生內容（可能觸發了安全機制），請再試一次。")
-        return text
-
-    async def text(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 256) -> str:
-        return await self._generate(prompt, temperature=temperature, max_tokens=max_tokens, json_schema=None)
-
-    async def json(self, prompt: str, schema: Dict, *, temperature: float = 0.2, max_tokens: int = 1024) -> Dict:
-        return self._parse_json(await self._generate(prompt, temperature=temperature, max_tokens=max_tokens,
-                                                     json_schema=schema))
-
-
 def create_ai(settings) -> AIClient:
-    """依設定建立 AI：AI_PROVIDER 沒指定時，有 OLLAMA_URL 就用 Ollama，否則用 Gemini。"""
-    provider = (settings.ai_provider or ("ollama" if settings.ollama_url else "gemini")).lower()
-    if provider == "ollama":
-        return OllamaClient(settings.ollama_url, settings.ollama_model)
-    return GeminiClient(settings.gemini_api_key, settings.gemini_model)
+    """建立 AI 湯主（Ollama）。沒設定 OLLAMA_URL 時 configured 為 False，海龜湯會停用。"""
+    return OllamaClient(settings.ollama_url, settings.ollama_model)

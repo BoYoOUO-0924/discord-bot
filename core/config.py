@@ -11,11 +11,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(ROOT, ".env")
 
 KNOWN_KEYS = [
-    "DISCORD_TOKEN", "GEMINI_API_KEY", "GEMINI_MODEL", "DEV_GUILD_ID", "DATABASE_PATH", "AUTO_UPDATE",
-    "ADMIN_PASSWORD", "ADMIN_HOST", "ADMIN_PORT", "AI_PROVIDER", "OLLAMA_URL", "OLLAMA_MODEL",
+    "DISCORD_TOKEN", "DEV_GUILD_ID", "DATABASE_PATH", "AUTO_UPDATE",
+    "ADMIN_PASSWORD", "ADMIN_HOST", "ADMIN_PORT", "OLLAMA_URL", "OLLAMA_MODEL",
     "CWA_API_KEY", "WEATHER_WEBHOOK_URL", "WEATHER_TIME", "EARTHQUAKE_WEBHOOK_URL",
     "TWFOLIO_DB", "TWFOLIO_CONFIG",
 ]
+
+# 已經移除的功能留下的設定：.env 裡還有的話提醒可以刪掉，不當成打錯字
+REMOVED_KEYS = {
+    "GEMINI_API_KEY": "Gemini 已移除，海龜湯只用 Ollama",
+    "GEMINI_MODEL": "Gemini 已移除，海龜湯只用 Ollama",
+    "AI_PROVIDER": "Gemini 已移除，海龜湯固定用 Ollama",
+}
 
 
 @dataclass
@@ -90,6 +97,9 @@ def load_dotenv(path: str) -> EnvStatus:
         if not key:
             continue
         status.keys.append(key)
+        if key in REMOVED_KEYS:
+            status.problems.append(f".env 第 {number} 行的 {key} 已經不再使用（{REMOVED_KEYS[key]}），可以刪掉這行")
+            continue
         if key not in KNOWN_KEYS:
             guess = difflib.get_close_matches(key.upper(), KNOWN_KEYS, n=1, cutoff=0.6)
             status.problems.append(f".env 第 {number} 行的 {key} 不是認得的設定名稱"
@@ -130,15 +140,12 @@ def _read(name: str, default=None):
 @dataclass(frozen=True)
 class Settings:
     discord_token: Optional[str]
-    gemini_api_key: Optional[str]
-    gemini_model: str
     dev_guild_id: Optional[int]
     database_path: str
     auto_update: bool
     admin_password: Optional[str]
     admin_host: str
     admin_port: int
-    ai_provider: Optional[str]
     ollama_url: Optional[str]
     ollama_model: str
     cwa_api_key: Optional[str]
@@ -154,9 +161,6 @@ def load_settings() -> Settings:
     dev_guild = _read("DEV_GUILD_ID")
     return Settings(
         discord_token=_read("DISCORD_TOKEN"),
-        gemini_api_key=_read("GEMINI_API_KEY"),
-        # 別名會自動指向最新的 Flash 模型，舊型號下架時不必改程式
-        gemini_model=_read("GEMINI_MODEL", "gemini-flash-latest"),
         dev_guild_id=int(dev_guild) if dev_guild else None,
         database_path=_read("DATABASE_PATH", os.path.join(root, "data", "bot.db")),
         # 從 GitHub 自動更新；deploy/windows/2_start.bat 會設定 AUTO_UPDATE=1
@@ -165,8 +169,7 @@ def load_settings() -> Settings:
         admin_password=_read("ADMIN_PASSWORD"),
         admin_host=_read("ADMIN_HOST", "0.0.0.0"),
         admin_port=int(_read("ADMIN_PORT", 8080)),
-        # 海龜湯的 AI：gemini 或 ollama；沒指定時，有設定 OLLAMA_URL 就用 Ollama
-        ai_provider=_read("AI_PROVIDER"),
+        # 海龜湯的 AI 湯主：Ollama（沒設定 OLLAMA_URL 時海龜湯停用）
         ollama_url=_read("OLLAMA_URL"),
         ollama_model=_read("OLLAMA_MODEL", "gemma4:e4b-it-q4_K_M"),
         # 每日天氣預報：中央氣象署開放資料 API 授權碼、要傳送的 Discord Webhook、傳送時間（台灣時間）

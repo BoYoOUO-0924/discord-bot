@@ -325,6 +325,11 @@ class EnvDiagnosticsTest(unittest.TestCase):
         status, values = self.load({".env": b"CWA_API_KEY=YOUR_CWA_API_KEY\nWEATHER_WEBHOOK_URL=\n"})
         self.assertEqual(len([p for p in status.problems if "還沒有填值" in p]), 2)
 
+    def test_removed_gemini_keys_reported(self):
+        status, values = self.load({".env": b"GEMINI_API_KEY=abc\nAI_PROVIDER=gemini\n"})
+        self.assertEqual(len([p for p in status.problems if "不再使用" in p]), 2)
+        self.assertFalse(any("不是認得的設定名稱" in p for p in status.problems))
+
 
 class SettingsSourceTest(unittest.TestCase):
     def test_env_first_then_legacy_config_py(self):

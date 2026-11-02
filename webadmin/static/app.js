@@ -182,7 +182,7 @@ async function refreshStatus() {
     const ai = !bot.ai_configured ? "AI 未設定" : bot.ai ? "AI 湯主正常" : "⚠️ AI 湯主暫停";
     const pill = $("#bot-status");
     pill.replaceChildren(h("span", { class: "dot", style: { background: color } }), `${text}・${ai}`);
-    pill.title = bot.ai_configured ? `${bot.ai_name}：${bot.ai_status}` : "沒有設定 OLLAMA_URL 或 GEMINI_API_KEY";
+    pill.title = bot.ai_configured ? `${bot.ai_name}：${bot.ai_status}` : "沒有設定 OLLAMA_URL";
     $("#update-now").hidden = !bot.auto_update;
   } catch (e) { /* 狀態列失敗不影響頁面 */ }
 }

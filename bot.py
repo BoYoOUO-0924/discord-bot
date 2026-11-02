@@ -102,7 +102,7 @@ class Bot(commands.Bot):
         if self.ai.configured:
             await self.ai.check()   # 實際測試一次，不能用的話海龜湯會顯示「暫停」
         else:
-            log.warning("沒有設定 AI（OLLAMA_URL 或 GEMINI_API_KEY），海龜湯會停用")
+            log.warning("沒有設定 AI（OLLAMA_URL），海龜湯會停用")
 
         await self.tree.set_translator(ZhTranslator())
         for ext in EXTENSIONS:

@@ -47,10 +47,9 @@
 2. **設定金鑰**：所有 Token、API 金鑰、網址都放在 `.env`。把 `.env.example` 複製成 `.env`（和 `bot.py` 同一層），填入：
    ```
    DISCORD_TOKEN=你的 Discord Bot Token
-   # 選填：海龜湯的 AI 湯主，二選一（沒設定只會停用海龜湯）
+   # 選填：海龜湯的 AI 湯主（Ollama，沒設定只會停用海龜湯）
    OLLAMA_URL=http://100.123.111.120:11434
    OLLAMA_MODEL=gemma4:e4b-it-q4_K_M
-   # GEMINI_API_KEY=你的 Gemini API Key
    ```
    格式是 `名稱=值`，不用加引號。`.env` 已被 `.gitignore` 排除，不會上傳。也可以改用同名的環境變數（環境變數優先）。
    > 以前用 `config.py` 的話還是能讀到，但啟動時會提醒把設定搬到 `.env`，搬完就可以刪掉 `config.py`。
@@ -144,7 +143,7 @@ core/
   weather.py        中央氣象署預報解析、穿衣與降雨建議
   db.py             SQLite 資料層（積分、簽到、下注保管、提醒、投票）
   ui.py             共用的顏色、訊息格式、按鈕介面基底
-  ai.py             Gemini（google-genai）包裝
+  ai.py             AI 湯主（Ollama）連線
   catalog.py        遊戲與指令目錄（大廳、說明、戰績共用）
   i18n.py           指令名稱中文化
   timeutil.py       台灣時區與時間字串解析

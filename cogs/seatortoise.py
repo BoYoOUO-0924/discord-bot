@@ -243,7 +243,7 @@ matched 是一個長度 {len(puzzle.key_points)} 的陣列，依序判斷玩家�
             return await send_error(interaction, "海龜湯要在伺服器頻道裡玩。")
         if not self.ai.available:
             reason = "湯主暫時離線（AI 無法連線），請稍後再試。" if self.ai.configured else \
-                     "海龜湯需要 AI，請管理員在 .env 設定 OLLAMA_URL 或 GEMINI_API_KEY。"
+                     "海龜湯需要 AI，請管理員在 .env 設定 OLLAMA_URL。"
             return await send_error(interaction, reason)
         channel_id = interaction.channel_id
         if channel_id in self.games:
@@ -393,9 +393,7 @@ matched 是一個長度 {len(puzzle.key_points)} 的陣列，依序判斷玩家�
         ai = self.ai
         if not ai.configured:
             return
-        # Ollama 檢查很便宜，每次都檢查；Gemini 正常時一小時檢查一次就好
-        if ai.provider == "ollama" or ai.healthy is not True or time.time() - (ai.checked_at or 0) > 3600:
-            await ai.check()
+        await ai.check()   # Ollama 檢查很便宜（只列出模型），每次都檢查
 
 
 class QuestionModal(discord.ui.Modal, title="向湯主提問"):
