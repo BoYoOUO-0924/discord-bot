@@ -129,5 +129,24 @@ class MiscGameTest(unittest.TestCase):
 
 
 
+class BoardEmbedTest(unittest.TestCase):
+    """開局畫面要能產生，否則題目送不出去、頻道還會卡在「已經有一局」。"""
+
+    def test_guess_number_board(self):
+        from types import SimpleNamespace
+        from cogs.guess_number import GuessNumber
+
+        embed = GuessNumber(SimpleNamespace()).board_embed(GuessGame(1, 2, 100))
+        self.assertTrue(any("元" in f.value for f in embed.fields))
+
+    def test_soup_board(self):
+        from types import SimpleNamespace
+        from cogs.seatortoise import SeaTortoise, SoupGame
+
+        cog = SeaTortoise(SimpleNamespace(ai=None))
+        embed = cog.board_embed(SoupGame(1, 2, cog.bank[0]))
+        self.assertTrue(any("元" in f.value for f in embed.fields))
+
+
 if __name__ == "__main__":
     unittest.main()

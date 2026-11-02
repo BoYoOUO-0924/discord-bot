@@ -19,7 +19,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core.ai import AIError
-from core.ui import BaseView, Color, error_embed, make_embed, respond, send_error
+from core.ui import BaseView, Color, error_embed, fmt_points, make_embed, respond, send_error
 
 log = logging.getLogger(__name__)
 
@@ -244,7 +244,12 @@ matched 是一個長度 {len(puzzle.key_points)} 的陣列，依序判斷玩家�
         await self.bot.db.mark_soup_played(interaction.guild_id, puzzle.id)
         game = SoupGame(channel_id, interaction.user.id, puzzle)
         self.games[channel_id] = game
-        game.message = await respond(interaction, embed=self.board_embed(game), view=SoupView(self, game))
+        try:
+            game.message = await respond(interaction, embed=self.board_embed(game), view=SoupView(self, game))
+        except Exception:
+            # 題目沒送出去就不算開局，否則頻道會一直卡在「已經有一鍋海龜湯了」
+            self.games.pop(channel_id, None)
+            raise
 
     @staticmethod
     def _cooling(table: Dict[int, float], user_id: int, seconds: float) -> bool:
