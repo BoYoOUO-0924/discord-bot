@@ -57,11 +57,11 @@ class Slots(commands.Cog):
 
         message = await respond(interaction, embed=self._frame(user, bet, ["❓"] * 3, "*滾輪轉動中…*", Color.GAME))
         final = spin()
-        # 三個滾輪依序停下，製造一點期待感
-        for stopped in range(3):
-            await asyncio.sleep(0.7)
-            reels = final[:stopped + 1] + [random.choice(SYMBOLS) for _ in range(2 - stopped)]
-            await message.edit(embed=self._frame(user, bet, reels, "*滾輪轉動中…*", Color.GAME))
+        # 前兩個滾輪先停，再揭曉結果。只編輯兩次：連續快速編輯會被 Discord 限速，
+        # 手機版也常漏掉更新，畫面就停在「滾輪轉動中」
+        await asyncio.sleep(1.0)
+        await message.edit(embed=self._frame(user, bet, final[:2] + ["❓"], "*滾輪轉動中…*", Color.GAME))
+        await asyncio.sleep(1.0)
 
         multiplier, text = evaluate(final)
         payout = bet * multiplier

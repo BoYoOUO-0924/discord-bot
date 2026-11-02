@@ -59,6 +59,10 @@ class Period:
     pop: Optional[int]
     ci: Optional[str] = None
 
+    @property
+    def has_data(self) -> bool:
+        return self.max_t is not None or self.pop is not None
+
 
 @dataclass
 class Forecast:
@@ -182,15 +186,21 @@ PARTS = (("早上", 6, 12), ("中午", 12, 18), ("晚上", 18, 30))
 
 
 def build_forecast(label: str, payload: dict, location_name: str, day: datetime, source: str) -> Forecast:
-    """day：要預報的那一天（今天或明天）。"""
+    """day：要預報的那一天（今天或明天）。
+
+    晚上查今天時，預報資料已經不含過去的時段，開頭沒有資料的時段（早上、中午）就不列出；
+    結尾還沒涵蓋的時段（例如明天晚上）照樣列出，顯示「—」。
+    """
     elements = _elements(_find_location(payload, location_name))
     (ds, de), (ns, ne) = windows(day)
     daytime, night = summarize(elements, ds, de), summarize(elements, ns, ne)
-    if daytime.max_t is None and daytime.pop is None:
-        raise WeatherError(f"「{location_name}」沒有 {day.month}/{day.day} 白天的預報資料")
     midnight = ds - timedelta(hours=6)
     parts = [(name, summarize(elements, midnight + timedelta(hours=a), midnight + timedelta(hours=b)))
              for name, a, b in PARTS]
+    while parts and not parts[0][1].has_data:
+        parts.pop(0)
+    if not parts:
+        raise WeatherError(f"「{location_name}」沒有 {day.month}/{day.day} 的預報資料")
     return Forecast(label, daytime, night, source, parts)
 
 

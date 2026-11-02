@@ -69,7 +69,17 @@ class WeatherParseTest(unittest.TestCase):
         self.assertIsNone(f.night.pop)   # 36 小時預報還沒涵蓋明晚，顯示「—」而不是出錯
         embed = forecast_embed(f, tomorrow, tomorrow=True)
         self.assertIn("明天 11/1（日）", embed.title)
-        self.assertTrue(any(field.name == "🌙 晚上" and "—" in field.value for field in embed.fields))
+        self.assertIn("🌙 **晚上**　—", embed.description)
+
+    def test_today_from_late_evening_skips_past_parts(self):
+        # 晚上 10 點查今天：預報資料已經不含早上、中午，只列晚上，不能整個查詢失敗
+        late = NOW.replace(hour=22)
+        payload = town_payload_new_format()
+        for element in payload["records"]["Locations"][0]["Location"][1]["WeatherElement"]:
+            element["Time"] = [t for t in element["Time"]
+                               if (t.get("DataTime") or t.get("StartTime")) >= late.replace(hour=18).isoformat()]
+        f = weather.build_forecast("淡水", payload, "淡水區", late, "x")
+        self.assertEqual([name for name, _ in f.parts], ["晚上"])
 
     def test_missing_location(self):
         with self.assertRaises(weather.WeatherError):
@@ -206,8 +216,12 @@ class WeatherCogTest(unittest.TestCase):
         from cogs.weather import forecast_embed
 
         f = weather.build_forecast("淡水", town_payload_new_format(), "淡水區", NOW, "x")
-        names = [field.name for field in forecast_embed(f, NOW, clothing=False).fields]
-        self.assertEqual(names, ["🌅 早上", "☀️ 中午", "🌙 晚上"])
+        embed = forecast_embed(f, NOW, clothing=False)
+        self.assertEqual(embed.fields, [])   # 不用並排欄位，手機上才不會排成一長串
+        text = embed.description
+        self.assertLess(text.index("🌅 **早上**"), text.index("☀️ **中午**"))
+        self.assertLess(text.index("☀️ **中午**"), text.index("🌙 **晚上**"))
+        self.assertIn("🌡️ 18–21°C　☔ 20%", text)
 
     def test_embed_renders(self):
         from cogs.weather import forecast_embed
@@ -216,41 +230,45 @@ class WeatherCogTest(unittest.TestCase):
         embed = forecast_embed(f, NOW)
         self.assertIn("台北", embed.title)
         self.assertIn("10/31（六）", embed.title)
-        self.assertTrue(any("60%" in field.value for field in embed.fields))
+        self.assertIn("60%", embed.description)
 
 
 class SendNowTest(unittest.IsolatedAsyncioTestCase):
-    async def run_command(self, manage_guild):
+    async def run_command(self, cog, channel_id=1, day=0):
         from unittest.mock import AsyncMock, patch
         from cogs import weather as weather_cog
 
+        cog.daily_message = AsyncMock(return_value=("早安", ["embed"]))
+        interaction = SimpleNamespace(channel_id=channel_id, user=SimpleNamespace())
+        with patch.object(weather_cog, "send_error", AsyncMock()) as error,              patch.object(weather_cog, "defer", AsyncMock()) as defer,              patch.object(weather_cog, "respond", AsyncMock()) as respond:
+            await cog.weather_command.callback(cog, interaction, day=day, send=True)
+        return defer, respond, error
+
+    async def test_anyone_can_send_to_this_channel(self):
         with tempfile.TemporaryDirectory() as folder:
             cog = WeatherCogTest().make_cog(folder)
-            cog.send_daily = AsyncMock()
-            interaction = SimpleNamespace(user=SimpleNamespace(guild_permissions=SimpleNamespace(manage_guild=manage_guild)))
-            with patch.object(weather_cog, "send_error", AsyncMock()) as error, \
-                 patch.object(weather_cog, "defer", AsyncMock()), patch.object(weather_cog, "respond", AsyncMock()):
-                await cog.weather_command.callback(cog, interaction, send=True)
-            self.assertIsNone(cog.last_sent())   # 測試傳送不算今天已傳送
-            return cog.send_daily, error
+            defer, respond, error = await self.run_command(cog)
+            error.assert_not_awaited()
+            self.assertFalse(defer.await_args.kwargs["ephemeral"])           # 公開傳到下指令的頻道
+            self.assertEqual(respond.await_args.kwargs["content"], "早安")
+            self.assertNotIn("ephemeral", respond.await_args.kwargs)
+            self.assertIsNone(cog.last_sent())   # 立即傳送不算今天已傳送
 
-    async def test_admin_can_send_now(self):
-        send, error = await self.run_command(True)
-        send.assert_awaited_once()
-        error.assert_not_awaited()
-
-    async def test_admin_can_send_tomorrow(self):
-        from unittest.mock import AsyncMock, patch
-        from cogs import weather as weather_cog
-
+    async def test_send_tomorrow(self):
         with tempfile.TemporaryDirectory() as folder:
             cog = WeatherCogTest().make_cog(folder)
-            cog.send_daily = AsyncMock()
-            interaction = SimpleNamespace(user=SimpleNamespace(guild_permissions=SimpleNamespace(manage_guild=True)))
-            with patch.object(weather_cog, "send_error", AsyncMock()), \
-                 patch.object(weather_cog, "defer", AsyncMock()), patch.object(weather_cog, "respond", AsyncMock()):
-                await cog.weather_command.callback(cog, interaction, day=1, send=True)
-            self.assertTrue(cog.send_daily.await_args.args[1])
+            await self.run_command(cog, day=1)
+            self.assertTrue(cog.daily_message.await_args.args[1])
+
+    async def test_same_channel_cooldown(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cog = WeatherCogTest().make_cog(folder)
+            await self.run_command(cog)
+            _, respond, error = await self.run_command(cog)
+            error.assert_awaited_once()
+            respond.assert_not_awaited()
+            _, respond, error = await self.run_command(cog, channel_id=2)   # 別的頻道不受影響
+            error.assert_not_awaited()
 
     async def test_webhook_message_has_greeting_and_no_clothing(self):
         from unittest.mock import AsyncMock, MagicMock, patch
@@ -260,18 +278,12 @@ class SendNowTest(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as folder:
             cog = WeatherCogTest().make_cog(folder)
             hook = MagicMock(send=AsyncMock())
-            with patch.object(weather, "fetch_forecasts", AsyncMock(return_value=[forecast])) as fetch, \
-                 patch.object(weather_cog.discord.Webhook, "from_url", return_value=hook):
+            with patch.object(weather, "fetch_forecasts", AsyncMock(return_value=[forecast])) as fetch,                  patch.object(weather_cog.discord.Webhook, "from_url", return_value=hook):
                 await cog.send_daily(NOW)
             kwargs = hook.send.await_args.kwargs
             self.assertTrue(kwargs["content"].startswith(weather.GREETINGS[weather.RAIN]))
             self.assertIn("今天的天氣預報", kwargs["content"])
             self.assertFalse(any("穿衣" in f.name for e in kwargs["embeds"] for f in e.fields))
-
-    async def test_non_admin_cannot_send(self):
-        send, error = await self.run_command(False)
-        send.assert_not_awaited()
-        error.assert_awaited_once()
 
 
 class EnvDiagnosticsTest(unittest.TestCase):

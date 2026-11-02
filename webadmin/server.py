@@ -116,6 +116,7 @@ class AdminServer:
             ("POST", "/api/holds/{hold_id:\\d+}/refund", self.refund_hold),
             ("GET", "/api/logs", self.logs), ("GET", "/api/logs/download", self.download_log),
             ("GET", "/api/audit", self.audit_log),
+            ("POST", "/api/update", self.update_now),
         ]
         for method, path, handler in routes:
             app.router.add_route(method, path, handler)
@@ -488,6 +489,19 @@ class AdminServer:
         return web.Response(body=read_log_tail(self.log_path, 5 * 1024 * 1024).encode("utf-8"),
                             content_type="text/plain", charset="utf-8",
                             headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    async def update_now(self, request: web.Request):
+        """立即更新：馬上檢查 GitHub，有通過測試的新版本就更新並重新啟動。"""
+        cog = self.bot.get_cog("Updater")
+        if cog is None:
+            return web.json_response({"error": "自動更新功能沒有載入"}, status=400)
+        from core.updater import UpdateError
+        try:
+            message = await cog.update_now()
+        except UpdateError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        await self.record(request, "update", None, message)
+        return web.json_response({"message": message})
 
     async def audit_log(self, request: web.Request):
         rows = await self.db.list_audit(200)
