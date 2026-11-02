@@ -125,8 +125,7 @@ $("#logout").addEventListener("click", async () => {
 
 // ---------------------------------------------------------------- 立即更新
 $("#update-now").addEventListener("click", async () => {
-  if (!confirm("立刻從 GitHub 更新並重新啟動 bot？
-進行中的遊戲會被中斷，未結算的賭注會自動退還。")) return;
+  if (!confirm("立刻從 GitHub 更新並重新啟動 bot？\n進行中的遊戲會被中斷，未結算的賭注會自動退還。")) return;
   const button = $("#update-now");
   button.disabled = true;
   try {
