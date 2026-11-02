@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from core.ui import BaseView, Color, make_embed, respond, send_error
+from core.ui import BaseView, Color, fmt_points, make_embed, respond, send_error
 
 log = logging.getLogger(__name__)
 
@@ -112,7 +112,12 @@ class GuessNumber(commands.Cog):
         game = GuessGame(interaction.channel_id, interaction.user.id, maximum)
         self.games[interaction.channel_id] = game
         view = GuessBoardView(self, game)
-        game.message = await respond(interaction, embed=self.board_embed(game), view=view)
+        try:
+            game.message = await respond(interaction, embed=self.board_embed(game), view=view)
+        except Exception:
+            # 畫面沒送出去就不算開局，否則頻道會一直卡在「已經在猜數字了」
+            self.games.pop(interaction.channel_id, None)
+            raise
 
     async def submit(self, game: GuessGame, user: discord.abc.User, number: int,
                      message: Optional[discord.Message] = None,
