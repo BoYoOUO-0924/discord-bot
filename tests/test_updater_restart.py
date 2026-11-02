@@ -87,6 +87,20 @@ class UpdateNowTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(UpdateError):
             await self.make_cog(enabled=False).update_now()
 
+    async def test_restarts_when_local_code_is_newer_than_running(self):
+        """在同一個資料夾 commit 後推送，GitHub 跟本機一樣新，但執行中的還是舊版，也要重新啟動。"""
+        from cogs import updater as updater_cog
+
+        cog = self.make_cog()
+        cog.started_head = "a" * 40
+        status = SimpleNamespace(branch="main", behind=0, ahead=0, dirty=False, current="b" * 40, latest="b" * 40)
+        with patch.object(updater_cog.updater, "check", AsyncMock(return_value=status)):
+            action, reason, _ = await cog.evaluate()
+            self.assertEqual(action, "update")
+            self.assertIn("bbbbbbb", reason)
+            cog.started_head = "b" * 40
+            self.assertEqual((await cog.evaluate())[0], "current")
+
 
 if __name__ == "__main__":
     unittest.main()
