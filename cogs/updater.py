@@ -32,6 +32,7 @@ class Updater(commands.Cog):
         self.restart_task: Optional[asyncio.Task] = None
         self.ci_wait_task: Optional[asyncio.Task] = None
         self.enabled = False
+        self.started_head: Optional[str] = None   # 啟動時執行的版本
 
     async def cog_load(self):
         if not self.bot.settings.auto_update:
@@ -45,6 +46,10 @@ class Updater(commands.Cog):
             return
         log.info("自動更新已啟用，每 %d 分鐘檢查一次 GitHub", CHECK_MINUTES)
         self.enabled = True
+        try:
+            self.started_head = await updater.git(PROJECT_ROOT, "rev-parse", "HEAD")
+        except updater.UpdateError:
+            pass
         self.check_loop.start()
 
     async def cog_unload(self):
@@ -84,6 +89,9 @@ class Updater(commands.Cog):
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
                 ci = await updater.ci_state(session, slug, status.latest)
         action, reason = updater.decide(status, ci)
+        if action == "current" and not status.dirty and self.started_head and status.current != self.started_head:
+            # 在這台電腦上直接 commit／pull 的新版本：程式碼已經是最新的，只是還沒重新啟動
+            action, reason = "update", f"這台電腦上的程式已經是新版本 {status.current[:7]}，重新啟動套用"
         return action, reason, status
 
     async def check_once(self) -> None:
