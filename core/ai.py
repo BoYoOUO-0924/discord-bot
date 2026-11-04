@@ -96,7 +96,7 @@ class OllamaClient(AIClient):
             "stream": False,
             "think": False,          # 判題不需要長考，關掉快很多
             "keep_alive": "30m",     # 讓模型留在記憶體，下一題不用重新載入
-            "options": {"temperature": temperature, "num_predict": max_tokens},
+            "options": {"temperature": temperature, "num_predict": max_tokens, "seed": 42},   # 固定種子：同樣的問題得到同樣的答案
         }
         if schema:
             body["format"] = schema
