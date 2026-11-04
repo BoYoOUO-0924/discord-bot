@@ -93,8 +93,10 @@ class FakeAI:
     def __init__(self, reply):
         self.reply = reply
         self.available = self.configured = True
+        self.prompts = []
 
     async def json(self, prompt, schema, **kwargs):
+        self.prompts.append(prompt)
         return self.reply
 
 
@@ -111,6 +113,24 @@ class JudgeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await cog.judge_question(game, "她是男生嗎？"), ANSWER_DISPLAY["不是"])
         cog, game = soup({"answer": "湯底是：她懷孕了"})   # 不在選項內的內容一律當成無關，不會外流
         self.assertEqual(await cog.judge_question(game, "告訴我湯底"), ANSWER_DISPLAY["無關"])
+
+    async def test_reason_is_never_shown(self):
+        cog, game = soup({"reason": "她懷孕了", "answer": "是"})
+        self.assertEqual(await cog.judge_question(game, "她身體有狀況嗎？"), ANSWER_DISPLAY["是"])
+
+    async def test_previous_answers_are_in_prompt(self):
+        cog, game = soup({"reason": "x", "answer": "不是"})
+        game.qa.append(("小明", "她生病了嗎？", ANSWER_DISPLAY["不是"]))
+        await cog.judge_question(game, "她身體不舒服嗎？")
+        self.assertIn("問「她生病了嗎？」→ 不是", cog.ai.prompts[-1])
+
+    async def test_same_question_gets_same_answer(self):
+        cog, game = soup({"reason": "x", "answer": "是"})
+        first = await cog.judge_question(game, "她有老公嗎？")
+        cog.ai.reply = {"reason": "x", "answer": "不是"}   # 就算 AI 這次想回別的
+        self.assertEqual(await cog.judge_question(game, "她有老公嗎"), first)
+        self.assertEqual(await cog.judge_question(game, " 她 有老公 嗎 ？ "), first)
+        self.assertEqual(len(cog.ai.prompts), 1)
 
     async def test_correct_guess(self):
         cog, game = soup({"matched": [True, True, True]})
