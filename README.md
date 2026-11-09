@@ -120,6 +120,8 @@
 `deploy/windows/` 裡有一鍵安裝、自動重啟、開機自動啟動的腳本，並支援從 GitHub 自動更新（只會套用自動測試通過的版本）。
 詳細步驟請看 [deploy/windows/README.md](deploy/windows/README.md)。
 
+雲端主機（Linux）請看 [deploy/linux/README.md](deploy/linux/README.md)：一個腳本裝好，開機自動啟動、當掉自動重開。
+
 ## 管理後台
 
 在 `.env` 設定 `ADMIN_PASSWORD`（至少 8 個字元）後，bot 會同時啟動一個網頁後台（預設連接埠 8080），
