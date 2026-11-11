@@ -188,6 +188,27 @@ def clean_reply(text: str) -> str:
     return text
 
 
+_WHEN_CLOCK = re.compile(r"(今天|明天|後天)?(早上|上午|中午|下午|晚上|傍晚|凌晨)?(\d{1,2})(?:點|時|:|：)(半|(\d{1,2})分?)?")
+
+
+def normalize_when(text: str) -> str:
+    """把 AI 照玩家說法寫的時間，轉成提醒功能看得懂的格式。
+    「10分鐘後」→「10分鐘」；「明天早上8點」→「明天 8:00」；「晚上9點半」→「21:30」。看不懂就原樣回傳。"""
+    text = re.sub(r"\s+", "", text)
+    text = re.sub(r"(之後|以後|後)$", "", text)
+    match = _WHEN_CLOCK.fullmatch(text)
+    if not match:
+        return text
+    day, period, hour, half, minute = match.groups()
+    hour = int(hour)
+    minute = 30 if half == "半" else int(minute or 0)
+    if period in ("下午", "晚上", "傍晚") and hour < 12:
+        hour += 12
+    elif period == "中午" and hour < 6:
+        hour += 12
+    return f"{day + ' ' if day else ''}{hour}:{minute:02d}"
+
+
 def simplified_chars(text: str) -> List[str]:
     return sorted({ch for ch in text if ch in SIMPLIFIED_ONLY})
 

@@ -33,6 +33,7 @@ EXTENSIONS = [
     "cogs.weather",
     "cogs.earthquake",
     "cogs.stocks",
+    "cogs.assistant",
     "cogs.updater",
     "cogs.webadmin",
 ]

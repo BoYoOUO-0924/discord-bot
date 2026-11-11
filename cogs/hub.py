@@ -83,7 +83,7 @@ class Hub(commands.Cog):
         embed.add_field(name="遊戲", value="\n".join(games), inline=False)
         embed.add_field(name="工具", value="📈 **股票**　用錢包的錢模擬買賣台股\n⏰ **提醒**　時間到通知你\n"
                                           "📊 **投票**　按鈕投票、自動截止", inline=False)
-        embed.set_footer(text="每個功能也都能用斜線指令操作，輸入 / 看看")
+        embed.set_footer(text="每個功能也都能用斜線指令操作，輸入 / 看看；也可以 @嘎哇 用講的")
         if self.bot.user:
             embed.set_thumbnail(url=self.bot.user.display_avatar.url)
         return embed

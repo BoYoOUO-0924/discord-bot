@@ -115,6 +115,19 @@
   管理員加上「立即傳送」會把最新一筆報告（不論震度）傳到頻道，用來測試 Webhook。
 - 這是氣象署在地震**後**幾分鐘發布的報告，不是搖晃前的強震即時警報。
 
+## 嘎哇聊天（用講的叫功能）
+
+嘎哇是一隻住在伺服器池塘裡、毒舌但心軟的青蛙。**@嘎哇** 說話就會回應；在 `.env` 設定 `ASSISTANT_CHANNELS`
+（頻道 ID，多個用逗號分隔）的頻道裡，直接講話不用 @。AI 用的是海龜湯同一個 Ollama，對話不會傳到雲端。
+
+- **用講的叫功能**：「明天要帶傘嗎」「幫我簽到」「來玩 21 點」「10 分鐘後提醒我關瓦斯」「台積電多少」…
+  嘎哇會回一句話並附上按鈕，**本人按下才執行**，結果跟大廳按鈕一樣只有自己看得到。
+- **閒聊**：其他話題嘎哇用青蛙的個性回話，會記得這個頻道最近幾句對話（只存在記憶體，重啟就忘）。
+- **安全**：AI 只能從固定的功能清單選，轉帳、加錢、買賣股票一律拒絕，請玩家用斜線指令；
+  像是在對 AI 下指令的訊息（「忽略指示」「系統訊息」）只會被當成閒聊。回覆不會 @ 任何人。
+- 主電腦關機（Ollama 連不到）時，嘎哇會說大腦在睡覺，斜線指令照常可以用。
+- 個性設定在 `core/assistant.py` 的 `PERSONA`；`python tools/assistant_ai_check.py` 可以用真的模型測試判斷正確率與閒聊品質。
+
 ## 放在舊筆電上 24 小時執行
 
 `deploy/windows/` 裡有一鍵安裝、自動重啟、開機自動啟動的腳本，並支援從 GitHub 自動更新（只會套用自動測試通過的版本）。
@@ -146,6 +159,7 @@ core/
   db.py             SQLite 資料層（積分、簽到、下注保管、提醒、投票）
   ui.py             共用的顏色、訊息格式、按鈕介面基底
   ai.py             AI 湯主（Ollama）連線
+  assistant.py      嘎哇聊天：判斷要用哪個功能、青蛙個性的閒聊
   catalog.py        遊戲與指令目錄（大廳、說明、戰績共用）
   i18n.py           指令名稱中文化
   timeutil.py       台灣時區與時間字串解析
@@ -156,6 +170,7 @@ cogs/
   polls.py          投票
   admin.py          /clear
   weather.py        每日天氣預報 Webhook、/weather
+  assistant.py      嘎哇聊天：@嘎哇 用講的叫功能、閒聊
   blackjack.py  slots.py  guess_number.py  tictactoe.py  seatortoise.py
   poker/            德州撲克（engine.py 是不依賴 Discord 的牌局引擎）
 tests/              單元測試：python -m unittest discover -s tests -t .

@@ -3,9 +3,10 @@
 讀取順序：環境變數 → .env → 舊版 config.py（相容用，之後會提示搬到 .env）。
 """
 import difflib
+import re
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(ROOT, ".env")
@@ -14,7 +15,7 @@ KNOWN_KEYS = [
     "DISCORD_TOKEN", "DEV_GUILD_ID", "DATABASE_PATH", "AUTO_UPDATE",
     "ADMIN_PASSWORD", "ADMIN_HOST", "ADMIN_PORT", "OLLAMA_URL", "OLLAMA_MODEL",
     "CWA_API_KEY", "WEATHER_WEBHOOK_URL", "WEATHER_TIME", "EARTHQUAKE_WEBHOOK_URL",
-    "TWFOLIO_DB", "TWFOLIO_CONFIG",
+    "TWFOLIO_DB", "TWFOLIO_CONFIG", "ASSISTANT_CHANNELS",
 ]
 
 # 已經移除的功能留下的設定：.env 裡還有的話提醒可以刪掉，不當成打錯字
@@ -154,6 +155,7 @@ class Settings:
     earthquake_webhook_url: Optional[str] = None
     twfolio_db: Optional[str] = None
     twfolio_config: Optional[str] = None
+    assistant_channels: Tuple[int, ...] = ()
 
 
 def load_settings() -> Settings:
@@ -181,4 +183,10 @@ def load_settings() -> Settings:
         # 股票模擬：twfolio 的公開行情資料庫（唯讀）與手續費設定
         twfolio_db=_read("TWFOLIO_DB", r"C:\twfolio\data\twfolio.db"),
         twfolio_config=_read("TWFOLIO_CONFIG", r"C:\twfolio\config.yaml"),
+        # 嘎哇聊天：在這些頻道直接講話就會回應（頻道 ID，用逗號分隔）；其他頻道要 @嘎哇
+        assistant_channels=_channel_ids(_read("ASSISTANT_CHANNELS", "")),
     )
+
+
+def _channel_ids(text) -> Tuple[int, ...]:
+    return tuple(int(part) for part in re.split(r"[,，\s]+", str(text or "")) if part.strip().isdigit())
