@@ -255,9 +255,7 @@ class Music(commands.Cog):
                 try:
                     path = await self.fetch(track)
                     errors = music.ErrorTail()
-                    source = discord.FFmpegOpusAudio(path, executable=self.ffmpeg, stderr=errors,
-                                                     before_options=music.FFMPEG_BEFORE,
-                                                     options=music.FFMPEG_OPTIONS)
+                    source = await self.make_source(path, voice, errors)
                 except MusicError as e:
                     await self._notice(player, f"⚠️ 跳過「{track.title}」：{e}")
                     index += 1
@@ -273,6 +271,26 @@ class Music(commands.Cog):
         finally:
             player.loading = False
             player.idle_since = time.time()
+
+    async def make_source(self, path: str, voice, errors) -> discord.AudioSource:
+        """把下載好的檔案變成 Discord 的聲音。
+
+        YouTube 的聲音本來就是 Opus（Discord 用的格式），直接原封不動送出，不再壓縮一次，音質最好、
+        也幾乎不吃 CPU。不是 Opus 才轉檔，位元率跟語音頻道設定一樣（至少 128k）。"""
+        kwargs = dict(executable=self.ffmpeg, stderr=errors, before_options=music.FFMPEG_BEFORE,
+                      options=music.FFMPEG_OPTIONS)
+        try:
+            codec, bitrate = await asyncio.get_running_loop().run_in_executor(None, music.probe, path, self.ffmpeg)
+        except Exception:
+            log.warning("音樂：讀取檔案格式失敗，改用轉檔", exc_info=True)
+            codec, bitrate = None, None
+        if codec == "opus":
+            log.info("音樂：直接送出原始 Opus（%s kbps）", bitrate or "?")
+            return discord.FFmpegOpusAudio(path, codec="copy", bitrate=bitrate or 128, **kwargs)
+        channel_kbps = (getattr(getattr(voice, "channel", None), "bitrate", 0) or 0) // 1000
+        target = min(max(channel_kbps, 128), 256)
+        log.info("音樂：轉檔 %s → Opus %d kbps", codec or "?", target)
+        return discord.FFmpegOpusAudio(path, bitrate=target, **kwargs)
 
     async def fetch(self, track: Track) -> str:
         """下載（或從快取拿）這首歌；同一首同時只下載一次。"""

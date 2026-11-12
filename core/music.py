@@ -243,6 +243,19 @@ def _no_live(info: Dict, *, incomplete: bool = False) -> Optional[str]:
     return None
 
 
+def probe(path: str, ffmpeg: str = "ffmpeg"):
+    """用 ffprobe 看檔案的聲音格式，回傳 (codec, kbps)。"""
+    import json
+    import subprocess
+    ffprobe = os.path.join(os.path.dirname(ffmpeg), "ffprobe") if os.path.dirname(ffmpeg) else "ffprobe"
+    out = subprocess.run([ffprobe, "-v", "quiet", "-print_format", "json", "-show_streams", "-select_streams", "a:0",
+                          "-show_format", path], capture_output=True, text=True, timeout=20, check=True).stdout
+    data = json.loads(out)
+    stream = (data.get("streams") or [{}])[0]
+    bitrate = stream.get("bit_rate") or (data.get("format") or {}).get("bit_rate")
+    return stream.get("codec_name"), (int(bitrate) // 1000 if bitrate else None)
+
+
 def trim_cache(cache_dir: str, limit: int = CACHE_LIMIT) -> int:
     """快取超過上限時，從最久沒用的開始刪，回傳刪了幾個檔案。"""
     try:
