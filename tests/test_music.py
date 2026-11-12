@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -35,11 +36,24 @@ class CoreTest(unittest.TestCase):
         self.assertIn("擋住", music.explain_error("Sign in to confirm you're not a bot"))
         self.assertIn("不存在", music.explain_error("ERROR: Video unavailable"))
 
-    def test_ffmpeg_headers(self):
-        import shlex
-        args = shlex.split(music.ffmpeg_before({"User-Agent": "Mozilla/5.0 (X11)", "Accept": "*/*"}))
-        self.assertEqual(args[args.index("-headers") + 1], "User-Agent: Mozilla/5.0 (X11)\r\nAccept: */*\r\n")
-        self.assertNotIn("-headers", music.ffmpeg_before({}))
+    def test_trim_cache_removes_oldest(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            for i in range(3):
+                path = os.path.join(folder, f"{i}.webm")
+                with open(path, "wb") as f:
+                    f.write(b"x" * 100)
+                os.utime(path, (1000 + i, 1000 + i))
+            self.assertEqual(music.trim_cache(folder, limit=150), 2)
+            self.assertEqual(os.listdir(folder), ["2.webm"])
+
+    def test_live_and_long_videos_rejected(self):
+        self.assertEqual(music._no_live({"is_live": True}), "直播")
+        self.assertIsNone(music._no_live({"live_status": "not_live"}))
+        long = Track("很長", "https://www.youtube.com/watch?v=x", duration=5 * 3600)
+        with self.assertRaises(MusicError):
+            asyncio.run(music.download(long, "/nonexistent"))
 
     def test_fmt_duration(self):
         self.assertEqual(music.fmt_duration(225), "3:45")
@@ -145,11 +159,12 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
         bot = SimpleNamespace(user=SimpleNamespace(id=999), loop=None, wait_until_ready=AsyncMock())
         self.cog = Music(bot)
         self.cog.ffmpeg = "ffmpeg"
+        self.cog.cache_dir = "/nonexistent/music_cache"
         self.guild, self.voice_channel, self.text, self.member, self.panel = make_world()
         self.found = [track(1)]
         patches = [
             patch.object(music, "search", AsyncMock(side_effect=lambda *a, **k: list(self.found))),
-            patch.object(music, "stream_url", AsyncMock(side_effect=lambda t: music.Stream(f"stream:{t.title}", {}))),
+            patch.object(music, "download", AsyncMock(side_effect=lambda t, folder: f"stream:{t.title}")),
             patch.object(music_cog.discord, "FFmpegOpusAudio", FakeSource),
         ]
         for p in patches:
@@ -214,7 +229,7 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_unplayable_song_is_skipped(self):
         self.found = [track(1), track(2)]
-        music.stream_url.side_effect = [MusicError("影片不存在"), music.Stream("stream:歌2", {})]
+        music.download.side_effect = [MusicError("影片不存在"), "stream:歌2"]
         await self.cog.request(self.member, self.text, "播放清單")
         self.assertEqual(self.voice.sources[-1].url, "stream:歌2")
         self.assertIn("跳過", self.text.send.await_args_list[0].args[0])

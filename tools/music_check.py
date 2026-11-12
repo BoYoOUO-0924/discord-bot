@@ -8,11 +8,11 @@
 """
 import asyncio
 import os
-import shlex
 import shutil
 import subprocess
 import sys
 import sysconfig
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -52,22 +52,24 @@ async def main(query: str) -> int:
         [track, *_] = await music.search(query)
         print(f"✅ 找到：{track.title}（{music.fmt_duration(track.duration)}）{track.url}　{time.perf_counter() - start:.1f} 秒")
         start = time.perf_counter()
-        stream = await music.stream_url(track)
-        print(f"✅ 取得音訊網址　{time.perf_counter() - start:.1f} 秒")
+        folder = tempfile.mkdtemp(prefix="music_check_")
+        path = await music.download(track, folder)
+        size = os.path.getsize(path) / 1024 / 1024
+        print(f"✅ 下載聲音成功（{size:.1f} MB）　{time.perf_counter() - start:.1f} 秒")
     except music.MusicError as e:
         print(f"❌ {e}（詳細原因：{e.__cause__}）")
         return 1
     if ffmpeg:
-        print("用 ffmpeg 試著解碼 5 秒…")
-        cmd = [ffmpeg, *shlex.split(music.ffmpeg_before(stream.headers)), "-i", stream.url, "-t", "5",
-               *music.FFMPEG_OPTIONS.split(),
+        print("用 ffmpeg 試著轉檔 5 秒…")
+        cmd = [ffmpeg, *music.FFMPEG_BEFORE.split(), "-i", path, "-t", "5", *music.FFMPEG_OPTIONS.split(),
                "-c:a", "libopus", "-f", "null", "-"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if result.returncode == 0 and "403" not in result.stderr:
-            print("✅ ffmpeg 解碼成功，可以播放")
+        if result.returncode == 0:
+            print("✅ ffmpeg 轉檔成功，可以播放")
         else:
-            print("❌ ffmpeg 解碼失敗：\n" + result.stderr[-800:])
+            print("❌ ffmpeg 轉檔失敗：\n" + result.stderr[-800:])
             ok = False
+    shutil.rmtree(folder, ignore_errors=True)
     print("\n全部正常！" if ok else "\n有項目沒通過，照上面的提示處理。")
     return 0 if ok else 1
 
