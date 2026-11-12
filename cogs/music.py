@@ -191,6 +191,7 @@ class Music(commands.Cog):
                     raise MusicError("進不去語音頻道，等一下再試試看。") from None
             elif voice.channel != channel:
                 await voice.move_to(channel)
+            await self.wait_encryption(guild.voice_client)
             player.text_channel = player.text_channel or text_channel
             before = len(player.queue.tracks)
             added = player.queue.add(tracks)
@@ -208,6 +209,20 @@ class Music(commands.Cog):
         await self.update_panel(player)
         log.info("音樂：%s 點了 %s（%d 首）", member, tracks[0].title, added)
         return note
+
+    async def wait_encryption(self, voice) -> None:
+        """Discord 語音有端對端加密（DAVE）。加密還沒準備好就送聲音，大家會看到嘎哇在講話（綠框）卻聽不到，
+        所以先等加密準備好（最多 10 秒），並把連線狀態寫進紀錄方便查問題。"""
+        state = getattr(voice, "_connection", None)
+        if state is None:
+            return
+        for _ in range(40):
+            if getattr(state, "dave_protocol_version", 0) == 0 or state.can_encrypt:
+                break
+            await asyncio.sleep(0.25)
+        log.info("音樂：語音連線 頻道=%s 加密模式=%s DAVE版本=%s DAVE就緒=%s",
+                 getattr(voice.channel, "name", "?"), getattr(voice, "mode", "?"),
+                 getattr(state, "dave_protocol_version", "?"), getattr(state, "can_encrypt", "?"))
 
     async def play_from_interaction(self, interaction: discord.Interaction, query: str) -> None:
         try:
