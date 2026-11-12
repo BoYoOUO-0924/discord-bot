@@ -16,7 +16,7 @@ fi
 
 echo "== 1/6 安裝系統套件"
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3 python3-venv git curl openssl ca-certificates
+sudo apt-get install -y -qq python3 python3-venv git curl openssl ca-certificates ffmpeg
 
 echo "== 2/6 時區設成台北（紀錄的時間比較好看）"
 sudo timedatectl set-timezone Asia/Taipei || true
@@ -85,6 +85,8 @@ Environment=AUTO_UPDATE=1
 Environment=PYTHONUNBUFFERED=1
 # 新版本可能需要新套件；裝失敗（例如網路斷了）也照樣啟動
 ExecStartPre=-$APP_DIR/.venv/bin/python -m pip install -q --disable-pip-version-check -r requirements.txt
+# YouTube 常改版，每次啟動順便把 yt-dlp 更新到最新
+ExecStartPre=-$APP_DIR/.venv/bin/python -m pip install -q --disable-pip-version-check -U yt-dlp[default]
 ExecStart=$APP_DIR/.venv/bin/python bot.py
 # 結束代碼 3 = 自動更新完要重開；其他代碼 = 當掉，一樣重開
 Restart=always

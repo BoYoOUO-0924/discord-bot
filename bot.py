@@ -33,6 +33,7 @@ EXTENSIONS = [
     "cogs.weather",
     "cogs.earthquake",
     "cogs.stocks",
+    "cogs.music",
     "cogs.assistant",
     "cogs.updater",
     "cogs.webadmin",
@@ -79,6 +80,7 @@ class Bot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True  # 猜數字、海龜湯要讀取頻道訊息
+        intents.voice_states = True     # 音樂：知道誰在哪個語音頻道
         super().__init__(command_prefix=commands.when_mentioned, intents=intents,
                          help_command=None, tree_cls=AppTree)
         self.settings = load_settings()

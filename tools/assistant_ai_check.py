@@ -63,6 +63,12 @@ CASES = [
     ("10分鐘後提醒我關瓦斯", {"remind"}, {"when": "10分鐘", "message": "瓦斯"}),
     ("明天早上8點叫我起床", {"remind"}, {"message": "起床"}),
     ("記得提醒我晚上交報告", {"remind"}, {"message": "報告"}),
+    # 音樂
+    ("放周杰倫的晴天", {"music"}, {"song": "晴天"}),
+    ("我想聽五月天", {"music"}, {"song": "五月天"}),
+    ("來點音樂", {"music"}, {}),
+    ("點一首稻香", {"music"}, {"song": "稻香"}),
+    ("你喜歡什麼歌", {"chat"}, {}),
     # 說明
     ("你會做什麼", {"help"}, {}),
     ("有哪些指令", {"help"}, {}),
@@ -101,7 +107,7 @@ def check_fields(intent: asst.Intent, expected: dict) -> list:
     wrong = []
     for key, value in expected.items():
         got = getattr(intent, key)
-        if (value not in got) if key in ("stock", "when", "message") else (got != value):
+        if (value not in got) if key in ("stock", "when", "message", "song") else (got != value):
             wrong.append(f"{key}={got or '空'}（預期含「{value}」）")
     return wrong
 

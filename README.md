@@ -26,6 +26,8 @@
 | | `/stock buy 股票 股數`、`/stock sell 股票 股數` | 用錢包的新台幣買賣上市股票，整股零股都可以 |
 | | `/stock account`、`/stock orders`、`/stock history` | 持股與損益、委託單、交易紀錄 |
 | | `/stock rank` | 伺服器股票損益排行榜 |
+| 音樂 | `/play 歌曲` | 在你所在的語音頻道放 YouTube 的歌（歌名或網址），有播放清單、上一首／暫停／下一首按鈕；也能 `@嘎哇 放周杰倫的晴天` |
+| | `/music` | 叫出音樂控制面板 |
 | 工具 | `/remind 時間 內容` | 提醒，支援 `10m`、`1h30m`、`18:30`、`明天 9:00` |
 | | `/reminders` | 查看或取消提醒 |
 | | `/poll [時長]` | 按鈕投票，可設定自動截止 |
@@ -128,6 +130,23 @@
 - 主電腦關機（Ollama 連不到）時，嘎哇會說大腦在睡覺，斜線指令照常可以用。
 - 個性設定在 `core/assistant.py` 的 `PERSONA`；`python tools/assistant_ai_check.py` 可以用真的模型測試判斷正確率與閒聊品質。
 
+## 音樂（YouTube）
+
+先進入語音頻道，再用下面任一種方式點歌，嘎哇會進你的語音頻道播放：
+
+- `/play 歌曲`：輸入歌名、歌手，或貼 YouTube 影片／播放清單網址（播放清單最多加 50 首）
+- 大廳的 🎵 **音樂** 按鈕
+- `@嘎哇 放周杰倫的晴天`、`@嘎哇 https://youtu.be/...`（貼網址不需要 AI，主電腦關機也能放）
+
+控制面板有 ⏮️ 上一首、⏯️ 暫停／繼續、⏭️ 下一首、📜 播放清單、⏹️ 停止，只有同一個語音頻道裡的人能按。
+有歌在放時，也可以直接說 `@嘎哇 下一首`、`@嘎哇 暫停`、`@嘎哇 停止`。`/music` 會重新叫出控制面板。
+沒在放歌 10 分鐘，或語音頻道只剩嘎哇 1 分鐘，就會自動離開。
+
+- 只接受 YouTube 網址或歌名，其他網站的網址一律拒絕
+- 伺服器需要 **ffmpeg**：`sudo apt install -y ffmpeg`（`deploy/linux/install.sh` 會自動安裝）。
+  yt-dlp、deno 由 `requirements.txt` 安裝，bot 每次啟動都會把 yt-dlp 更新到最新（YouTube 常改版）
+- 檢查能不能用：`.venv/bin/python tools/music_check.py`
+
 ## 放在舊筆電上 24 小時執行
 
 `deploy/windows/` 裡有一鍵安裝、自動重啟、開機自動啟動的腳本，並支援從 GitHub 自動更新（只會套用自動測試通過的版本）。
@@ -160,6 +179,7 @@ core/
   ui.py             共用的顏色、訊息格式、按鈕介面基底
   ai.py             AI 湯主（Ollama）連線
   assistant.py      嘎哇聊天：判斷要用哪個功能、青蛙個性的閒聊
+  music.py          音樂：播放清單、YouTube 找歌（yt-dlp）
   catalog.py        遊戲與指令目錄（大廳、說明、戰績共用）
   i18n.py           指令名稱中文化
   timeutil.py       台灣時區與時間字串解析
@@ -171,6 +191,7 @@ cogs/
   admin.py          /clear
   weather.py        每日天氣預報 Webhook、/weather
   assistant.py      嘎哇聊天：@嘎哇 用講的叫功能、閒聊
+  music.py          音樂：語音頻道播放、控制面板
   blackjack.py  slots.py  guess_number.py  tictactoe.py  seatortoise.py
   poker/            德州撲克（engine.py 是不依賴 Discord 的牌局引擎）
 tests/              單元測試：python -m unittest discover -s tests -t .

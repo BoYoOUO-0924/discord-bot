@@ -37,7 +37,8 @@ class HubView(discord.ui.View):
             self._add(f"hub:{key}", label, emoji, style, 0)
         for i, game in enumerate(GAMES):
             self._add(f"hub:game:{game.key}", game.name, game.emoji, discord.ButtonStyle.secondary, 1 + i // 5)
-        tools = [("stocks", "股票", "📈"), ("remind", "提醒", "⏰"), ("poll", "投票", "📊"), ("help", "指令說明", "📖")]
+        tools = [("stocks", "股票", "📈"), ("music", "音樂", "🎵"), ("remind", "提醒", "⏰"), ("poll", "投票", "📊"),
+                 ("help", "指令說明", "📖")]
         for key, label, emoji in tools:
             self._add(f"hub:{key}", label, emoji, discord.ButtonStyle.secondary, 3)
 
@@ -81,7 +82,8 @@ class Hub(commands.Cog):
                 unavailable = "（暫停中）" if self.bot.ai.configured else "（未啟用）"
             games.append(f"{game.emoji} **{game.name}**{unavailable}　{game.tagline}")
         embed.add_field(name="遊戲", value="\n".join(games), inline=False)
-        embed.add_field(name="工具", value="📈 **股票**　用錢包的錢模擬買賣台股\n⏰ **提醒**　時間到通知你\n"
+        embed.add_field(name="工具", value="📈 **股票**　用錢包的錢模擬買賣台股\n🎵 **音樂**　在語音頻道點歌\n"
+                                          "⏰ **提醒**　時間到通知你\n"
                                           "📊 **投票**　按鈕投票、自動截止", inline=False)
         embed.set_footer(text="每個功能也都能用斜線指令操作，輸入 / 看看；也可以 @嘎哇 用講的")
         if self.bot.user:
@@ -121,6 +123,11 @@ class Hub(commands.Cog):
             return await interaction.response.send_message(embed=self.help_embed(), ephemeral=True)
         if action == "stocks":
             return await self.bot.get_cog("Stocks").send_account(interaction)
+        if action == "music":
+            cog = self.bot.get_cog("Music")
+            if not cog or not interaction.guild:
+                return await send_error(interaction, "音樂只能在伺服器裡使用。")
+            return await cog.open_modal(interaction)
         if action == "remind":
             return await interaction.response.send_modal(RemindModal(self.bot.get_cog("Reminders")))
         if action == "poll":
