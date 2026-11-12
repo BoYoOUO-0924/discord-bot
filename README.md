@@ -143,6 +143,7 @@
 沒在放歌 10 分鐘，或語音頻道只剩嘎哇 1 分鐘，就會自動離開。
 
 - 只接受 YouTube 網址或歌名，其他網站的網址一律拒絕
+- 歌會先下載到 `data/music_cache/` 再播放（YouTube 不讓播放程式直接連），播放時會先下載好下一首；快取超過 2 GB 自動刪最舊的。直播和超過 3 小時的影片不放
 - 伺服器需要 **ffmpeg**：`sudo apt install -y ffmpeg`（`deploy/linux/install.sh` 會自動安裝）。
   yt-dlp、deno 由 `requirements.txt` 安裝，bot 每次啟動都會把 yt-dlp 更新到最新（YouTube 常改版）
 - 檢查能不能用：`.venv/bin/python tools/music_check.py`

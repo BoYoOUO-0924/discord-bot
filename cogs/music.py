@@ -10,6 +10,7 @@
 """
 import asyncio
 import logging
+import os
 import shutil
 import time
 from typing import Dict, Optional
@@ -135,6 +136,9 @@ class Music(commands.Cog):
         self.bot = bot
         self.players: Dict[int, Player] = {}
         self.ffmpeg = shutil.which("ffmpeg")
+        data_dir = os.path.dirname(getattr(getattr(bot, "settings", None), "database_path", "") or "data/x")
+        self.cache_dir = os.path.join(data_dir, "music_cache")
+        self.downloads: Dict[str, asyncio.Future] = {}
 
     async def cog_load(self):
         if self.ffmpeg:
@@ -234,10 +238,10 @@ class Music(commands.Cog):
                 player.queue.index = index
                 track = player.queue.tracks[index]
                 try:
-                    stream = await music.stream_url(track)
+                    path = await self.fetch(track)
                     errors = music.ErrorTail()
-                    source = discord.FFmpegOpusAudio(stream.url, executable=self.ffmpeg, stderr=errors,
-                                                     before_options=music.ffmpeg_before(stream.headers),
+                    source = discord.FFmpegOpusAudio(path, executable=self.ffmpeg, stderr=errors,
+                                                     before_options=music.FFMPEG_BEFORE,
                                                      options=music.FFMPEG_OPTIONS)
                 except MusicError as e:
                     await self._notice(player, f"⚠️ 跳過「{track.title}」：{e}")
@@ -248,11 +252,37 @@ class Music(commands.Cog):
                     return
                 started = time.monotonic()
                 voice.play(source, after=lambda error, g=generation: self._after(player, g, error, started, errors))
+                self._prefetch(player)
                 return
             player.queue.index = len(player.queue.tracks) - 1   # 全部都播不了
         finally:
             player.loading = False
             player.idle_since = time.time()
+
+    async def fetch(self, track: Track) -> str:
+        """下載（或從快取拿）這首歌；同一首同時只下載一次。"""
+        task = self.downloads.get(track.url)
+        if task is None or (task.done() and (task.cancelled() or task.exception())):
+            task = self.downloads[track.url] = asyncio.ensure_future(music.download(track, self.cache_dir))
+        try:
+            return await asyncio.shield(task)
+        finally:
+            if task.done():
+                self.downloads.pop(track.url, None)
+                music.trim_cache(self.cache_dir)
+
+    def _prefetch(self, player: Player) -> None:
+        """播放時先把下一首下載好，換歌就不用等。"""
+        if not player.queue.has_next:
+            return
+        track = player.queue.tracks[player.queue.index + 1]
+
+        async def run():
+            try:
+                await self.fetch(track)
+            except MusicError:
+                pass   # 輪到它播的時候會再試一次並告訴大家
+        asyncio.ensure_future(run())
 
     def _after(self, player: Player, generation: int, error: Optional[Exception],
                started: float, errors: "music.ErrorTail") -> None:

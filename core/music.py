@@ -5,8 +5,8 @@
 """
 import asyncio
 import logging
+import os
 import re
-import shlex
 from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -15,6 +15,9 @@ MAX_QUEUE = 100        # 播放清單最多幾首
 MAX_PLAYLIST = 50      # 貼 YouTube 播放清單時最多加入幾首
 MAX_QUERY = 200
 SEARCH_TIMEOUT = 40    # 秒
+DOWNLOAD_TIMEOUT = 180
+MAX_DURATION = 3 * 3600          # 超過 3 小時的影片不放
+CACHE_LIMIT = 2 * 1024 ** 3      # 歌曲快取最多 2 GB
 
 log = logging.getLogger(__name__)
 
@@ -31,8 +34,8 @@ CONTROLS = {
     "播放清單": "queue", "歌單": "queue", "現在放什麼": "queue", "這首是什麼": "queue",
 }
 
-# 播放串流的設定：斷線時自動重連，只要聲音
-FFMPEG_BEFORE = "-nostdin -loglevel warning -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+# ffmpeg 播放本機快取檔的設定：只要聲音
+FFMPEG_BEFORE = "-nostdin -loglevel warning"
 MIN_PLAY_SECONDS = 5   # 開播不到幾秒就結束，當成播放失敗
 FFMPEG_OPTIONS = "-vn"
 
@@ -133,9 +136,10 @@ SEARCH_OPTIONS = {
     "extract_flat": "in_playlist",      # 播放清單只抓標題，不一首一首解析（快很多）
     "playlistend": MAX_PLAYLIST,
 }
-STREAM_OPTIONS = {
-    "quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True,
+DOWNLOAD_OPTIONS = {
+    "quiet": True, "no_warnings": True, "noplaylist": True, "noprogress": True,
     "format": "bestaudio[acodec=opus]/bestaudio/best",
+    "max_filesize": 300 * 1024 * 1024,
 }
 
 
@@ -173,13 +177,13 @@ def tracks_from_info(info: Dict, requester_id: int = 0, requester_name: str = ""
 def _extract(target: str, options: Dict) -> Dict:
     import yt_dlp   # 只有真的要放歌才載入
     with yt_dlp.YoutubeDL(options) as ydl:
-        return ydl.extract_info(target, download=False)
+        return ydl.extract_info(target, download="outtmpl" in options)
 
 
-async def _run(target: str, options: Dict) -> Dict:
+async def _run(target: str, options: Dict, timeout: float = SEARCH_TIMEOUT) -> Dict:
     loop = asyncio.get_running_loop()
     try:
-        return await asyncio.wait_for(loop.run_in_executor(None, _extract, target, options), SEARCH_TIMEOUT)
+        return await asyncio.wait_for(loop.run_in_executor(None, _extract, target, options), timeout)
     except asyncio.TimeoutError:
         raise MusicError("YouTube 回應太慢，等一下再試試看。") from None
     except Exception as e:   # yt-dlp 的錯誤種類很多，一律轉成看得懂的訊息
@@ -210,30 +214,54 @@ async def search(query: str, requester_id: int = 0, requester_name: str = "") ->
     return tracks
 
 
-@dataclass
-class Stream:
-    url: str
-    headers: Dict[str, str]
+async def download(track: Track, cache_dir: str) -> str:
+    """用 yt-dlp 把這首歌的聲音下載到快取資料夾，回傳檔案路徑。
 
-
-async def stream_url(track: Track) -> Stream:
-    """播放前才取得音訊串流網址（YouTube 的串流網址過幾小時就失效）。
-    連串流時要帶 yt-dlp 用的同一組 headers，不然 YouTube 常常直接拒絕（歌會一開始就結束）。"""
-    info = await _run(track.url, STREAM_OPTIONS)
-    url = info.get("url")
-    if not url:
-        raise MusicError("拿不到這首歌的音訊。")
+    不讓 ffmpeg 直接連 YouTube 的串流網址：YouTube 會拒絕（403），只有 yt-dlp 的分段下載方式能過。
+    已經下載過的歌直接用快取（按「上一首」或重複點歌不用再等）。"""
+    if track.duration and track.duration > MAX_DURATION:
+        raise MusicError(f"這首超過 {MAX_DURATION // 3600} 小時，太長了。")
+    os.makedirs(cache_dir, exist_ok=True)
+    options = dict(DOWNLOAD_OPTIONS, outtmpl=os.path.join(cache_dir, "%(id)s.%(ext)s"))
+    options["match_filter"] = _no_live
+    info = await _run(track.url, options, DOWNLOAD_TIMEOUT)
+    if not info or _no_live(info):
+        raise MusicError("直播沒辦法放，換一首吧。")
     if not track.duration and info.get("duration"):
         track.duration = info["duration"]
-    return Stream(url, dict(info.get("http_headers") or {}))
+    for item in info.get("requested_downloads") or []:
+        path = item.get("filepath")
+        if path and os.path.exists(path):
+            os.utime(path)   # 標記最近用過，清快取時最後才刪
+            return path
+    raise MusicError("下載這首歌失敗了。")
 
 
-def ffmpeg_before(headers: Dict[str, str]) -> str:
-    """ffmpeg 連線的參數，附上 headers。"""
-    if not headers:
-        return FFMPEG_BEFORE
-    lines = "".join(f"{key}: {value}\r\n" for key, value in headers.items() if "\n" not in f"{key}{value}")
-    return f"{FFMPEG_BEFORE} -headers {shlex.quote(lines)}"
+def _no_live(info: Dict, *, incomplete: bool = False) -> Optional[str]:
+    if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
+        return "直播"
+    return None
+
+
+def trim_cache(cache_dir: str, limit: int = CACHE_LIMIT) -> int:
+    """快取超過上限時，從最久沒用的開始刪，回傳刪了幾個檔案。"""
+    try:
+        files = [os.path.join(cache_dir, name) for name in os.listdir(cache_dir)]
+    except FileNotFoundError:
+        return 0
+    files = [(os.path.getmtime(f), os.path.getsize(f), f) for f in files if os.path.isfile(f)]
+    total = sum(size for _, size, _ in files)
+    removed = 0
+    for _, size, path in sorted(files):
+        if total <= limit:
+            break
+        try:
+            os.remove(path)
+        except OSError:
+            continue
+        total -= size
+        removed += 1
+    return removed
 
 
 class ErrorTail:

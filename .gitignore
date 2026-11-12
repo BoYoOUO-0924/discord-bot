@@ -28,3 +28,4 @@ data/bot.lock
 data/*.txt
 !data/.gitkeep
 
+data/music_cache/
