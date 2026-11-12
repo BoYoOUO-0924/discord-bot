@@ -41,7 +41,13 @@ async def main(query: str) -> int:
     try:
         import nacl  # noqa: F401
         import davey  # noqa: F401
-        print("✅ 語音套件（PyNaCl、davey）")
+        import importlib.metadata as meta
+        version = meta.version("davey")
+        if version.startswith("0.1."):
+            print(f"✅ 語音套件（PyNaCl、davey {version}）")
+        else:
+            print(f"❌ davey {version} 和 discord.py 不相容（會有綠框沒聲音），請執行 pip install -r requirements.txt")
+            ok = False
     except ImportError as e:
         print(f"❌ 語音套件缺少 {e.name}（pip install -r requirements.txt）")
         ok = False
