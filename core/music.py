@@ -6,6 +6,8 @@
 import asyncio
 import logging
 import re
+import shlex
+from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -30,7 +32,8 @@ CONTROLS = {
 }
 
 # 播放串流的設定：斷線時自動重連，只要聲音
-FFMPEG_BEFORE = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
+FFMPEG_BEFORE = "-nostdin -loglevel warning -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+MIN_PLAY_SECONDS = 5   # 開播不到幾秒就結束，當成播放失敗
 FFMPEG_OPTIONS = "-vn"
 
 
@@ -207,12 +210,44 @@ async def search(query: str, requester_id: int = 0, requester_name: str = "") ->
     return tracks
 
 
-async def stream_url(track: Track) -> str:
-    """播放前才取得音訊串流網址（YouTube 的串流網址過幾小時就失效）。"""
+@dataclass
+class Stream:
+    url: str
+    headers: Dict[str, str]
+
+
+async def stream_url(track: Track) -> Stream:
+    """播放前才取得音訊串流網址（YouTube 的串流網址過幾小時就失效）。
+    連串流時要帶 yt-dlp 用的同一組 headers，不然 YouTube 常常直接拒絕（歌會一開始就結束）。"""
     info = await _run(track.url, STREAM_OPTIONS)
     url = info.get("url")
     if not url:
         raise MusicError("拿不到這首歌的音訊。")
     if not track.duration and info.get("duration"):
         track.duration = info["duration"]
-    return url
+    return Stream(url, dict(info.get("http_headers") or {}))
+
+
+def ffmpeg_before(headers: Dict[str, str]) -> str:
+    """ffmpeg 連線的參數，附上 headers。"""
+    if not headers:
+        return FFMPEG_BEFORE
+    lines = "".join(f"{key}: {value}\r\n" for key, value in headers.items() if "\n" not in f"{key}{value}")
+    return f"{FFMPEG_BEFORE} -headers {shlex.quote(lines)}"
+
+
+class ErrorTail:
+    """收集 ffmpeg 的錯誤輸出（只留最後幾行），播放失敗時寫進紀錄。"""
+
+    def __init__(self, keep: int = 20):
+        self.lines = deque(maxlen=keep)
+
+    def fileno(self):   # 讓 discord.py 用執行緒讀 ffmpeg 的輸出再交給 write()
+        raise OSError("not a real file")
+
+    def write(self, data: bytes) -> None:
+        if data:
+            self.lines.extend(data.decode(errors="ignore").splitlines())
+
+    def text(self) -> str:
+        return "\n".join(line for line in self.lines if line.strip())

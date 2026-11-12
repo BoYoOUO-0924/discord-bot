@@ -35,6 +35,12 @@ class CoreTest(unittest.TestCase):
         self.assertIn("擋住", music.explain_error("Sign in to confirm you're not a bot"))
         self.assertIn("不存在", music.explain_error("ERROR: Video unavailable"))
 
+    def test_ffmpeg_headers(self):
+        import shlex
+        args = shlex.split(music.ffmpeg_before({"User-Agent": "Mozilla/5.0 (X11)", "Accept": "*/*"}))
+        self.assertEqual(args[args.index("-headers") + 1], "User-Agent: Mozilla/5.0 (X11)\r\nAccept: */*\r\n")
+        self.assertNotIn("-headers", music.ffmpeg_before({}))
+
     def test_fmt_duration(self):
         self.assertEqual(music.fmt_duration(225), "3:45")
         self.assertEqual(music.fmt_duration(3723), "1:02:03")
@@ -112,6 +118,7 @@ class FakeVoice:
 class FakeSource:
     def __init__(self, url, **kwargs):
         self.url = url
+        self.kwargs = kwargs
 
     def cleanup(self):
         pass
@@ -142,7 +149,7 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
         self.found = [track(1)]
         patches = [
             patch.object(music, "search", AsyncMock(side_effect=lambda *a, **k: list(self.found))),
-            patch.object(music, "stream_url", AsyncMock(side_effect=lambda t: f"stream:{t.title}")),
+            patch.object(music, "stream_url", AsyncMock(side_effect=lambda t: music.Stream(f"stream:{t.title}", {}))),
             patch.object(music_cog.discord, "FFmpegOpusAudio", FakeSource),
         ]
         for p in patches:
@@ -195,9 +202,19 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
         await self.cog._track_ended(player, player.generation)  # 第 2 首播完
         self.assertEqual(self.voice.sources[-1].url, "stream:歌3")
 
+    async def test_song_that_ends_instantly_is_reported(self):
+        self.found = [track(1), track(2)]
+        await self.cog.request(self.member, self.text, "播放清單")
+        player = self.cog.players[1]
+        self.voice.playing = False
+        await self.cog._track_ended(player, player.generation, failed=True)
+        sent = [c.args[0] for c in self.text.send.await_args_list if c.args]
+        self.assertTrue(any("播放失敗" in text for text in sent))
+        self.assertEqual(self.voice.sources[-1].url, "stream:歌2")
+
     async def test_unplayable_song_is_skipped(self):
         self.found = [track(1), track(2)]
-        music.stream_url.side_effect = [MusicError("影片不存在"), "stream:歌2"]
+        music.stream_url.side_effect = [MusicError("影片不存在"), music.Stream("stream:歌2", {})]
         await self.cog.request(self.member, self.text, "播放清單")
         self.assertEqual(self.voice.sources[-1].url, "stream:歌2")
         self.assertIn("跳過", self.text.send.await_args_list[0].args[0])

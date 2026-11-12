@@ -8,6 +8,7 @@
 """
 import asyncio
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -51,17 +52,18 @@ async def main(query: str) -> int:
         [track, *_] = await music.search(query)
         print(f"✅ 找到：{track.title}（{music.fmt_duration(track.duration)}）{track.url}　{time.perf_counter() - start:.1f} 秒")
         start = time.perf_counter()
-        url = await music.stream_url(track)
+        stream = await music.stream_url(track)
         print(f"✅ 取得音訊網址　{time.perf_counter() - start:.1f} 秒")
     except music.MusicError as e:
         print(f"❌ {e}（詳細原因：{e.__cause__}）")
         return 1
     if ffmpeg:
         print("用 ffmpeg 試著解碼 5 秒…")
-        cmd = [ffmpeg, *music.FFMPEG_BEFORE.split(), "-i", url, "-t", "5", *music.FFMPEG_OPTIONS.split(),
+        cmd = [ffmpeg, *shlex.split(music.ffmpeg_before(stream.headers)), "-i", stream.url, "-t", "5",
+               *music.FFMPEG_OPTIONS.split(),
                "-c:a", "libopus", "-f", "null", "-"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if result.returncode == 0:
+        if result.returncode == 0 and "403" not in result.stderr:
             print("✅ ffmpeg 解碼成功，可以播放")
         else:
             print("❌ ffmpeg 解碼失敗：\n" + result.stderr[-800:])
