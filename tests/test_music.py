@@ -166,6 +166,7 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
             patch.object(music, "search", AsyncMock(side_effect=lambda *a, **k: list(self.found))),
             patch.object(music, "download", AsyncMock(side_effect=lambda t, folder: f"stream:{t.title}")),
             patch.object(music_cog.discord, "FFmpegOpusAudio", FakeSource),
+            patch.object(music, "probe", MagicMock(return_value=("opus", 130))),
         ]
         for p in patches:
             p.start()
@@ -185,6 +186,7 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
         note = await self.cog.request(self.member, self.text, "晴天")
         self.assertIn("開始播放", note)
         self.assertEqual(self.voice.sources[-1].url, "stream:歌1")
+        self.assertEqual(self.voice.sources[-1].kwargs["codec"], "copy")   # Opus 不再壓縮一次
         self.text.send.assert_awaited()                    # 送出控制面板
         self.found = [track(2)]
         note = await self.cog.request(self.member, self.text, "稻香")
@@ -216,6 +218,14 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
         self.voice.playing = False
         await self.cog._track_ended(player, player.generation)  # 第 2 首播完
         self.assertEqual(self.voice.sources[-1].url, "stream:歌3")
+
+    async def test_non_opus_is_transcoded_at_channel_bitrate(self):
+        music.probe.return_value = ("aac", 128)
+        self.voice_channel.bitrate = 96000
+        await self.cog.request(self.member, self.text, "晴天")
+        kwargs = self.voice.sources[-1].kwargs
+        self.assertNotIn("codec", kwargs)
+        self.assertEqual(kwargs["bitrate"], 128)
 
     async def test_song_that_ends_instantly_is_reported(self):
         self.found = [track(1), track(2)]
