@@ -234,9 +234,11 @@ class Music(commands.Cog):
                 player.queue.index = index
                 track = player.queue.tracks[index]
                 try:
-                    url = await music.stream_url(track)
-                    source = discord.FFmpegOpusAudio(url, executable=self.ffmpeg,
-                                                     before_options=music.FFMPEG_BEFORE, options=music.FFMPEG_OPTIONS)
+                    stream = await music.stream_url(track)
+                    errors = music.ErrorTail()
+                    source = discord.FFmpegOpusAudio(stream.url, executable=self.ffmpeg, stderr=errors,
+                                                     before_options=music.ffmpeg_before(stream.headers),
+                                                     options=music.FFMPEG_OPTIONS)
                 except MusicError as e:
                     await self._notice(player, f"⚠️ 跳過「{track.title}」：{e}")
                     index += 1
@@ -244,24 +246,31 @@ class Music(commands.Cog):
                 if generation != player.generation or not voice.is_connected():
                     source.cleanup()
                     return
-                voice.play(source, after=lambda error, g=generation: self._after(player, g, error))
+                started = time.monotonic()
+                voice.play(source, after=lambda error, g=generation: self._after(player, g, error, started, errors))
                 return
             player.queue.index = len(player.queue.tracks) - 1   # 全部都播不了
         finally:
             player.loading = False
             player.idle_since = time.time()
 
-    def _after(self, player: Player, generation: int, error: Optional[Exception]) -> None:
+    def _after(self, player: Player, generation: int, error: Optional[Exception],
+               started: float, errors: "music.ErrorTail") -> None:
         """播放執行緒呼叫：一首歌結束（播完、被跳過或出錯）。"""
-        if error:
-            log.warning("音樂：播放中斷：%s", error)
-        asyncio.run_coroutine_threadsafe(self._track_ended(player, generation), self.bot.loop)
+        failed = error is not None or time.monotonic() - started < music.MIN_PLAY_SECONDS
+        if failed and generation == player.generation:
+            log.warning("音樂：播放失敗（%.1f 秒就結束）：%s\nffmpeg：%s", time.monotonic() - started,
+                        error or "沒有錯誤訊息", errors.text() or "（沒有輸出）")
+        asyncio.run_coroutine_threadsafe(self._track_ended(player, generation, failed), self.bot.loop)
 
-    async def _track_ended(self, player: Player, generation: int) -> None:
+    async def _track_ended(self, player: Player, generation: int, failed: bool = False) -> None:
         async with player.lock:
             if generation != player.generation or self.players.get(player.guild.id) is not player:
                 return
             player.idle_since = time.time()
+            if failed and player.queue.current:
+                await self._notice(player, f"⚠️ 「{player.queue.current.title}」播放失敗，跳過。"
+                                           "（原因寫在 bot 紀錄裡，可以用 tools/music_check.py 檢查）")
             if player.queue.has_next:
                 await self._play_at(player, player.queue.index + 1)
         await self.update_panel(player)
