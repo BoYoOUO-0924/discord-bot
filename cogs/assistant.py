@@ -21,6 +21,7 @@ from cogs.hub import GAME_COGS
 from cogs.reminders import RemindModal
 from core import assistant as asst
 from core.ai import AIError
+from core.music import MusicError, parse_control
 from core.catalog import GAMES
 from core.timeutil import now_tw, parse_when
 from core.ui import BaseView, send_error
@@ -44,9 +45,11 @@ LINES: Dict[str, List[str]] = {
     "game": ["想玩喔？本蛙陪你，輸了不准哭，嘎！", "好啦好啦，選一個遊戲。"],
     "stock": ["股票的事本蛙不懂，但按這裡看得到報價。", "看盤可以，別把荷葉也押下去，嘎。"],
     "remind": ["要我提醒你？你自己的腦袋呢……好啦，確認一下。", "記性跟金魚一樣，嘎。按一下我就幫你記。"],
+    "music": ["本蛙開唱……不是，是幫你放歌啦，嘎。", "點歌喔？好啦好啦，荷葉舞台準備好了。", "聽歌可以，跟著唱不准走音，嘎嘎。"],
     "help": ["本蛙會的可多了，自己看說明。", "指令說明在這，看完別再問，嘎。"],
     "unsupported": ["想得美！這種事本蛙不幫忙，要的話自己用斜線指令。", "嘎？想騙本蛙？沒門，自己動手啦。"],
 }
+MUSIC_FAILED = ["嘎？", "放不了啦。", "本蛙也沒辦法，嘎。"]
 SLEEPING = ["嘎……大腦（主電腦）在睡覺，等它醒來再聊。斜線指令照常可以用喔。",
             "zzz……本蛙的大腦下線了，晚點再來找我，嘎。"]
 FAILED = ["嘎？剛剛恍神了，再說一次。", "池塘有點吵沒聽清楚，再講一次好嗎？"]
@@ -161,7 +164,11 @@ class Assistant(commands.Cog):
             return await self._react(message, "⏳")
         self.last_message[message.author.id] = now
 
-        if not self.ai.available:
+        # 有在放歌時，「下一首」「暫停」這種話直接控制，不用問 AI（主電腦關機也能用）
+        if await self._music_control(message, text):
+            return
+        # 貼 YouTube 網址點歌不需要 AI，主電腦關機也能放
+        if not self.ai.available and not asst.YOUTUBE_LINK.search(text):
             return await self._sleeping(message)
         try:
             async with self.slots, message.channel.typing():
@@ -176,11 +183,17 @@ class Assistant(commands.Cog):
 
     async def respond(self, message: discord.Message, text: str) -> None:
         name = message.author.display_name
-        intent = (asst.Intent("chat") if text == SUMMONED
-                  else await asst.classify(self.ai, text, name))
+        if text == SUMMONED:
+            intent = asst.Intent("chat")
+        elif asst.YOUTUBE_LINK.search(text):
+            intent = asst.apply_guards(text, asst.Intent("chat"))
+        else:
+            intent = await asst.classify(self.ai, text, name)
         history = self.history[message.channel.id]
         actions = buttons_for(intent)
-        if intent.name in LINES and (actions or intent.name == "unsupported"):
+        if intent.name == "music":
+            reply = await self._music(message, intent.song, text)
+        elif intent.name in LINES and (actions or intent.name == "unsupported"):
             reply = random.choice(LINES[intent.name])
             view = ActionView(self, message.author.id, actions) if actions else None
             sent = await self._reply(message, reply, view=view)
@@ -192,6 +205,32 @@ class Assistant(commands.Cog):
         history.append((name, text))
         history.append(("嘎哇", reply))
         log.info("嘎哇聊天：%s → %s", text[:40], asst.describe(intent))
+
+    async def _music(self, message: discord.Message, song: str, text: str) -> str:
+        cog = self.bot.get_cog("Music")
+        if not cog:
+            reply = "音樂功能目前沒有開，嘎。"
+        else:
+            try:
+                reply = f"{random.choice(LINES['music'])}\n{await cog.speech(message, song, text)}"
+            except MusicError as e:
+                reply = f"{random.choice(MUSIC_FAILED)}{e}"
+        await self._reply(message, reply)
+        return reply
+
+    async def _music_control(self, message: discord.Message, text: str) -> bool:
+        cog = self.bot.get_cog("Music")
+        if not cog or not parse_control(text) or message.guild.id not in cog.players:
+            return False
+        try:
+            reply = await cog.speech(message, "", text)
+        except MusicError as e:
+            reply = str(e)
+        try:
+            await self._reply(message, reply)
+        except discord.HTTPException:
+            pass
+        return True
 
     async def _reply(self, message: discord.Message, content: str, view: Optional[discord.ui.View] = None):
         kwargs = {"view": view} if view else {}

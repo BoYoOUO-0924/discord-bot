@@ -29,6 +29,8 @@ COMMAND_NAMES = {
     "seatortoise": "海龜湯",
     "weather": "天氣",
     "earthquake": "地震",
+    "play": "播放",
+    "music": "音樂",
     # 股票模擬（/股票 底下的子指令）
     "stock": "股票",
     "quote": "查詢",
@@ -64,6 +66,7 @@ PARAMETER_NAMES = {
     "earthquake.send": "立即傳送",
     "symbol": "股票",
     "shares": "股數",
+    "play.query": "歌曲",
 }
 
 

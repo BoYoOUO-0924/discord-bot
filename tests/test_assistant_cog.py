@@ -133,6 +133,31 @@ class FlowTest(unittest.IsolatedAsyncioTestCase):
         second.reply.assert_not_awaited()
         second.add_reaction.assert_awaited_with("💤")
 
+    async def test_music_request_goes_to_music_cog(self):
+        ai = FakeAI(intent="music", song="周杰倫 晴天")
+        cog, me = make_cog(ai)
+        music = SimpleNamespace(players={}, speech=AsyncMock(return_value="🎵 開始播放 **晴天**"))
+        cog.bot.get_cog = lambda name: music if name == "Music" else None
+        message = make_message(f"<@{BOT_ID}> 放周杰倫的晴天", me)
+        message.guild = SimpleNamespace(id=1)
+        await cog.on_message(message)
+        music.speech.assert_awaited_with(message, "周杰倫 晴天", "放周杰倫的晴天")
+        self.assertIn("開始播放", message.reply.await_args.args[0])
+        self.assertEqual(ai.chat_calls, 0)
+
+    async def test_music_control_and_links_work_without_ai(self):
+        cog, me = make_cog(FakeAI(available=False))
+        music = SimpleNamespace(players={1: object()}, speech=AsyncMock(return_value="下一首：稻香"))
+        cog.bot.get_cog = lambda name: music if name == "Music" else None
+        message = make_message(f"<@{BOT_ID}> 下一首", me)
+        message.guild = SimpleNamespace(id=1)
+        await cog.on_message(message)
+        self.assertEqual(message.reply.await_args.args[0], "下一首：稻香")
+        link = make_message(f"<@{BOT_ID}> https://youtu.be/abc", me, author_id=6)
+        link.guild = SimpleNamespace(id=1)
+        await cog.on_message(link)
+        music.speech.assert_awaited_with(link, "https://youtu.be/abc", "https://youtu.be/abc")
+
     async def test_cooldown(self):
         cog, me = make_cog(FakeAI())
         await cog.on_message(make_message(f"<@{BOT_ID}> 嗨", me))
