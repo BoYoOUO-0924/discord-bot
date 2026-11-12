@@ -290,6 +290,8 @@ class Music(commands.Cog):
         channel_kbps = (getattr(getattr(voice, "channel", None), "bitrate", 0) or 0) // 1000
         target = min(max(channel_kbps, 128), 256)
         log.info("音樂：轉檔 %s → Opus %d kbps", codec or "?", target)
+        # discord.py 預設假設網路掉 15% 封包並開 FEC，編碼器會砍高音、聲音變悶；後面的參數會蓋掉前面的
+        kwargs["options"] = f"{music.FFMPEG_OPTIONS} -application audio -fec false -packet_loss 0"
         return discord.FFmpegOpusAudio(path, bitrate=target, **kwargs)
 
     async def fetch(self, track: Track) -> str:
