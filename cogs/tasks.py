@@ -15,6 +15,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core import tasks as tk
+from core.features import enabled
 from core.timeutil import TAIPEI, now_tw, ts
 from core.ui import BaseView, Color, defer, fmt_points, make_embed, respond, send_error, success_embed
 
@@ -529,6 +530,9 @@ class Tasks(commands.Cog):
     @tasks.loop(seconds=60)
     async def send_notices(self):
         for kind, task in await self.bot.db.due_task_notices(time.time()):
+            if not enabled(self.bot, "tasks", task["guild_id"]):
+                await self.bot.db.mark_task_notice(task["id"], kind)   # 關掉期間的通知直接略過，不要之後一次補發
+                continue
             try:
                 if kind == "remind":
                     text = f"⏰ <@{owner_of(task)}> 待辦 #{task['id']}「{task['title']}」{ts(task['due_at'], 'R')}截止"

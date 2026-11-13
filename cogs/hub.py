@@ -1,5 +1,6 @@
 """大廳與說明：所有功能的入口。"""
 import logging
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -7,6 +8,7 @@ from discord.ext import commands
 
 from cogs.reminders import RemindModal
 from core.catalog import GAMES, HELP_SECTIONS
+from core.features import disabled_message, enabled, feature_for_action, feature_for_command
 from core.timeutil import today_tw
 from core.ui import Color, fmt_points, make_embed, send_error
 
@@ -78,7 +80,10 @@ class Hub(commands.Cog):
             embed.description = "點下方按鈕就能開始，所有結果只會顯示給操作的人或在頻道開局。"
         embed.add_field(name="賺錢", value="✨ 每日簽到・💼 打工（每小時）・🎯 每日任務・💬 聊天也會累積", inline=False)
         games = []
+        guild_id = getattr(getattr(user, "guild", None), "id", None)
         for game in GAMES:
+            if not enabled(self.bot, game.key, guild_id):
+                continue
             unavailable = ""
             if game.needs_ai and not self.bot.ai.available:
                 unavailable = "（暫停中）" if self.bot.ai.configured else "（未啟用）"
@@ -93,16 +98,34 @@ class Hub(commands.Cog):
             embed.set_thumbnail(url=self.bot.user.display_avatar.url)
         return embed
 
-    def help_embed(self) -> discord.Embed:
+    def help_embed(self, guild_id: Optional[int] = None) -> discord.Embed:
         embed = make_embed("📖 指令說明", "點藍色的指令可以直接使用，`[ ]` 是可以不填的參數。", Color.PRIMARY)
         for title, commands_ in HELP_SECTIONS:
             lines = []
             for name, args, desc in commands_:
+                if not enabled(self.bot, feature_for_command(name), guild_id):
+                    continue   # 這個伺服器關掉的功能不列出來
                 usage = f"{self.bot.mention(name)} {args}".rstrip()
                 lines.append(f"{usage}\n　{desc}")
-            embed.add_field(name=title, value="\n".join(lines), inline=False)
-        embed.set_footer(text="遊戲贏得的錢可以在 /profile 查看戰績")
+            if lines:
+                embed.add_field(name=title, value="\n".join(lines), inline=False)
+        guide = "・按下方「完整功能介紹」看圖文說明" if getattr(getattr(self.bot, "settings", None), "guide_url", None) else ""
+        embed.set_footer(text=f"遊戲贏得的錢可以在 /profile 查看戰績{guide}")
         return embed
+
+    def guide_view(self) -> Optional[discord.ui.View]:
+        """「完整功能介紹」連結按鈕；沒有設定網址就不顯示。"""
+        url = getattr(getattr(self.bot, "settings", None), "guide_url", None)
+        if not url:
+            return None
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(label="完整功能介紹", emoji="📘", url=url))
+        return view
+
+    async def send_help(self, interaction: discord.Interaction) -> None:
+        view = self.guide_view()
+        kwargs = {"view": view} if view else {}
+        await interaction.response.send_message(embed=self.help_embed(interaction.guild_id), ephemeral=True, **kwargs)
 
     # ------------------------------------------------------------------ 按鈕分派
     async def handle(self, interaction: discord.Interaction, action: str) -> None:
@@ -111,6 +134,9 @@ class Hub(commands.Cog):
             await self.bot.db.touch_member(interaction.guild_id, interaction.user.id)
             await self.bot.db.remember_user(interaction.user.id, interaction.user.display_name,
                                             interaction.user.display_avatar.url)
+        feature = feature_for_action(action)
+        if not enabled(self.bot, feature, interaction.guild_id):
+            return await send_error(interaction, disabled_message(feature))
         economy = self.bot.get_cog("Economy")
         if action == "checkin":
             return await economy.do_checkin(interaction)
@@ -123,7 +149,7 @@ class Hub(commands.Cog):
         if action == "leaderboard":
             return await economy.send_leaderboard(interaction, ephemeral=True)
         if action == "help":
-            return await interaction.response.send_message(embed=self.help_embed(), ephemeral=True)
+            return await self.send_help(interaction)
         if action == "stocks":
             return await self.bot.get_cog("Stocks").send_account(interaction)
         if action == "music":
@@ -166,7 +192,7 @@ class Hub(commands.Cog):
 
     @app_commands.command(name="help", description="顯示所有指令的說明")
     async def help(self, interaction: discord.Interaction):
-        await interaction.response.send_message(embed=self.help_embed(), ephemeral=True)
+        await self.send_help(interaction)
 
 
 async def setup(bot):

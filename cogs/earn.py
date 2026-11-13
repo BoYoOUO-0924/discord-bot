@@ -11,6 +11,7 @@ from discord.ext import commands
 
 from core.quests import ALL_DONE_BONUS, ALL_DONE_KEY, daily_quests
 from core.timeutil import next_midnight_tw, today_tw, ts
+from core.features import enabled
 from core.ui import Color, defer, fmt_points, make_embed, progress_bar, respond
 
 log = logging.getLogger(__name__)
@@ -144,6 +145,8 @@ class Earn(commands.Cog):
         if message.author.bot or not message.guild:
             return
         if len(message.content.strip()) < CHAT_MIN_LENGTH:
+            return
+        if not enabled(self.bot, "economy", message.guild.id):
             return
         now, user_id = time.time(), message.author.id
         if now - self.chat_reward_at.get(user_id, 0) >= CHAT_COOLDOWN:

@@ -17,6 +17,7 @@ from discord.ext import commands, tasks
 from core import github as gh
 from core import tasks as tk
 from core.ai import AIError
+from core.features import enabled
 from core.timeutil import now_tw, ts
 from core.ui import Color, defer, make_embed, respond, send_error, success_embed
 
@@ -349,6 +350,8 @@ class Projects(commands.Cog):
     async def send_all(self, what: str, build) -> None:
         sent = 0
         for project in await self.bot.db.list_projects():
+            if not enabled(self.bot, "tasks", project["guild_id"]):
+                continue
             try:
                 embed = await build(project)
                 if embed is None:

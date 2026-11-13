@@ -18,6 +18,7 @@ from discord.ext import commands, tasks
 
 from core import earthquake as eq
 from core.timeutil import now_tw
+from core.features import enabled
 from core.ui import Color, defer, make_embed, respond, send_error, success_embed
 
 log = logging.getLogger(__name__)
@@ -137,6 +138,8 @@ class Earthquake(commands.Cog):
 
     # ------------------------------------------------------------------ 傳送
     async def send(self, report: eq.Report) -> None:
+        if not enabled(self.bot, "earthquake"):
+            return   # 管理後台把地震報告全域關掉了（照樣讀取，重新打開時不會補發一堆舊的）
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
             webhook = discord.Webhook.from_url(self.webhook_url, session=session)
             await webhook.send(content=alert_text(report), embed=report_embed(report),

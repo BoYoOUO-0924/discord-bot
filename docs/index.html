@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>嘎哇 Bot 功能介紹</title>
+<meta name="description" content="嘎哇是一個繁體中文 Discord 機器人：新台幣錢包、六款遊戲、股票模擬、音樂、待辦與專案管理、天氣與地震通知，還能 @嘎哇 用講的叫功能。">
+<style>
+:root {
+  --bg: #f7f8f4;
+  --surface: #ffffff;
+  --surface-2: #eef2e8;
+  --text: #17201a;
+  --text-2: #4a5a4f;
+  --muted: #7b8a7f;
+  --border: rgba(23, 32, 26, .10);
+  --accent: #2f9e57;
+  --accent-ink: #1f7a40;
+  --accent-soft: #dff3e5;
+  --gold: #c58a0b;
+  --danger: #c94a3c;
+  --code-bg: #eef2e8;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(23,32,26,.06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1411; --surface: #171e19; --surface-2: #1f2822; --text: #e8efe9; --text-2: #b6c4ba; --muted: #7f8f84;
+    --border: rgba(255,255,255,.09); --accent: #4cc27a; --accent-ink: #6fd897; --accent-soft: #1d3426;
+    --gold: #e5ad3a; --danger: #ef7a6c; --code-bg: #222c25; --shadow: none; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1411; --surface: #171e19; --surface-2: #1f2822; --text: #e8efe9; --text-2: #b6c4ba; --muted: #7f8f84;
+  --border: rgba(255,255,255,.09); --accent: #4cc27a; --accent-ink: #6fd897; --accent-soft: #1d3426;
+  --gold: #e5ad3a; --danger: #ef7a6c; --code-bg: #222c25; --shadow: none; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.7 "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, -apple-system, sans-serif;
+  padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+}
+a { color: var(--accent-ink); }
+code {
+  font: .9em/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--code-bg);
+  padding: .1em .45em; border-radius: 6px; white-space: nowrap;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; }
+
+/* ---------- 導覽列 ---------- */
+.nav {
+  position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);
+}
+.nav .wrap { display: flex; align-items: center; gap: 16px; height: 56px; }
+.brand { font-weight: 800; text-decoration: none; color: var(--text); white-space: nowrap; }
+.nav-links { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; flex: 1; }
+.nav-links::-webkit-scrollbar { display: none; }
+.nav-links a {
+  text-decoration: none; color: var(--text-2); padding: 6px 10px; border-radius: 8px; white-space: nowrap; font-size: 14px;
+}
+.nav-links a:hover { background: var(--surface-2); color: var(--text); }
+.theme {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 4px 10px; cursor: pointer; font-size: 16px;
+}
+
+/* ---------- 開頭 ---------- */
+.hero { padding: 72px 0 48px; display: grid; grid-template-columns: 1.3fr 1fr; gap: 40px; align-items: center; }
+.hero h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.15; margin: 0 0 16px; letter-spacing: -.01em; }
+.hero h1 .frog { color: var(--accent); }
+.hero p.lead { font-size: 18px; color: var(--text-2); margin: 0 0 24px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
+  font-size: 14px; color: var(--text-2);
+}
+.chat {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px;
+  box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 12px;
+}
+.msg { display: flex; gap: 10px; align-items: flex-start; }
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--surface-2); font-size: 20px;
+}
+.bubble { background: var(--surface-2); border-radius: 12px; padding: 8px 12px; font-size: 15px; }
+.msg.bot .bubble { background: var(--accent-soft); }
+.who { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.fake-btn {
+  display: inline-block; margin-top: 8px; background: var(--accent); color: #fff; border-radius: 6px;
+  padding: 3px 10px; font-size: 13px;
+}
+
+/* ---------- 區塊 ---------- */
+section.block { padding: 48px 0; border-top: 1px solid var(--border); }
+.block h2 { font-size: 28px; margin: 0 0 8px; }
+.block > .wrap > p.sub { color: var(--text-2); margin: 0 0 28px; max-width: 720px; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: step; }
+.step {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; box-shadow: var(--shadow);
+}
+.step::before {
+  counter-increment: step; content: counter(step); display: grid; place-items: center; width: 30px; height: 30px;
+  border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; margin-bottom: 10px;
+}
+.step h3 { margin: 0 0 6px; font-size: 18px; }
+.step p { margin: 0; color: var(--text-2); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+  box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px;
+}
+.card h3 { margin: 0; font-size: 19px; display: flex; gap: 8px; align-items: center; }
+.card .emoji { font-size: 24px; }
+.card p { margin: 0; color: var(--text-2); }
+.cmds { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cmds li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.cmds li span { color: var(--text-2); font-size: 15px; }
+.tag {
+  font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft);
+  color: var(--accent-ink); margin-left: auto;
+}
+.tag.ai { background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--gold); }
+
+.feature-wide {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 28px;
+  box-shadow: var(--shadow); display: grid; grid-template-columns: 1fr 1fr; gap: 28px;
+}
+.feature-wide h3 { margin: 0 0 10px; font-size: 20px; }
+.feature-wide ul { margin: 0; padding-left: 1.2em; color: var(--text-2); }
+.feature-wide li { margin-bottom: 6px; }
+.feature-wide li strong { color: var(--text); }
+
+.task-card {
+  border-left: 4px solid var(--accent); background: var(--surface-2); border-radius: 10px; padding: 14px 16px;
+  font-size: 15px;
+}
+.task-card .t { font-weight: 700; margin-bottom: 8px; }
+.task-card dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 0 0 10px; }
+.task-card dt { color: var(--muted); }
+.task-card dd { margin: 0; }
+.task-card .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.task-card .btns span {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 2px 9px; font-size: 13px;
+}
+.task-card .btns span.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 520px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--surface-2); font-weight: 700; color: var(--text-2); font-size: 14px; }
+tr:last-child td { border-bottom: 0; }
+
+.faq details {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin-bottom: 10px;
+}
+.faq summary { cursor: pointer; font-weight: 700; }
+.faq details p { margin: 10px 0 0; color: var(--text-2); }
+
+footer { padding: 40px 0 56px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--border); }
+
+@media (max-width: 820px) {
+  .hero { grid-template-columns: 1fr; padding-top: 40px; }
+  .steps { grid-template-columns: 1fr; }
+  .feature-wide { grid-template-columns: 1fr; padding: 20px; }
+  .nav .wrap { gap: 10px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="主選單">
+  <div class="wrap">
+    <a class="brand" href="#top">🐸 嘎哇</a>
+    <div class="nav-links">
+      <a href="#start">開始使用</a>
+      <a href="#wallet">錢包</a>
+      <a href="#games">遊戲</a>
+      <a href="#stocks">股票</a>
+      <a href="#tasks">待辦與專案</a>
+      <a href="#tools">生活工具</a>
+      <a href="#gawa">嘎哇聊天</a>
+      <a href="#admins">給管理員</a>
+      <a href="#faq">常見問題</a>
+    </div>
+    <button class="theme" id="theme" type="button" aria-label="切換深色／淺色">🌓</button>
+  </div>
+</nav>
+
+<header class="wrap hero" id="top">
+  <div>
+    <h1>池塘裡最毒舌的<br><span class="frog">青蛙機器人</span></h1>
+    <p class="lead">嘎哇是一個全繁體中文的 Discord 機器人：新台幣錢包、六款遊戲、股票模擬、音樂、
+      待辦與專案管理、天氣和地震通知，還能直接 <strong>@嘎哇</strong> 用講的叫功能。</p>
+    <div class="chips">
+      <span class="chip">💰 新台幣錢包</span><span class="chip">🃏 6 款遊戲</span><span class="chip">📈 台股模擬</span>
+      <span class="chip">🎵 YouTube 音樂</span><span class="chip">📋 待辦與專案</span><span class="chip">🌦️ 天氣・地震</span>
+    </div>
+  </div>
+  <div class="chat" aria-label="對話範例">
+    <div class="msg"><div class="avatar">🙂</div><div><div class="who">小明</div>
+      <div class="bubble">@嘎哇 明天要帶傘嗎</div></div></div>
+    <div class="msg bot"><div class="avatar">🐸</div><div><div class="who">嘎哇</div>
+      <div class="bubble">要看天氣喔？下雨的話記得告訴我，本蛙最愛下雨天了，嘎！<br>
+        <span class="fake-btn">🌦️ 看明天的天氣</span></div></div></div>
+    <div class="msg"><div class="avatar">🙂</div><div><div class="who">小明</div>
+      <div class="bubble">@嘎哇 記一下週五前要交企劃書</div></div></div>
+    <div class="msg bot"><div class="avatar">🐸</div><div><div class="who">嘎哇</div>
+      <div class="bubble">交代的事要做完喔，本蛙會盯著你，嘎。<br>
+        <span class="fake-btn">📋 新增待辦：企劃書（11/20 截止）</span></div></div></div>
+  </div>
+</header>
+
+<section class="block" id="start">
+  <div class="wrap">
+    <h2>開始使用</h2>
+    <p class="sub">不用記指令，三種方式都可以：</p>
+    <div class="steps">
+      <div class="step"><h3>打開大廳</h3><p>輸入 <code>/menu</code>，所有功能都有按鈕，點了就能用。結果只有你自己看得到，不會洗頻道。</p></div>
+      <div class="step"><h3>斜線指令</h3><p>在聊天框輸入 <code>/</code> 會列出所有指令；<code>/help</code> 看說明，藍色的指令點了就能直接用。</p></div>
+      <div class="step"><h3>用講的</h3><p>直接 <code>@嘎哇</code> 說你想做什麼，例如「來玩 21 點」「台積電多少」，嘎哇會給你按鈕。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="wallet">
+  <div class="wrap">
+    <h2>💰 錢包與日常</h2>
+    <p class="sub">每個人都有一個新台幣錢包，玩遊戲、買股票、完成待辦都用同一個錢包。台灣時間 00:00 換日。</p>
+    <div class="grid">
+      <article class="card"><h3><span class="emoji">✨</span>每日簽到</h3>
+        <p>基礎 10,000 元，第一次簽到再送 50,000；連續簽到每天再多 2,000。</p>
+        <ul class="cmds"><li><code>/checkin</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">💼</span>打工</h3>
+        <p>隨機一份工作：便利商店大夜班、外送、家教、婚宴主持…薪水依台灣實際行情，每小時一次，偶爾老闆加碼雙倍。</p>
+        <ul class="cmds"><li><code>/work</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🎯</span>每日任務</h3>
+        <p>每天 3 個任務，全部完成再加碼 20,000。在伺服器裡聊天也會慢慢累積存款（每天有上限）。</p>
+        <ul class="cmds"><li><code>/quests</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">👤</span>個人資料與排行</h3>
+        <ul class="cmds">
+          <li><code>/profile [使用者]</code><span>錢包、排名、簽到紀錄、遊戲戰績</span></li>
+          <li><code>/leaderboard</code><span>財富與連續簽到排行榜</span></li>
+          <li><code>/give 對象 金額</code><span>轉帳給朋友</span></li>
+        </ul></article>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="games">
+  <div class="wrap">
+    <h2>🎮 遊戲</h2>
+    <p class="sub">用錢包裡的錢下注，贏的錢直接進錢包；不想下注的遊戲也可以純練習。</p>
+    <div class="grid">
+      <article class="card"><h3><span class="emoji">🃏</span>21 點</h3>
+        <p>跟莊家比誰最接近 21 點，可以加倍，Blackjack 賠 3:2。</p>
+        <ul class="cmds"><li><code>/blackjack [賭注]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🎰</span>拉霸機</h3>
+        <p>三個一樣就中獎，最高 100 倍。</p>
+        <ul class="cmds"><li><code>/slots 賭注</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🔢</span>猜數字</h3>
+        <p>全頻道一起猜，直接在頻道輸入數字，嘎哇用 ⬆️⬇️ 告訴你大了還是小了，猜中的人拿獎勵。</p>
+        <ul class="cmds"><li><code>/guess [範圍]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">⭕</span>井字遊戲</h3>
+        <p>邀請朋友對戰，或挑戰三種難度的機器人。</p>
+        <ul class="cmds"><li><code>/tictactoe [對手] [難度]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">♠️</span>德州撲克</h3>
+        <p>2–8 人一桌，可以加入四種個性的電腦對手；支援邊池、逾時自動行動、中途入座，私人手牌面板直接看牌下注。</p>
+        <ul class="cmds"><li><code>/poker [大盲注] [帶入籌碼] [電腦對手]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🐢</span>海龜湯 <span class="tag ai">AI</span></h3>
+        <p>AI 擔任湯主，大家輪流問是非題推理出真相。在頻道輸入「？」結尾的問題，湯主回答是、不是或無關；問到關鍵會標 🔑。</p>
+        <ul class="cmds"><li><code>/seatortoise [難度] [題目]</code></li></ul></article>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="stocks">
+  <div class="wrap">
+    <h2>📈 股票模擬</h2>
+    <p class="sub">用錢包裡的新台幣買賣台股（上市股票與 ETF），整股零股都可以，賣出的錢回到同一個錢包。</p>
+    <div class="feature-wide">
+      <div>
+        <h3>怎麼玩</h3>
+        <ul class="cmds">
+          <li><code>/stock quote 股票</code><span>股價、漲跌、走勢、本益比，按鈕直接買賣</span></li>
+          <li><code>/stock buy 股票 股數</code><span>買進</span></li>
+          <li><code>/stock sell 股票 股數</code><span>賣出</span></li>
+          <li><code>/stock account</code><span>持股與損益</span></li>
+          <li><code>/stock orders</code>・<code>/stock history</code><span>委託單、交易紀錄</span></li>
+          <li><code>/stock rank</code><span>伺服器股票損益排行</span></li>
+        </ul>
+      </div>
+      <div>
+        <h3>跟真的一樣</h3>
+        <ul>
+          <li><strong>即時行情</strong>：盤中用證交所即時報價（約 5 秒更新）。</li>
+          <li><strong>盤後下單</strong>：收盤後下的單，用下一個交易日的開盤價成交。</li>
+          <li><strong>手續費與交易稅</strong>：手續費 0.1425%（整股最低 20 元），賣出時股票收 0.3%、ETF 收 0.1% 交易稅。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="tasks">
+  <div class="wrap">
+    <h2>📋 待辦與專案管理</h2>
+    <p class="sub">把要做的事變成頻道裡的任務卡片，指派負責人、設定截止日，嘎哇會在到期前提醒。適合朋友一起做 side project，或家裡分工。</p>
+
+    <div class="feature-wide">
+      <div>
+        <h3>任務卡片</h3>
+        <ul class="cmds">
+          <li><code>/task add 內容 [負責人] [截止] [優先度] [重複]</code></li>
+          <li><code>/task list [範圍]</code><span>全部、我的、指派給我的、沒人負責的</span></li>
+          <li><code>/task done 待辦</code><span>直接完成</span></li>
+        </ul>
+        <ul style="margin-top:14px">
+          <li><strong>截止時間</strong>可以寫 <code>明天</code>、<code>週五</code>、<code>下週一</code>、<code>11/20</code>、<code>明天 18:00</code>、<code>週五下午3點</code>、<code>3d</code>。</li>
+          <li><strong>提醒</strong>：截止前 24 小時提醒一次，逾期再通知一次，卡片變紅。</li>
+          <li><strong>週期任務</strong>：每天、平日、每週、每月，完成後自動建立下一次。</li>
+          <li><strong>完成獎勵</strong>：別人指派給你的待辦完成時，依優先度拿到 3,000／5,000／10,000 元（每天最多 5 次）。</li>
+          <li><strong>沒人負責</strong>的任務，任何人都可以按「🙋 我來做」認領。</li>
+        </ul>
+      </div>
+      <div>
+        <div class="task-card" aria-label="任務卡片範例">
+          <div class="t">🔨 #12 首頁改版</div>
+          <dl>
+            <dt>狀態</dt><dd>進行中</dd>
+            <dt>負責人</dt><dd>@小明</dd>
+            <dt>優先度</dt><dd>🔴 高</dd>
+            <dt>專案</dt><dd>📁 網站・🏁 第一版上線</dd>
+            <dt>截止</dt><dd>11/20（五）18:00（3 天後）</dd>
+          </dl>
+          <div class="btns"><span class="go">✅ 完成</span><span>✏️ 編輯</span><span>👤 指派</span><span>🗑️ 刪除</span></div>
+        </div>
+        <p style="color:var(--muted);font-size:14px;margin:8px 0 0">卡片上的按鈕直接更新進度，嘎哇重開也照樣能按。</p>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:16px">
+      <article class="card"><h3><span class="emoji">📁</span>專案與里程碑</h3>
+        <p>專案綁定一個頻道，在那個頻道新增的待辦自動歸到這個專案；里程碑會顯示完成百分比。</p>
+        <ul class="cmds">
+          <li><code>/project create 名稱 [頻道]</code></li>
+          <li><code>/project view 專案</code><span>進度、里程碑、未完成</span></li>
+          <li><code>/project milestone 專案 名稱 [目標日期]</code></li>
+          <li><code>/project list</code>・<code>/project archive 專案</code></li>
+        </ul></article>
+      <article class="card"><h3><span class="emoji">☀️</span>每日摘要與週報 <span class="tag ai">AI</span></h3>
+        <p>每天早上 9 點在專案頻道列出逾期、今天到期、進行中的待辦；每週五下午 5 點發週報，由 AI 寫一段本週總結。</p>
+        <ul class="cmds"><li><code>/project report 專案</code><span>隨時手動產生週報</span></li></ul></article>
+      <article class="card"><h3><span class="emoji">🐙</span>GitHub 整合</h3>
+        <p>綁定 repo 後，新的 issue、PR、合併、GitHub Actions 失敗會通知到專案頻道；commit 訊息寫 <code>task#12</code> 就自動完成待辦 #12。</p>
+        <ul class="cmds"><li><code>/project github 專案 owner/repo</code></li></ul></article>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="tools">
+  <div class="wrap">
+    <h2>🧰 生活工具</h2>
+    <p class="sub">台灣在地的小幫手。</p>
+    <div class="grid">
+      <article class="card"><h3><span class="emoji">🎵</span>音樂</h3>
+        <p>在你所在的語音頻道播 YouTube 的歌，有播放清單和上一首、暫停、下一首按鈕；也可以說「@嘎哇 放周杰倫的晴天」。</p>
+        <ul class="cmds"><li><code>/play 歌曲</code></li><li><code>/music</code><span>控制面板</span></li></ul></article>
+      <article class="card"><h3><span class="emoji">⏰</span>提醒</h3>
+        <p>時間到在頻道提醒你，bot 重開也不會忘。支援 <code>10m</code>、<code>1h30m</code>、<code>18:30</code>、<code>明天 9:00</code>。</p>
+        <ul class="cmds"><li><code>/remind 時間 內容</code></li><li><code>/reminders</code><span>查看或取消</span></li></ul></article>
+      <article class="card"><h3><span class="emoji">📊</span>投票</h3>
+        <p>按鈕投票，即時顯示票數，可以設定自動截止；再按一次同一個選項就是取消。</p>
+        <ul class="cmds"><li><code>/poll [時長]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🌦️</span>天氣</h3>
+        <p>台北、淡水今天或明天的天氣、降雨機率與穿衣建議，每天早上 6 點也會自動傳送。</p>
+        <ul class="cmds"><li><code>/weather [日期]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🌏</span>地震報告</h3>
+        <p>資料來自中央氣象署；台北震度 4 級以上會自動通報到頻道。</p>
+        <ul class="cmds"><li><code>/earthquake</code></li></ul></article>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="gawa">
+  <div class="wrap">
+    <h2>🐸 嘎哇聊天 <span class="tag ai" style="font-size:14px;vertical-align:middle">AI</span></h2>
+    <p class="sub">嘎哇是一隻住在伺服器池塘裡、嘴巴很毒但心很軟的青蛙。@嘎哇 就能聊天，或用講的叫功能。</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>你可以這樣說</th><th>嘎哇會給你</th></tr></thead>
+        <tbody>
+          <tr><td>明天要帶傘嗎？那後天呢</td><td>天氣按鈕（會接話）</td></tr>
+          <tr><td>幫我簽到、我想打工</td><td>簽到、打工按鈕</td></tr>
+          <tr><td>好無聊想玩遊戲、來一局德州撲克</td><td>遊戲按鈕</td></tr>
+          <tr><td>台積電現在多少？那鴻海呢</td><td>股價按鈕</td></tr>
+          <tr><td>10 分鐘後提醒我關瓦斯</td><td>設定提醒按鈕</td></tr>
+          <tr><td>記一下週五前要交企劃書、把簡報交給 @小明</td><td>新增待辦按鈕</td></tr>
+          <tr><td>放周杰倫的晴天</td><td>直接開始播放</td></tr>
+          <tr><td>今天好累喔</td><td>毒舌但溫暖的安慰</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:16px">按鈕只有說話的人能按，按下才會執行。轉帳、加錢、買賣股票這類會動到錢的事，嘎哇一律不幫忙，請用斜線指令。</p>
+  </div>
+</section>
+
+<section class="block" id="admins">
+  <div class="wrap">
+    <h2>🛠️ 給伺服器管理員</h2>
+    <div class="grid">
+      <article class="card"><h3><span class="emoji">🎛️</span>功能開關</h3>
+        <p>不需要的功能可以關掉，例如只想要待辦和天氣、不要遊戲。關掉後指令會回覆「已關閉」、說明和大廳不再列出、自動通知也會停止。
+          可以只關某個伺服器，也可以全部一起關。</p></article>
+      <article class="card"><h3><span class="emoji">📌</span>公開大廳</h3>
+        <p>有「管理訊息」權限的人可以用 <code>/menu 公開:True</code> 把大廳發在頻道裡，大家都能直接按。</p></article>
+      <article class="card"><h3><span class="emoji">🧹</span>清除訊息</h3>
+        <p><code>/clear 數量</code> 一次清除頻道裡的訊息（需要管理訊息權限）。</p></article>
+    </div>
+  </div>
+</section>
+
+<section class="block faq" id="faq">
+  <div class="wrap">
+    <h2>常見問題</h2>
+    <details><summary>錢可以換成真的新台幣嗎？</summary>
+      <p>不行，錢包裡的新台幣只是遊戲用的虛擬貨幣，不能兌換、也不能買賣。</p></details>
+    <details><summary>嘎哇說「大腦在睡覺」是什麼意思？</summary>
+      <p>嘎哇聊天、海龜湯和週報的 AI 跑在主人的電腦上，那台電腦關機時 AI 就暫時不能用。斜線指令和其他功能都照常可以用。</p></details>
+    <details><summary>我的對話會被傳到雲端嗎？</summary>
+      <p>不會。AI 用的是自己架的 Ollama，對話只在主人的電腦上處理；聊天記錄只存在記憶體，bot 重開就忘。</p></details>
+    <details><summary>為什麼有些指令說「已經關閉」？</summary>
+      <p>這個伺服器的管理員把那個功能關掉了，可以請管理員打開。</p></details>
+    <details><summary>中文介面看到的指令名稱不一樣？</summary>
+      <p>Discord 語言設定成中文時，指令會顯示中文名稱，例如 <code>/task add</code> 顯示成 <code>/待辦 新增</code>，功能完全一樣。</p></details>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">🐸 嘎哇 Bot・在 Discord 輸入 <code>/help</code> 看指令說明，或 <code>/menu</code> 打開大廳。</div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  try { var saved = localStorage.getItem("theme"); if (saved) root.setAttribute("data-theme", saved); } catch (e) {}
+  document.getElementById("theme").addEventListener("click", function () {
+    var dark = root.getAttribute("data-theme") ? root.getAttribute("data-theme") === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = dark ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("theme", next); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>

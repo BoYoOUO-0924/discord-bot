@@ -20,6 +20,7 @@ from typing import Deque, Dict, List, Optional
 
 from aiohttp import web
 
+from core.features import FEATURES, FEATURES_BY_KEY, GLOBAL
 from core.quests import daily_quests
 from core.timeutil import today_tw
 
@@ -117,6 +118,7 @@ class AdminServer:
             ("GET", "/api/logs", self.logs), ("GET", "/api/logs/download", self.download_log),
             ("GET", "/api/audit", self.audit_log),
             ("POST", "/api/update", self.update_now),
+            ("GET", "/api/features", self.features), ("POST", "/api/features", self.set_feature),
             ("GET", "/api/board", self.board), ("POST", "/api/tasks/{task_id:\\d+}/status", self.move_task),
         ]
         for method, path, handler in routes:
@@ -338,6 +340,35 @@ class AdminServer:
             return web.json_response({"error": "天數必須介於 0 到 10000"}, status=400)
         await self.db.admin_set_streak(user_id, streak, today_tw())
         await self.record(request, "streak", user_id, f"連續簽到改為 {streak} 天")
+        return web.json_response({"ok": True})
+
+    # ================================================================== 功能開關
+    async def features(self, request: web.Request):
+        flags = self.bot.features
+        overrides = flags.overrides()
+        guild_ids = {g.id for g in getattr(self.bot, "guilds", [])} | {g for g in overrides if g != GLOBAL}
+        return web.json_response({
+            "features": [{"key": f.key, "emoji": f.emoji, "name": f.name, "description": f.description} for f in FEATURES],
+            "guilds": sorted(({"id": str(g), "name": self.guild_name(g)} for g in guild_ids), key=lambda g: g["name"]),
+            "global": {f.key: overrides.get(GLOBAL, {}).get(f.key, True) for f in FEATURES},
+            "overrides": {str(g): v for g, v in overrides.items() if g != GLOBAL},
+        })
+
+    async def set_feature(self, request: web.Request):
+        """body：guild（"0" 代表所有伺服器）、feature、enabled（true／false；null 代表這個伺服器回到預設）。"""
+        body = await self.json_body(request)
+        feature, enabled = body.get("feature"), body.get("enabled")
+        guild = str(body.get("guild", ""))
+        if feature not in FEATURES_BY_KEY or not guild.isdigit() or enabled not in (True, False, None):
+            return web.json_response({"error": "參數不正確"}, status=400)
+        guild_id = int(guild)
+        if guild_id == GLOBAL and enabled is None:
+            enabled = True
+        # 全域開啟就是預設值，不用存
+        await self.bot.features.set(guild_id, feature, None if guild_id == GLOBAL and enabled else enabled)
+        where = "所有伺服器" if guild_id == GLOBAL else self.guild_name(guild_id)
+        state = {True: "開啟", False: "關閉", None: "回到預設"}[enabled]
+        await self.record(request, "feature", None, f"{FEATURES_BY_KEY[feature].name}：{where} {state}")
         return web.json_response({"ok": True})
 
     # ================================================================== 待辦看板

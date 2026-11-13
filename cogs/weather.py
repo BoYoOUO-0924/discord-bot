@@ -19,6 +19,7 @@ from discord.ext import commands, tasks
 
 from core import weather
 from core.timeutil import TAIPEI, now_tw
+from core.features import enabled
 from core.ui import Color, defer, respond, send_error
 
 log = logging.getLogger(__name__)
@@ -179,6 +180,8 @@ class Weather(commands.Cog):
 
     @tasks.loop(minutes=1)
     async def daily_loop(self):
+        if not enabled(self.bot, "weather"):
+            return   # 管理後台把天氣全域關掉了
         now = now_tw()
         slot = self.due_slot(now)
         if slot is None or time.time() - self.last_attempt < RETRY_SECONDS:

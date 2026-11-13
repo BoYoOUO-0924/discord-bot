@@ -23,6 +23,7 @@ from cogs.seatortoise import is_question
 from core import assistant as asst
 from core import tasks as tk
 from core.ai import AIError
+from core.features import INTENT_FEATURES, disabled_message, enabled, feature_for_action
 from core.music import MusicError, parse_control
 from core.catalog import GAMES
 from core.timeutil import now_tw, parse_when
@@ -182,6 +183,8 @@ class Assistant(commands.Cog):
         text = self.addressed_text(message)
         if text is None or self.belongs_to_game(message, text):
             return
+        if not enabled(self.bot, "assistant", getattr(message.guild, "id", None)):
+            return
         now = time.time()
         if now - self.last_message.get(message.author.id, 0) < USER_COOLDOWN:
             return await self._react(message, "⏳")
@@ -236,8 +239,13 @@ class Assistant(commands.Cog):
                 others = [m for m in message.mentions if m.id != me and not getattr(m, "bot", False)]
                 intent.assignee = others[0].id if others else 0
         history = self.history[message.channel.id]
-        actions = buttons_for(intent)
-        if intent.name == "music":
+        guild_id = getattr(message.guild, "id", None)
+        actions = [a for a in buttons_for(intent) if enabled(self.bot, feature_for_action(a[0]), guild_id)]
+        feature = INTENT_FEATURES.get(intent.name)
+        if not enabled(self.bot, feature, guild_id) or (intent.name == "game" and not actions):
+            reply = f"嘎，{disabled_message(feature if intent.name != 'game' else None)}"
+            await self._reply(message, reply)
+        elif intent.name == "music":
             reply = await self._music(message, intent.song, text)
         elif intent.name in LINES and (actions or intent.name == "unsupported"):
             reply = random.choice(LINES[intent.name])
@@ -267,6 +275,8 @@ class Assistant(commands.Cog):
     async def _music_control(self, message: discord.Message, text: str) -> bool:
         cog = self.bot.get_cog("Music")
         if not cog or not parse_control(text) or message.guild.id not in cog.players:
+            return False
+        if not enabled(self.bot, "music", message.guild.id):
             return False
         try:
             reply = await cog.speech(message, "", text)
@@ -303,6 +313,9 @@ class Assistant(commands.Cog):
     # ------------------------------------------------------------------ 按下按鈕
     async def run_action(self, interaction: discord.Interaction, action: str) -> None:
         """執行按鈕對應的功能。跟大廳按鈕走同一條路，結果只有按的人看得到。"""
+        feature = feature_for_action(action)
+        if not enabled(self.bot, feature, getattr(interaction, "guild_id", None)):
+            return await send_error(interaction, disabled_message(feature))
         kind, _, arg = action.partition(":")
         hub = self.bot.get_cog("Hub")
         if kind in ("checkin", "work", "quests", "profile", "leaderboard", "help", "stocks", "game") and hub:

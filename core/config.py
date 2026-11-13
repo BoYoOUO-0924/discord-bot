@@ -10,12 +10,13 @@ from typing import List, Optional, Tuple
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(ROOT, ".env")
+DEFAULT_GUIDE_URL = "https://boyoouo-0924.github.io/discord-bot/"
 
 KNOWN_KEYS = [
     "DISCORD_TOKEN", "DEV_GUILD_ID", "DATABASE_PATH", "AUTO_UPDATE",
     "ADMIN_PASSWORD", "ADMIN_HOST", "ADMIN_PORT", "OLLAMA_URL", "OLLAMA_MODEL",
     "CWA_API_KEY", "WEATHER_WEBHOOK_URL", "WEATHER_TIME", "EARTHQUAKE_WEBHOOK_URL",
-    "TWFOLIO_DB", "TWFOLIO_CONFIG", "ASSISTANT_CHANNELS", "GITHUB_TOKEN",
+    "TWFOLIO_DB", "TWFOLIO_CONFIG", "ASSISTANT_CHANNELS", "GITHUB_TOKEN", "GUIDE_URL",
 ]
 
 # 已經移除的功能留下的設定：.env 裡還有的話提醒可以刪掉，不當成打錯字
@@ -157,6 +158,7 @@ class Settings:
     twfolio_config: Optional[str] = None
     assistant_channels: Tuple[int, ...] = ()
     github_token: Optional[str] = None
+    guide_url: Optional[str] = None
 
 
 def load_settings() -> Settings:
@@ -188,6 +190,8 @@ def load_settings() -> Settings:
         assistant_channels=_channel_ids(_read("ASSISTANT_CHANNELS", "")),
         # 專案管理的 GitHub 整合：不填也能讀公開 repo（每小時 60 次），私人 repo 要填
         github_token=_read("GITHUB_TOKEN"),
+        # /help 的「完整功能介紹」連結（docs/index.html 用 GitHub Pages 發布）；設成空白就不顯示
+        guide_url=_read("GUIDE_URL", DEFAULT_GUIDE_URL) or None,
     )
 
 

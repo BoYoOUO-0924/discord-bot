@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands, tasks
 
 from core import github as gh
+from core.features import enabled
 from core.ui import Color, make_embed
 
 log = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class GitHubSync(commands.Cog):
         if time.time() < self.client.rate_limited_until:
             return
         for project in await self.bot.db.list_projects():
-            if project["github_repo"]:
+            if project["github_repo"] and enabled(self.bot, "tasks", project["guild_id"]):
                 await self.sync(project)
 
     @poll_loop.before_loop

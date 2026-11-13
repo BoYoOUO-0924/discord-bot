@@ -164,6 +164,7 @@ async function render() {
     else if (page === "users") await renderUsers(view);
     else if (page === "games") await renderGames(view);
     else if (page === "board") await renderBoard(view);
+    else if (page === "features") await renderFeatures(view);
     else if (page === "serverlog") await renderServerLog(view);
     else if (page === "logs") await renderAudit(view);
     else await renderOverview(view);
@@ -616,10 +617,70 @@ async function renderBoard(view) {
   every(30000, () => { if (!document.querySelector(".task.dragging")) load().catch(() => {}); });
 }
 
+// ---------------------------------------------------------------- 功能開關
+let featureGuild = "";
+
+async function renderFeatures(view) {
+  const box = h("div");
+  const save = async (guild, feature, enabled) => {
+    try {
+      await api("/api/features", { method: "POST", body: { guild, feature, enabled } });
+      toast("已儲存，立即生效");
+    } catch (e) { toast(e.message, true); }
+    await load();
+  };
+
+  const load = async () => {
+    const data = await api("/api/features");
+    if (featureGuild && !data.guilds.some((g) => g.id === featureGuild)) featureGuild = "";
+    const overrides = data.overrides[featureGuild] || {};
+    const guildName = (data.guilds.find((g) => g.id === featureGuild) || {}).name;
+
+    const picker = h("label", { class: "inline" }, "個別伺服器 ",
+      h("select", { onchange: (e) => { featureGuild = e.target.value; load(); } },
+        h("option", { value: "", text: "（不選，只看全部伺服器）" }),
+        data.guilds.map((g) => h("option", { value: g.id, text: g.name, selected: g.id === featureGuild }))));
+
+    const rows = data.features.map((f) => {
+      const globalOn = data.global[f.key];
+      const globalSwitch = h("label", { class: "switch" },
+        h("input", { type: "checkbox", checked: globalOn, "aria-label": `${f.name}：所有伺服器`,
+          onchange: (e) => save("0", f.key, e.target.checked) }),
+        h("span", { text: globalOn ? "開啟" : "關閉" }));
+      let guildCell = null;
+      if (featureGuild) {
+        const value = f.key in overrides ? String(overrides[f.key]) : "";
+        guildCell = h("td", {}, globalOn
+          ? h("select", { "aria-label": `${f.name}：${guildName}`,
+              onchange: (e) => save(featureGuild, f.key, e.target.value === "" ? null : e.target.value === "true") },
+              [["", "跟隨全部伺服器（開啟）"], ["true", "開啟"], ["false", "關閉"]].map(([v, t]) =>
+                h("option", { value: v, text: t, selected: v === value })))
+          : h("span", { class: "muted", text: "全部伺服器已關閉" }));
+      }
+      const off = !globalOn || overrides[f.key] === false;
+      return h("tr", { class: off ? "off" : "" },
+        h("td", {}, h("div", { class: "feature-name", text: `${f.emoji} ${f.name}` }), h("div", { class: "muted", text: f.description })),
+        h("td", {}, globalSwitch), guildCell);
+    });
+
+    box.replaceChildren(
+      h("div", { class: "card-head" }, h("h2", { text: "功能開關" }), h("span", { class: "spacer" }), picker),
+      h("p", { class: "muted", text: "關掉的功能：指令會回覆「已關閉」、說明頁和大廳不再列出、自動通知（摘要、週報、提醒、天氣、地震）停止發送。" +
+        "大廳、說明、清除訊息是基本功能，不能關。天氣預報和地震通報是用 Webhook 發的，只能在「所有伺服器」關閉。" }),
+      h("div", { class: "table-wrap" }, h("table", { class: "features" },
+        h("thead", {}, h("tr", {}, h("th", { text: "功能" }), h("th", { text: "所有伺服器" }),
+          featureGuild ? h("th", { text: guildName }) : null)),
+        h("tbody", {}, rows))));
+  };
+
+  view.replaceChildren(h("section", { class: "card" }, box));
+  await load();
+}
+
 // ---------------------------------------------------------------- 管理操作紀錄
 const ACTIONS = { login: "登入後台", points: "調整存款", streak: "修改連續簽到", reset_work: "重設打工冷卻",
                   end_game: "結束遊戲", refund_hold: "退還賭注", update: "立即更新",
-                  move_task: "移動待辦" };
+                  move_task: "移動待辦", feature: "功能開關" };
 
 async function renderAudit(view) {
   const data = await api("/api/audit");

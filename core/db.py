@@ -190,6 +190,12 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at  REAL NOT NULL,
     UNIQUE (guild_id, name)
 );
+CREATE TABLE IF NOT EXISTS feature_flags (
+    guild_id INTEGER NOT NULL,                    -- 0 代表所有伺服器
+    feature  TEXT NOT NULL,
+    enabled  INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, feature)
+);
 CREATE TABLE IF NOT EXISTS milestones (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
@@ -1522,3 +1528,18 @@ class Database:
             async with self.conn.execute(
                 "SELECT guild_id FROM tasks UNION SELECT guild_id FROM projects ORDER BY guild_id") as cur:
                 return [r["guild_id"] for r in await cur.fetchall()]
+
+    # ------------------------------------------------------------------ 功能開關
+    async def list_feature_flags(self) -> List[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute("SELECT guild_id, feature, enabled FROM feature_flags") as cur:
+                return await cur.fetchall()
+
+    async def set_feature_flag(self, guild_id: int, feature: str, enabled: Optional[bool]) -> None:
+        async with self._lock:
+            if enabled is None:
+                await self.conn.execute("DELETE FROM feature_flags WHERE guild_id = ? AND feature = ?", (guild_id, feature))
+            else:
+                await self.conn.execute("INSERT OR REPLACE INTO feature_flags (guild_id, feature, enabled) VALUES (?, ?, ?)",
+                                        (guild_id, feature, int(enabled)))
+            await self.conn.commit()

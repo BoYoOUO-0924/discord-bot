@@ -201,6 +201,16 @@
 
 雲端主機（Linux）請看 [deploy/linux/README.md](deploy/linux/README.md)：一個腳本裝好，開機自動啟動、當掉自動重開。
 
+## 功能開關與功能介紹網頁
+
+- **功能開關**：管理後台的「功能開關」分頁可以關掉錢包、各個遊戲、股票、音樂、提醒、投票、待辦與專案、天氣、地震、嘎哇聊天。
+  可以全部伺服器一起關，也可以只關某個伺服器（選伺服器後設定「開啟／關閉／跟隨全部伺服器」），儲存後立即生效。
+  關掉的功能：斜線指令回覆「已關閉」、`/help` 和大廳不再列出、嘎哇不會叫這個功能、自動通知（提醒、摘要、週報、GitHub）停止。
+  天氣預報和地震通報是用 Webhook 發的，只能在「所有伺服器」關閉。大廳、說明、清除訊息是基本功能，不能關。
+- **功能介紹網頁**：`docs/index.html` 是給玩家看的完整圖文介紹，用 GitHub Pages 發布
+  （repo 的 Settings → Pages → Branch 選 `main`、資料夾選 `/docs`）。`/help` 下方會有「📘 完整功能介紹」按鈕，
+  網址預設是 `https://boyoouo-0924.github.io/discord-bot/`，可以用 `.env` 的 `GUIDE_URL` 改掉，設成空白就不顯示。
+
 ## 管理後台
 
 在 `.env` 設定 `ADMIN_PASSWORD`（至少 8 個字元）後，bot 會同時啟動一個網頁後台（預設連接埠 8080），
@@ -232,6 +242,7 @@ core/
   timeutil.py       台灣時區與時間字串解析
   tasks.py          待辦與專案：截止時間解析、提醒時間、週期、獎勵、摘要與週報的排程和 AI 提示詞
   github.py         GitHub API：讀 issue、PR、Actions、commit
+  features.py       功能開關：哪些指令、按鈕屬於哪個功能，全域與各伺服器的開關
 cogs/
   hub.py            /menu、/help
   economy.py        簽到、個人資料、排行榜、轉帳
@@ -246,6 +257,7 @@ cogs/
   music.py          音樂：語音頻道播放、控制面板
   blackjack.py  slots.py  guess_number.py  tictactoe.py  seatortoise.py
   poker/            德州撲克（engine.py 是不依賴 Discord 的牌局引擎）
+docs/index.html     給玩家看的功能介紹網頁（GitHub Pages）
 tests/              單元測試：python -m unittest discover -s tests -t .
 data/               資料庫 bot.db（不會上傳）
 ```

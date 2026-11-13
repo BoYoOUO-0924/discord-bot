@@ -233,3 +233,10 @@ label.inline { display: inline-flex; align-items: center; gap: 4px; }
 .task-foot { display: flex; align-items: center; gap: 4px; font-size: 13px; }
 .task-foot .spacer { flex: 1; }
 .badge.bad { color: var(--critical); }
+
+/* ---------------- 功能開關 ---------------- */
+table.features td { vertical-align: middle; }
+table.features tr.off .feature-name { color: var(--muted); text-decoration: line-through; }
+.feature-name { font-weight: 600; }
+.switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.switch input { width: 18px; height: 18px; accent-color: var(--accent); }

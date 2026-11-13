@@ -14,6 +14,7 @@ from discord.ext import commands
 from core.ai import create_ai
 from core.config import env_status, legacy_keys, load_settings
 from core.db import Database
+from core.features import FeatureFlags, disabled_message, feature_for_command
 from core.instance import acquire_single_instance
 from core.i18n import ZhTranslator
 from core.ui import send_error
@@ -55,6 +56,14 @@ class AppTree(app_commands.CommandTree):
     """所有斜線指令的共同入口：記錄伺服器成員、統一處理錯誤。"""
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # 管理後台關掉的功能：直接告訴使用者，不執行
+        command = interaction.command
+        if command is not None and interaction.guild_id is not None:
+            feature = feature_for_command(command.qualified_name)
+            if not interaction.client.features.is_enabled(feature, interaction.guild_id):
+                if interaction.type is discord.InteractionType.application_command:
+                    await send_error(interaction, disabled_message(feature))
+                return False
         # 自動完成每打一個字就會觸發一次，不需要記錄
         if interaction.guild_id and interaction.type is discord.InteractionType.application_command:
             db = interaction.client.db
@@ -91,6 +100,7 @@ class Bot(commands.Bot):
                          help_command=None, tree_cls=AppTree)
         self.settings = load_settings()
         self.db = Database(self.settings.database_path)
+        self.features = FeatureFlags(self.db)
         self.ai = create_ai(self.settings)
         self.restart_requested = False
 
@@ -101,6 +111,7 @@ class Bot(commands.Bot):
 
     async def setup_hook(self) -> None:
         await self.db.connect()
+        await self.features.load()
         data_dir = os.path.dirname(self.settings.database_path)
         imported = await self.db.migrate_legacy_json(data_dir)
         if imported:
