@@ -52,6 +52,7 @@ COMMAND_NAMES = {
     "milestone": "里程碑",
     "report": "週報",
     "archive": "封存",
+    "github": "github",
 }
 
 # 同名參數在不同指令可能有不同意思，所以用「指令.參數」當 key，找不到再退回只看參數名
@@ -94,6 +95,8 @@ PARAMETER_NAMES = {
     "milestone": "里程碑",
     "include_archived": "含已封存",
     "project milestone.due": "目標日期",
+    "repeat": "重複",
+    "repo": "repo",
 }
 
 

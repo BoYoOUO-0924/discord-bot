@@ -150,7 +150,7 @@ class TaskDatabaseTest(unittest.IsolatedAsyncioTestCase):
 def row(**kw):
     base = dict(id=7, guild_id=1, channel_id=10, message_id=55, title="寫報告", note="", creator_id=100,
                 assignee_id=None, priority=1, status="todo", due_at=None, due_has_time=0, created_at=0.0,
-                done_at=None, done_by=None)
+                done_at=None, done_by=None, repeat=None, project_id=None, milestone_id=None)
     base.update(kw)
     return base
 

@@ -14,6 +14,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from core import github as gh
 from core import tasks as tk
 from core.ai import AIError
 from core.timeutil import now_tw, ts
@@ -143,6 +144,9 @@ class Projects(commands.Cog):
             embed.add_field(name="未完成（依截止時間）",
                             value=join_lines([f"{tk.STATUS_EMOJI[t['status']]} {task_line(t, now)}" for t in open_tasks]),
                             inline=False)
+        if project["github_repo"]:
+            embed.add_field(name="GitHub", value=f"🐙 [{project['github_repo']}](https://github.com/{project['github_repo']})",
+                            inline=False)
         embed.set_footer(text="/task list 可以只看這個專案；/project report 立刻產生週報")
         return embed
 
@@ -189,6 +193,40 @@ class Projects(commands.Cog):
         await self.bot.db.update_project(project, archived=int(archived))
         verb = "封存" if archived else "恢復"
         await respond(interaction, embed=success_embed(f"已{verb}專案 📁 {row['name']}。"))
+
+    # ------------------------------------------------------------------ GitHub
+    @project_group.command(name="github", description="把專案綁定 GitHub repo：通知 issue、PR、CI 失敗，commit 寫 task#12 完成待辦")
+    @app_commands.describe(project="哪個專案", repo="GitHub repo，例如 owner/name 或網址；不填就取消綁定")
+    async def github(self, interaction: discord.Interaction, project: int, repo: Optional[str] = None):
+        row = await self.find(interaction, project)
+        if not row:
+            return
+        if not can_manage(row, interaction.user):
+            return await send_error(interaction, "只有建立專案的人或管理員可以設定 GitHub。")
+        if not repo:
+            await self.bot.db.update_project(project, github_repo=None, github_state=None)
+            return await respond(interaction, embed=success_embed(f"已取消 📁 {row['name']} 的 GitHub 綁定。"))
+        name = gh.normalize_repo(repo)
+        if not name:
+            return await send_error(interaction, "看不懂這個 repo，請用 `owner/name` 或 GitHub 網址。")
+        sync = self.bot.get_cog("GitHubSync")
+        if not sync:
+            return await send_error(interaction, "GitHub 同步功能沒有啟動。")
+        await defer(interaction)
+        state = gh.State()
+        try:
+            info = await sync.client.repo(name)
+            await sync.client.poll(info.get("full_name", name), state)   # 記下目前的位置，舊的動態不通知
+        except gh.GitHubError as e:
+            return await send_error(interaction, str(e))
+        name = info.get("full_name", name)
+        await self.bot.db.update_project(project, github_repo=name, github_state=state.dump())
+        embed = success_embed(f"📁 {row['name']} 已綁定 GitHub **{name}**。")
+        embed.add_field(name="會發生什麼", value=(
+            f"・每 {sync.client.poll_minutes} 分鐘檢查一次，新的 issue、PR、合併、CI 失敗會通知到 <#{row['channel_id']}>\n"
+            "・commit 訊息寫 `task#12` 或 `待辦#12`，就會自動完成待辦 #12"), inline=False)
+        await respond(interaction, embed=embed)
+        log.info("專案「%s」綁定 GitHub %s", row["name"], name)
 
     # ------------------------------------------------------------------ 週報
     async def names(self, user_ids) -> Dict[int, str]:
@@ -327,7 +365,7 @@ class Projects(commands.Cog):
 
 
 # 自動完成：專案參數全部共用同一個來源
-for _command in (Projects.view, Projects.milestone, Projects.archive, Projects.report):
+for _command in (Projects.view, Projects.milestone, Projects.archive, Projects.report, Projects.github):
     _command.autocomplete("project")(Projects.project_autocomplete)
 
 

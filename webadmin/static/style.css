@@ -214,3 +214,22 @@ tbody tr.clickable:hover { background: var(--surface-2); }
   .topbar-right { margin-left: 0; width: 100%; justify-content: flex-end; }
   .profile-head .points { margin-left: 0; text-align: left; width: 100%; }
 }
+
+/* ---------------- 待辦看板 ---------------- */
+label.inline { display: inline-flex; align-items: center; gap: 4px; }
+.board { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; }
+@media (max-width: 860px) { .board { grid-template-columns: 1fr; } }
+.board-col { background: var(--surface-2); border-radius: 12px; padding: 12px; min-height: 160px; border: 2px dashed transparent; }
+.board-col.drop { border-color: var(--accent); }
+.board-col h3 { margin: 0 0 10px; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+.board-list { display: flex; flex-direction: column; gap: 10px; }
+.task { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: grab;
+        box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; }
+.task.dragging { opacity: .5; }
+.task.overdue { border-left: 4px solid var(--critical); }
+.task-title { font-weight: 600; overflow-wrap: anywhere; }
+.task-note { font-size: 13px; overflow-wrap: anywhere; }
+.task-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+.task-foot { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.task-foot .spacer { flex: 1; }
+.badge.bad { color: var(--critical); }

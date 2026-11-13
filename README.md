@@ -34,6 +34,7 @@
 | | `/project create 名稱 [頻道]`、`/project list` | 建立專案並綁定頻道；列出專案與進度（中文介面是 `/專案 建立`） |
 | | `/project view 專案`、`/project milestone 專案 名稱 [目標日期]` | 專案進度與里程碑完成百分比；新增里程碑 |
 | | `/project report 專案`、`/project archive 專案` | 立刻產生本週週報；封存或恢復專案 |
+| | `/project github 專案 [repo]` | 綁定 GitHub：issue、PR、CI 失敗通知到專案頻道，commit 寫 `task#12` 完成待辦 |
 | 工具 | `/remind 時間 內容` | 提醒，支援 `10m`、`1h30m`、`18:30`、`明天 9:00` |
 | | `/reminders` | 查看或取消提醒 |
 | | `/poll [時長]` | 按鈕投票，可設定自動截止 |
@@ -147,6 +148,19 @@
   `/project report` 可以隨時手動產生。
 - 封存的專案不再發摘要和週報，待辦保留；同一個伺服器最多 50 個專案。
 
+### 週期任務、完成獎勵、看板、GitHub
+
+- **週期任務**：`/task add` 的 `repeat` 選每天、平日、每週、每月（需要截止時間）。完成後自動建立下一次，
+  截止時間從原本的截止日往後推到下一個還沒過的週期（拖了兩週才完成，也只會建一個）。
+- **完成獎勵**：別人指派給你的待辦完成時，負責人拿到新台幣：低 3,000、中 5,000、高 10,000 元。
+  自己指派給自己、沒有負責人的沒有獎勵；每個待辦只發一次（重新打開再完成不會再發）；每人每天最多 5 次。
+- **待辦看板**：管理後台多了「待辦看板」分頁，三欄待辦／進行中／完成，可以拖曳卡片或按 ◀ ▶ 移動，
+  依伺服器、專案篩選。在看板完成一樣會發獎勵、建立週期任務，Discord 上的卡片同步更新，操作寫進管理操作紀錄。
+- **GitHub**：`/project github 專案 owner/repo` 綁定後，定時檢查新的 issue、PR、合併、GitHub Actions 失敗，
+  通知到專案頻道（剛綁定時不會把舊的動態全部發出來）；commit 訊息寫 `task#12` 或 `待辦#12` 就完成待辦 #12
+  （只限同一個伺服器的待辦；單純的 `#12` 是 GitHub 自己的 issue 編號，不算）。
+  不設定 `GITHUB_TOKEN` 也能讀公開 repo（每 10 分鐘檢查一次）；私人 repo 或想每 5 分鐘檢查一次，請在 `.env` 設定 token。
+
 ## 嘎哇聊天（用講的叫功能）
 
 嘎哇是一隻住在伺服器池塘裡、毒舌但心軟的青蛙。**@嘎哇** 說話就會回應；在 `.env` 設定 `ASSISTANT_CHANNELS`
@@ -216,14 +230,16 @@ core/
   catalog.py        遊戲與指令目錄（大廳、說明、戰績共用）
   i18n.py           指令名稱中文化
   timeutil.py       台灣時區與時間字串解析
-  tasks.py          待辦與專案：截止時間解析、提醒時間、摘要與週報的排程和 AI 提示詞
+  tasks.py          待辦與專案：截止時間解析、提醒時間、週期、獎勵、摘要與週報的排程和 AI 提示詞
+  github.py         GitHub API：讀 issue、PR、Actions、commit
 cogs/
   hub.py            /menu、/help
   economy.py        簽到、個人資料、排行榜、轉帳
   reminders.py      提醒
   polls.py          投票
   tasks.py          待辦：/task、任務卡片按鈕、到期提醒
-  projects.py       專案：/project、里程碑、每日摘要、每週 AI 週報
+  projects.py       專案：/project、里程碑、每日摘要、每週 AI 週報、綁定 GitHub
+  github_sync.py    GitHub 同步：定時讀 repo 動態、commit 完成待辦
   admin.py          /clear
   weather.py        每日天氣預報 Webhook、/weather
   assistant.py      嘎哇聊天：@嘎哇 用講的叫功能、閒聊

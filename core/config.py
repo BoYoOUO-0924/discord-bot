@@ -15,7 +15,7 @@ KNOWN_KEYS = [
     "DISCORD_TOKEN", "DEV_GUILD_ID", "DATABASE_PATH", "AUTO_UPDATE",
     "ADMIN_PASSWORD", "ADMIN_HOST", "ADMIN_PORT", "OLLAMA_URL", "OLLAMA_MODEL",
     "CWA_API_KEY", "WEATHER_WEBHOOK_URL", "WEATHER_TIME", "EARTHQUAKE_WEBHOOK_URL",
-    "TWFOLIO_DB", "TWFOLIO_CONFIG", "ASSISTANT_CHANNELS",
+    "TWFOLIO_DB", "TWFOLIO_CONFIG", "ASSISTANT_CHANNELS", "GITHUB_TOKEN",
 ]
 
 # 已經移除的功能留下的設定：.env 裡還有的話提醒可以刪掉，不當成打錯字
@@ -156,6 +156,7 @@ class Settings:
     twfolio_db: Optional[str] = None
     twfolio_config: Optional[str] = None
     assistant_channels: Tuple[int, ...] = ()
+    github_token: Optional[str] = None
 
 
 def load_settings() -> Settings:
@@ -185,6 +186,8 @@ def load_settings() -> Settings:
         twfolio_config=_read("TWFOLIO_CONFIG", r"C:\twfolio\config.yaml"),
         # 嘎哇聊天：在這些頻道直接講話就會回應（頻道 ID，用逗號分隔）；其他頻道要 @嘎哇
         assistant_channels=_channel_ids(_read("ASSISTANT_CHANNELS", "")),
+        # 專案管理的 GitHub 整合：不填也能讀公開 repo（每小時 60 次），私人 repo 要填
+        github_token=_read("GITHUB_TOKEN"),
     )
 
 

@@ -163,6 +163,7 @@ async function render() {
     if (page === "users" && id) await renderUser(view, id);
     else if (page === "users") await renderUsers(view);
     else if (page === "games") await renderGames(view);
+    else if (page === "board") await renderBoard(view);
     else if (page === "serverlog") await renderServerLog(view);
     else if (page === "logs") await renderAudit(view);
     else await renderOverview(view);
@@ -539,9 +540,86 @@ async function renderGames(view) {
   every(10000, () => load().catch(() => {}));
 }
 
+// ---------------------------------------------------------------- 待辦看板
+const BOARD_COLUMNS = [["todo", "📝 待辦"], ["doing", "🔨 進行中"], ["done", "✅ 完成"]];
+const PRIORITY_LABEL = { 0: "🟢 低", 1: "🟡 中", 2: "🔴 高" };
+const REPEAT_LABEL = { daily: "每天", weekdays: "平日", weekly: "每週", monthly: "每月" };
+const boardFilter = { guild: "", project: "" };
+
+async function renderBoard(view) {
+  const filters = h("div", { class: "toolbar" });
+  const columns = h("div", { class: "board" });
+  const note = h("span", { class: "muted" });
+
+  const move = async (taskId, status) => {
+    try {
+      await api(`/api/tasks/${taskId}/status`, { method: "POST", body: { status } });
+      await load();
+    } catch (e) { toast(e.message, true); }
+  };
+
+  const card = (t, index) => {
+    const step = (delta) => BOARD_COLUMNS[index + delta] && h("button", {
+      class: "btn small ghost", type: "button", text: delta < 0 ? "◀" : "▶",
+      "aria-label": `移到「${BOARD_COLUMNS[index + delta][1]}」`, onclick: () => move(t.id, BOARD_COLUMNS[index + delta][0]),
+    });
+    return h("article", { class: "task" + (t.overdue ? " overdue" : ""), draggable: "true", "data-id": t.id,
+        ondragstart: (e) => { e.dataTransfer.setData("text/plain", String(t.id)); e.currentTarget.classList.add("dragging"); },
+        ondragend: (e) => e.currentTarget.classList.remove("dragging") },
+      h("div", { class: "task-title" }, h("span", { class: "muted", text: `#${t.id} ` }), t.title),
+      t.note ? h("div", { class: "task-note muted", text: t.note.slice(0, 120) }) : null,
+      h("div", { class: "task-meta" },
+        h("span", { class: "badge", text: PRIORITY_LABEL[t.priority] }),
+        t.project ? h("span", { class: "badge", text: `📁 ${t.project}` }) : null,
+        t.repeat ? h("span", { class: "badge", text: `🔁 ${REPEAT_LABEL[t.repeat] || t.repeat}` }) : null,
+        t.due_at ? h("span", { class: "badge" + (t.overdue ? " bad" : ""), text: `${t.overdue ? "⚠️ " : ""}${fmtTime(t.due_at)} 截止` }) : null),
+      h("div", { class: "task-foot" },
+        h("span", { text: t.assignee ? `👤 ${t.assignee.name}` : "沒人負責", class: t.assignee ? "" : "muted" }),
+        h("span", { class: "spacer" }), step(-1), step(1)));
+  };
+
+  const load = async () => {
+    const query = new URLSearchParams();
+    if (boardFilter.guild) query.set("guild", boardFilter.guild);
+    if (boardFilter.project) query.set("project", boardFilter.project);
+    const data = await api(`/api/board?${query}`);
+
+    const select = (label, items, key, onchange) => h("label", { class: "inline" }, label,
+      h("select", { onchange }, h("option", { value: "", text: "全部" }),
+        items.map((it) => h("option", { value: it.id, text: it.name, selected: String(it.id) === boardFilter[key] }))));
+    filters.replaceChildren(
+      select("伺服器 ", data.guilds, "guild", (e) => { boardFilter.guild = e.target.value; boardFilter.project = ""; load(); }),
+      select("專案 ", data.projects, "project", (e) => { boardFilter.project = e.target.value; load(); }));
+    note.textContent = `完成欄只顯示最近 ${data.done_days} 天・拖曳卡片或按 ◀ ▶ 移動・在這裡完成也會發獎勵、建立週期任務，Discord 上的卡片會同步更新`;
+
+    columns.replaceChildren(...BOARD_COLUMNS.map(([status, title], index) => {
+      const items = data.tasks.filter((t) => t.status === status);
+      const list = h("div", { class: "board-list" }, items.length ? items.map((t) => card(t, index))
+        : h("p", { class: "empty", text: "沒有待辦" }));
+      return h("section", { class: "board-col", "data-status": status,
+          ondragover: (e) => { e.preventDefault(); e.currentTarget.classList.add("drop"); },
+          ondragleave: (e) => e.currentTarget.classList.remove("drop"),
+          ondrop: (e) => {
+            e.preventDefault();
+            e.currentTarget.classList.remove("drop");
+            const id = e.dataTransfer.getData("text/plain");
+            if (id) move(id, status);
+          } },
+        h("h3", {}, title, h("span", { class: "badge", text: String(items.length) })), list);
+    }));
+  };
+
+  view.replaceChildren(h("section", { class: "card" },
+    h("div", { class: "card-head" }, h("h2", { text: "待辦看板" }), h("span", { class: "spacer" }), filters), note),
+    columns);
+  await load();
+  every(30000, () => { if (!document.querySelector(".task.dragging")) load().catch(() => {}); });
+}
+
 // ---------------------------------------------------------------- 管理操作紀錄
 const ACTIONS = { login: "登入後台", points: "調整存款", streak: "修改連續簽到", reset_work: "重設打工冷卻",
-                  end_game: "結束遊戲", refund_hold: "退還賭注", update: "立即更新" };
+                  end_game: "結束遊戲", refund_hold: "退還賭注", update: "立即更新",
+                  move_task: "移動待辦" };
 
 async function renderAudit(view) {
   const data = await api("/api/audit");

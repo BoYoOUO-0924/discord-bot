@@ -117,6 +117,7 @@ class AdminServer:
             ("GET", "/api/logs", self.logs), ("GET", "/api/logs/download", self.download_log),
             ("GET", "/api/audit", self.audit_log),
             ("POST", "/api/update", self.update_now),
+            ("GET", "/api/board", self.board), ("POST", "/api/tasks/{task_id:\\d+}/status", self.move_task),
         ]
         for method, path, handler in routes:
             app.router.add_route(method, path, handler)
@@ -338,6 +339,62 @@ class AdminServer:
         await self.db.admin_set_streak(user_id, streak, today_tw())
         await self.record(request, "streak", user_id, f"連續簽到改為 {streak} 天")
         return web.json_response({"ok": True})
+
+    # ================================================================== 待辦看板
+    BOARD_DONE_DAYS = 14
+
+    def guild_name(self, guild_id: int) -> str:
+        guild = self.bot.get_guild(guild_id) if hasattr(self.bot, "get_guild") else None
+        return guild.name if guild else str(guild_id)
+
+    async def board(self, request: web.Request):
+        """看板資料：伺服器、專案清單與任務。query：guild、project（都可以不帶）。"""
+        def int_arg(key):
+            value = request.query.get(key, "")
+            return int(value) if value.isdigit() else None
+
+        guild_id, project_id = int_arg("guild"), int_arg("project")
+        guild_ids = await self.db.task_guild_ids()
+        projects = await self.db.list_projects(guild_id)
+        project_names = {p["id"]: p["name"] for p in await self.db.list_projects(None, include_archived=True)}
+        done_since = time.time() - self.BOARD_DONE_DAYS * 86400
+        rows = await self.db.board_tasks(guild_id, project_id, done_since)
+        names = await self.db.get_names([r["assignee_id"] for r in rows if r["assignee_id"]])
+        now = time.time()
+        tasks = [{
+            "id": r["id"], "title": r["title"], "note": r["note"], "status": r["status"], "priority": r["priority"],
+            "due_at": r["due_at"], "overdue": r["status"] != "done" and r["due_at"] is not None and r["due_at"] <= now,
+            "assignee": ({"id": str(r["assignee_id"]), "name": names.get(r["assignee_id"], (str(r["assignee_id"]),))[0]}
+                         if r["assignee_id"] else None),
+            "project": project_names.get(r["project_id"]), "repeat": r["repeat"], "guild": self.guild_name(r["guild_id"]),
+        } for r in rows]
+        return web.json_response({
+            "guilds": [{"id": str(g), "name": self.guild_name(g)} for g in guild_ids],
+            "projects": [{"id": p["id"], "name": p["name"], "guild_id": str(p["guild_id"])} for p in projects],
+            "tasks": tasks, "done_days": self.BOARD_DONE_DAYS,
+        })
+
+    async def move_task(self, request: web.Request):
+        """看板拖曳：改變任務狀態。完成時走跟 Discord 一樣的流程（獎勵、週期任務），並更新頻道裡的卡片。"""
+        task_id = int(request.match_info["task_id"])
+        status = (await self.json_body(request)).get("status")
+        if status not in ("todo", "doing", "done"):
+            return web.json_response({"error": "狀態不正確"}, status=400)
+        task = await self.db.get_task(task_id)
+        if not task:
+            return web.json_response({"error": "找不到這個待辦"}, status=404)
+        if task["status"] == status:
+            return web.json_response({"ok": True, "changed": False})
+        cog = self.bot.get_cog("Tasks")
+        if status == "done" and cog:
+            await cog.complete(task_id, 0)
+        else:
+            await self.db.set_task_status(task_id, status, 0)
+            if cog:
+                await cog.refresh_card(await self.db.get_task(task_id))
+        await self.record(request, "move_task", task["assignee_id"],
+                          f"待辦 #{task_id}「{task['title'][:40]}」{task['status']} → {status}")
+        return web.json_response({"ok": True, "changed": True})
 
     async def reset_work(self, request: web.Request):
         user_id = int(request.match_info["user_id"])

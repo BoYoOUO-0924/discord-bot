@@ -16,7 +16,7 @@ from discord.ext import commands, tasks
 
 from core import tasks as tk
 from core.timeutil import TAIPEI, now_tw, ts
-from core.ui import BaseView, Color, defer, make_embed, respond, send_error, success_embed
+from core.ui import BaseView, Color, defer, fmt_points, make_embed, respond, send_error, success_embed
 
 log = logging.getLogger(__name__)
 
@@ -72,8 +72,12 @@ def build_embed(task, project: Optional[str] = None, milestone: Optional[str] = 
     if project:
         embed.add_field(name="專案", value=f"📁 {project}" + (f"・🏁 {milestone}" if milestone else ""), inline=False)
     embed.add_field(name="截止", value=due_text(task), inline=False)
+    if task["repeat"] and status != "done":
+        embed.add_field(name="重複", value=f"🔁 {tk.REPEATS.get(task['repeat'], task['repeat'])}（完成後自動建立下一次）",
+                        inline=False)
     if status == "done" and task["done_at"]:
-        embed.add_field(name="完成", value=f"<@{task['done_by']}>・{ts(task['done_at'], 'R')}", inline=False)
+        by = f"<@{task['done_by']}>" if task["done_by"] else "管理後台或 GitHub"
+        embed.add_field(name="完成", value=f"{by}・{ts(task['done_at'], 'R')}", inline=False)
     embed.add_field(name="建立者", value=f"<@{task['creator_id']}>・{ts(task['created_at'], 'R')}", inline=False)
     embed.set_footer(text="用下面的按鈕更新進度；/task list 看全部待辦")
     return embed
@@ -167,9 +171,12 @@ class Tasks(commands.Cog):
 
     async def create(self, interaction: discord.Interaction, title: str, due: Optional[str] = None,
                      priority: Optional[str] = None, note: str = "", assignee_id: Optional[int] = None,
-                     project_id: Optional[int] = None, milestone_id: Optional[int] = None) -> None:
+                     project_id: Optional[int] = None, milestone_id: Optional[int] = None,
+                     repeat: Optional[str] = None) -> None:
         if not interaction.guild:
             return await send_error(interaction, "待辦只能在伺服器裡使用。")
+        if repeat and not (due and due.strip()):
+            return await send_error(interaction, "重複的待辦要設定截止時間，才知道下一次是什麼時候。")
         project_id, milestone_id, problem = await self.resolve_project(
             interaction.guild.id, interaction.channel_id, project_id, milestone_id)
         if problem:
@@ -194,7 +201,7 @@ class Tasks(commands.Cog):
         task_id = await self.bot.db.add_task(
             interaction.guild.id, interaction.channel_id, interaction.user.id, title[:200], note=note.strip()[:1000],
             assignee_id=assignee_id, priority=level, due_at=due_at, due_has_time=has_time, remind_at=remind,
-            project_id=project_id, milestone_id=milestone_id)
+            project_id=project_id, milestone_id=milestone_id, repeat=repeat)
         task = await self.bot.db.get_task(task_id)
         mention = f"<@{assignee_id}> 你有一個新的待辦" if assignee_id and assignee_id != interaction.user.id else None
         message = await respond(interaction, content=mention, embed=await self.card_embed(task), view=build_view(task),
@@ -206,18 +213,20 @@ class Tasks(commands.Cog):
     @app_commands.describe(title="要做的事", assignee="負責人（不填就是還沒有人負責）",
                            due="截止時間，例如 明天、週五、11/20、明天 18:00", priority="優先度（預設中）",
                            note="補充說明", project="屬於哪個專案（不填就用這個頻道的專案）",
-                           milestone="屬於哪個里程碑")
+                           milestone="屬於哪個里程碑", repeat="重複（完成後自動建立下一次，需要截止時間）")
     @app_commands.choices(priority=[app_commands.Choice(name=f"{tk.PRIORITY_EMOJI[k]} {v}", value=v)
-                                    for k, v in sorted(tk.PRIORITIES.items(), reverse=True)])
+                                    for k, v in sorted(tk.PRIORITIES.items(), reverse=True)],
+                          repeat=[app_commands.Choice(name=f"🔁 {v}", value=k) for k, v in tk.REPEATS.items()])
     async def add(self, interaction: discord.Interaction, title: app_commands.Range[str, 1, 200],
                   assignee: Optional[discord.Member] = None, due: Optional[str] = None,
                   priority: Optional[app_commands.Choice[str]] = None,
                   note: Optional[app_commands.Range[str, 1, 1000]] = None,
-                  project: Optional[int] = None, milestone: Optional[int] = None):
+                  project: Optional[int] = None, milestone: Optional[int] = None,
+                  repeat: Optional[app_commands.Choice[str]] = None):
         if assignee and assignee.bot:
             return await send_error(interaction, "不能把待辦指派給機器人。")
         await self.create(interaction, title, due, priority.value if priority else None, note or "",
-                          assignee.id if assignee else None, project, milestone)
+                          assignee.id if assignee else None, project, milestone, repeat.value if repeat else None)
 
     async def project_choices(self, interaction: discord.Interaction, current: str):
         if not interaction.guild_id:
@@ -329,10 +338,8 @@ class Tasks(commands.Cog):
             return await send_error(interaction, f"找不到待辦 #{task}。")
         if not can_edit(row, interaction.user):
             return await send_error(interaction, "只有建立者、負責人或管理員可以更新這個待辦。")
-        if not await self.bot.db.set_task_status(task, "done", interaction.user.id):
+        if not await self.complete(task, interaction.user.id, refresh=True):
             return await send_error(interaction, f"#{task} 已經完成了。")
-        row = await self.bot.db.get_task(task)
-        await self.refresh_card(row)
         await respond(interaction, embed=success_embed(f"#{task}「{row['title']}」完成了，辛苦了！"))
 
     @done_command.autocomplete("task")
@@ -367,7 +374,10 @@ class Tasks(commands.Cog):
         if action == "delete" and not can_delete(task, user):
             return await send_error(interaction, "只有建立者或管理員可以刪除這個待辦。")
 
-        if action in ("doing", "done", "reopen"):
+        if action == "done":
+            await self.show_completed(interaction, task_id, user.id)
+            return
+        if action in ("doing", "reopen"):
             status = "todo" if action == "reopen" else action
             await self.bot.db.set_task_status(task_id, status, user.id)
             return await self.show_updated(interaction, task_id)
@@ -386,6 +396,66 @@ class Tasks(commands.Cog):
             view.message = await interaction.original_response()
             return
         await send_error(interaction, "這個按鈕已經失效了。")
+
+    async def show_completed(self, interaction: discord.Interaction, task_id: int, user_id: int) -> None:
+        """卡片按鈕按「完成」：先更新卡片（Discord 要求 3 秒內回應），再處理獎勵和週期任務。"""
+        if not await self.bot.db.set_task_status(task_id, "done", user_id):
+            return await self.show_updated(interaction, task_id)
+        await self.show_updated(interaction, task_id)
+        await self.after_complete(task_id)
+
+    async def complete(self, task_id: int, user_id: int, *, refresh: bool = True) -> bool:
+        """把待辦標記為完成，並處理獎勵與週期任務。已經是完成狀態就回傳 False。
+        user_id 為 0 代表從管理後台或 GitHub 完成。"""
+        if not await self.bot.db.set_task_status(task_id, "done", user_id):
+            return False
+        if refresh:
+            task = await self.bot.db.get_task(task_id)
+            if task:
+                await self.refresh_card(task)
+        await self.after_complete(task_id)
+        return True
+
+    async def after_complete(self, task_id: int) -> None:
+        task = await self.bot.db.get_task(task_id)
+        if not task:
+            return
+        notes = []
+        amount = tk.task_reward(task["priority"], task["creator_id"], task["assignee_id"])
+        if amount:
+            since = tk.day_start(now_tw()).timestamp()
+            paid, state = await self.bot.db.reward_task(task_id, task["assignee_id"], amount, since,
+                                                        tk.REWARD_DAILY_CAP, tk.REWARD_REASON)
+            if paid:
+                notes.append(f"💰 <@{task['assignee_id']}> 完成待辦，獲得 **{fmt_points(paid)}**")
+            elif state == "capped":
+                notes.append(f"<@{task['assignee_id']}> 今天的待辦獎勵（每天 {tk.REWARD_DAILY_CAP} 次）已經領完了")
+        if task["repeat"] and task["due_at"] is not None:
+            new_id, due = await self.spawn_next(task)
+            notes.append(f"🔁 已建立下一次 #{new_id}，{tk.fmt_due(due, bool(task['due_has_time']))} 截止")
+        if notes:
+            await self.post(task, "\n".join(notes))
+
+    async def spawn_next(self, task):
+        """週期任務完成後，建立下一次（複製內容，截止時間往後推），並在同一個頻道發新卡片。"""
+        due = tk.next_due(datetime.fromtimestamp(task["due_at"], TAIPEI), task["repeat"], now_tw()).timestamp()
+        new_id = await self.bot.db.add_task(
+            task["guild_id"], task["channel_id"], task["creator_id"], task["title"], note=task["note"],
+            assignee_id=task["assignee_id"], priority=task["priority"], due_at=due,
+            due_has_time=bool(task["due_has_time"]), remind_at=tk.remind_at(due, time.time()),
+            project_id=task["project_id"], milestone_id=task["milestone_id"], repeat=task["repeat"])
+        # 舊的那筆不再是週期任務，重新打開再完成也不會又多建一個
+        await self.bot.db.update_task(task["id"], repeat=None)
+        new = await self.bot.db.get_task(new_id)
+        try:
+            channel = self.bot.get_channel(task["channel_id"]) or await self.bot.fetch_channel(task["channel_id"])
+            message = await channel.send(embed=await self.card_embed(new), view=build_view(new),
+                                         allowed_mentions=discord.AllowedMentions.none())
+            await self.bot.db.set_task_message(new_id, task["channel_id"], message.id)
+        except discord.HTTPException:
+            log.warning("週期待辦 #%d 的新卡片發送失敗（任務已建立）", new_id)
+        log.info("週期待辦 #%d 完成，建立下一次 #%d", task["id"], new_id)
+        return new_id, due
 
     async def show_updated(self, interaction: discord.Interaction, task_id: int) -> None:
         """更新按下按鈕的那則訊息；如果按的不是頻道裡的卡片（例如清單打開的副本），也一併更新卡片。"""

@@ -28,6 +28,7 @@ EXTENSIONS = [
     "cogs.polls",
     "cogs.tasks",
     "cogs.projects",
+    "cogs.github_sync",
     "cogs.admin",
     "cogs.blackjack",
     "cogs.slots",

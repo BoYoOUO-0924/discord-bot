@@ -242,3 +242,64 @@ def fallback_summary(report: WeekReport) -> str:
     if report.next_week:
         parts.append(f"下週有 {len(report.next_week)} 個任務到期。")
     return "".join(parts)
+
+
+# ---------------------------------------------------------------------- 第三階段：週期任務、完成獎勵、GitHub
+REPEATS = {"daily": "每天", "weekdays": "平日", "weekly": "每週", "monthly": "每月"}
+
+# 完成待辦的獎勵（新台幣），依優先度。只有「別人指派給你」的待辦才有獎勵，避免自己建、自己完成來刷錢
+REWARDS = {0: 3_000, 1: 5_000, 2: 10_000}
+REWARD_DAILY_CAP = 5            # 每人每天最多領幾次
+REWARD_REASON = "待辦完成"
+
+# commit 訊息寫「task#12」或「待辦#12」就完成待辦 #12（不用單純的 #12，那是 GitHub 自己的 issue 編號）
+TASK_REF_RE = re.compile(r"(?:task|待辦)\s*#(\d+)", re.IGNORECASE)
+
+
+def _add_month(at: datetime) -> datetime:
+    """下個月的同一天；下個月沒有這一天（例如 1/31）就用月底。"""
+    year, month = (at.year + 1, 1) if at.month == 12 else (at.year, at.month + 1)
+    for day in (at.day, 30, 29, 28):
+        try:
+            return at.replace(year=year, month=month, day=day)
+        except ValueError:
+            continue
+    raise ValueError(at)
+
+
+def next_due(due: datetime, repeat: str, now: datetime) -> datetime:
+    """週期任務的下一次截止時間：從原本的截止時間往後推，直到比現在晚。
+    例如每週任務拖了兩週才完成，下一次是「下一個還沒過的週期」，不會一次補好幾個。"""
+    if repeat not in REPEATS:
+        raise ValueError(repeat)
+    at = due
+    while True:
+        if repeat == "daily":
+            at += timedelta(days=1)
+        elif repeat == "weekdays":
+            at += timedelta(days=1)
+            while at.weekday() >= 5:
+                at += timedelta(days=1)
+        elif repeat == "weekly":
+            at += timedelta(days=7)
+        else:
+            at = _add_month(at)
+        if at > now:
+            return at
+
+
+def task_reward(priority: int, creator_id: int, assignee_id) -> int:
+    """完成這個待辦能拿多少錢；沒有負責人、或是自己指派給自己的都是 0。"""
+    if not assignee_id or assignee_id == creator_id:
+        return 0
+    return REWARDS.get(priority, 0)
+
+
+def task_refs(message: str):
+    """commit 訊息裡提到的待辦編號（不重複，照出現順序）。"""
+    seen = []
+    for match in TASK_REF_RE.finditer(message or ""):
+        number = int(match.group(1))
+        if number not in seen:
+            seen.append(number)
+    return seen

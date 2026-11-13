@@ -309,9 +309,17 @@ class Database:
         """待辦第二階段：tasks 加上專案與里程碑欄位（舊資料庫的 tasks 表沒有這兩欄）。"""
         async with self.conn.execute("PRAGMA table_info(tasks)") as cur:
             columns = {row["name"] for row in await cur.fetchall()}
-        for column in ("project_id", "milestone_id"):
+        # 第二階段：專案、里程碑；第三階段：週期（repeat）、完成獎勵是否已發（rewarded）
+        for column, kind in (("project_id", "INTEGER"), ("milestone_id", "INTEGER"), ("repeat", "TEXT"),
+                             ("rewarded", "INTEGER NOT NULL DEFAULT 0")):
             if column not in columns:
-                await self.conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} INTEGER")
+                await self.conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} {kind}")
+        # 第三階段：專案綁定 GitHub repo，github_state 存上次讀到哪裡（JSON）
+        async with self.conn.execute("PRAGMA table_info(projects)") as cur:
+            project_columns = {row["name"] for row in await cur.fetchall()}
+        for column in ("github_repo", "github_state"):
+            if column not in project_columns:
+                await self.conn.execute(f"ALTER TABLE projects ADD COLUMN {column} TEXT")
         await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project_id, status)")
         await self.conn.commit()
 
@@ -1232,20 +1240,21 @@ class Database:
 
     # ------------------------------------------------------------------ 待辦（專案管理）
     TASK_FIELDS = ("title", "note", "assignee_id", "priority", "due_at", "due_has_time", "remind_at",
-                   "project_id", "milestone_id")
+                   "project_id", "milestone_id", "repeat")
 
     async def add_task(self, guild_id: int, channel_id: int, creator_id: int, title: str, *, note: str = "",
                        assignee_id: Optional[int] = None, priority: int = 1, due_at: Optional[float] = None,
                        due_has_time: bool = False, remind_at: Optional[float] = None,
-                       project_id: Optional[int] = None, milestone_id: Optional[int] = None) -> int:
+                       project_id: Optional[int] = None, milestone_id: Optional[int] = None,
+                       repeat: Optional[str] = None) -> int:
         now = time.time()
         async with self._lock:
             cur = await self.conn.execute(
                 "INSERT INTO tasks (guild_id, channel_id, title, note, creator_id, assignee_id, priority, due_at, "
-                "due_has_time, remind_at, project_id, milestone_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "due_has_time, remind_at, project_id, milestone_id, repeat, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (guild_id, channel_id, title, note, creator_id, assignee_id, priority, due_at, int(due_has_time),
-                 remind_at, project_id, milestone_id, now, now),
+                 remind_at, project_id, milestone_id, repeat, now, now),
             )
             await self.conn.commit()
             return cur.lastrowid
@@ -1394,7 +1403,7 @@ class Database:
                 return await cur.fetchone()
 
     async def update_project(self, project_id: int, **fields) -> bool:
-        unknown = set(fields) - {"name", "channel_id", "description", "archived"}
+        unknown = set(fields) - {"name", "channel_id", "description", "archived", "github_repo", "github_state"}
         if unknown:
             raise ValueError(f"不能修改的欄位：{unknown}")
         sets = ", ".join(f"{key} = ?" for key in fields)
@@ -1469,3 +1478,47 @@ class Database:
                 "SELECT * FROM tasks WHERE project_id = ? AND status = 'doing' AND updated_at < ? ORDER BY updated_at",
                 (project_id, before)) as cur:
                 return await cur.fetchall()
+
+    # ------------------------------------------------------------------ 待辦完成獎勵
+    async def reward_task(self, task_id: int, user_id: int, amount: int, since: float, daily_cap: int,
+                          reason: str) -> Tuple[int, str]:
+        """發完成待辦的獎勵，每個待辦只發一次（重新打開再完成也不會再發）。
+        回傳 (發了多少, 狀態)：'paid' 已發、'capped' 今天次數用完、'already' 發過了。"""
+        async with self._lock:
+            cur = await self.conn.execute("UPDATE tasks SET rewarded = 1 WHERE id = ? AND rewarded = 0", (task_id,))
+            if cur.rowcount == 0:
+                await self.conn.commit()
+                return 0, "already"
+            async with self.conn.execute(
+                "SELECT COUNT(*) AS n FROM transactions WHERE user_id = ? AND reason LIKE ? AND created_at >= ?",
+                (user_id, f"{reason}%", since)) as c:
+                if (await c.fetchone())["n"] >= daily_cap:
+                    await self.conn.commit()
+                    return 0, "capped"
+            await self._ensure_user(user_id)
+            await self.conn.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (amount, user_id))
+            await self._log(user_id, amount, f"{reason} #{task_id}")
+            await self.conn.commit()
+            return amount, "paid"
+
+    # ------------------------------------------------------------------ 管理後台看板
+    async def board_tasks(self, guild_id: Optional[int], project_id: Optional[int], done_since: float) -> List[aiosqlite.Row]:
+        """看板用：未完成的全部，加上 done_since 之後完成的。guild_id 為 None 時列出所有伺服器。"""
+        where, params = ["(status != 'done' OR done_at >= ?)"], [done_since]
+        if guild_id is not None:
+            where.append("guild_id = ?")
+            params.append(guild_id)
+        if project_id is not None:
+            where.append("project_id = ?")
+            params.append(project_id)
+        async with self._lock:
+            async with self.conn.execute(
+                f"SELECT * FROM tasks WHERE {' AND '.join(where)} "
+                "ORDER BY due_at IS NULL, due_at, priority DESC, id LIMIT 500", params) as cur:
+                return await cur.fetchall()
+
+    async def task_guild_ids(self) -> List[int]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT guild_id FROM tasks UNION SELECT guild_id FROM projects ORDER BY guild_id") as cur:
+                return [r["guild_id"] for r in await cur.fetchall()]
