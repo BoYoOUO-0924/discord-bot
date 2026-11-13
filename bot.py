@@ -1,9 +1,12 @@
 """Discord Bot 主程式（斜線指令版）。"""
 import logging
 import os
+import socket
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -162,6 +165,25 @@ def keep_system_awake() -> None:
         log.warning("無法設定防止睡眠")
 
 
+def wait_for_network(host: str = "discord.com", timeout: float = 300) -> bool:
+    """開機或網路剛恢復時，網路（DNS）可能還沒好。先等它好再登入，不要直接當掉。"""
+    deadline = time.monotonic() + timeout
+    warned = False
+    while True:
+        try:
+            socket.getaddrinfo(host, 443)
+            if warned:
+                log.info("網路恢復了，繼續啟動")
+            return True
+        except OSError:
+            if time.monotonic() >= deadline:
+                return False
+            if not warned:
+                log.warning("連不上 %s（網路還沒好或 DNS 查不到），每 5 秒重試，最多等 %d 秒", host, timeout)
+                warned = True
+            time.sleep(5)
+
+
 def main() -> None:
     discord.utils.setup_logging()
     setup_file_logging()
@@ -184,7 +206,14 @@ def main() -> None:
         if legacy_keys:
             log.warning("這些設定還寫在舊的 config.py：%s。請搬到 .env（範本見 .env.example），之後就可以刪掉 config.py",
                         "、".join(legacy_keys))
+        if not wait_for_network():
+            log.error("等了 5 分鐘網路都沒恢復，先結束，系統服務會自動重新啟動")
+            sys.exit(1)
         bot.run(bot.settings.discord_token, log_handler=None)
+    except aiohttp.ClientConnectorError as e:
+        # 登入當下剛好斷線：不是程式錯誤，不用印整段錯誤追蹤，系統服務 10 秒後會自動重開
+        log.error("連不上 Discord（%s），稍後自動重新啟動", e)
+        sys.exit(1)
     except Exception:
         # 啟動失敗或異常結束也寫進 logs/bot.log，管理後台的「伺服器紀錄」才看得到
         log.critical("bot 異常結束", exc_info=True)
