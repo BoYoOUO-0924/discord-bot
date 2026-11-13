@@ -26,6 +26,8 @@ EXTENSIONS = [
     "cogs.earn",
     "cogs.reminders",
     "cogs.polls",
+    "cogs.tasks",
+    "cogs.projects",
     "cogs.admin",
     "cogs.blackjack",
     "cogs.slots",

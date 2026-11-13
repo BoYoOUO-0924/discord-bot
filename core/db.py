@@ -156,6 +156,48 @@ CREATE TABLE IF NOT EXISTS stock_orders (
 );
 CREATE INDEX IF NOT EXISTS idx_stock_orders_user ON stock_orders (user_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_stock_orders_status ON stock_orders (status);
+CREATE TABLE IF NOT EXISTS tasks (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id      INTEGER NOT NULL,
+    channel_id    INTEGER NOT NULL,              -- 卡片所在頻道，提醒也發在這裡
+    message_id    INTEGER,                       -- 卡片訊息，狀態改變時更新
+    title         TEXT NOT NULL,
+    note          TEXT NOT NULL DEFAULT '',
+    creator_id    INTEGER NOT NULL,
+    assignee_id   INTEGER,
+    priority      INTEGER NOT NULL DEFAULT 1,    -- 0 低 / 1 中 / 2 高
+    status        TEXT NOT NULL DEFAULT 'todo',  -- todo / doing / done
+    due_at        REAL,
+    due_has_time  INTEGER NOT NULL DEFAULT 0,    -- 0 代表只寫日期（截止在當天 23:59）
+    remind_at     REAL,                          -- 截止前提醒的時間
+    reminded      INTEGER NOT NULL DEFAULT 0,    -- 截止前提醒已送出
+    overdue_sent  INTEGER NOT NULL DEFAULT 0,    -- 逾期通知已送出
+    created_at    REAL NOT NULL,
+    updated_at    REAL NOT NULL,
+    done_at       REAL,
+    done_by       INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_guild ON tasks (guild_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks (status, due_at);
+CREATE TABLE IF NOT EXISTS projects (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id    INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    channel_id  INTEGER NOT NULL,                -- 專案頻道：每日摘要、週報發在這裡，在這裡新增的待辦預設屬於這個專案
+    description TEXT NOT NULL DEFAULT '',
+    creator_id  INTEGER NOT NULL,
+    archived    INTEGER NOT NULL DEFAULT 0,
+    created_at  REAL NOT NULL,
+    UNIQUE (guild_id, name)
+);
+CREATE TABLE IF NOT EXISTS milestones (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    name       TEXT NOT NULL,
+    due_at     REAL,
+    created_at REAL NOT NULL,
+    UNIQUE (project_id, name)
+);
 """
 
 TWD_PER_POINT = 100          # 舊版積分換成新台幣的比例（舊資料庫第一次啟動時換算）
@@ -249,6 +291,7 @@ class Database:
         await self._conn.executescript(SCHEMA)
         await self._conn.commit()
         await self._migrate_to_twd()
+        await self._migrate_task_columns()
 
     async def _migrate_to_twd(self) -> None:
         """積分改成新台幣：1 分 = 100 元。舊資料的金額全部乘以 100，只執行一次。"""
@@ -261,6 +304,27 @@ class Database:
         await self.conn.execute(f"UPDATE stats_daily SET value = value * {TWD_PER_POINT} WHERE metric = 'chat_reward'")
         await self.conn.execute("INSERT INTO meta (key, value) VALUES ('currency_twd', ?)", (str(time.time()),))
         await self.conn.commit()
+
+    async def _migrate_task_columns(self) -> None:
+        """待辦第二階段：tasks 加上專案與里程碑欄位（舊資料庫的 tasks 表沒有這兩欄）。"""
+        async with self.conn.execute("PRAGMA table_info(tasks)") as cur:
+            columns = {row["name"] for row in await cur.fetchall()}
+        for column in ("project_id", "milestone_id"):
+            if column not in columns:
+                await self.conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} INTEGER")
+        await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project_id, status)")
+        await self.conn.commit()
+
+    async def get_meta(self, key: str) -> Optional[str]:
+        async with self._lock:
+            async with self.conn.execute("SELECT value FROM meta WHERE key = ?", (key,)) as cur:
+                row = await cur.fetchone()
+        return row["value"] if row else None
+
+    async def set_meta(self, key: str, value: str) -> None:
+        async with self._lock:
+            await self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+            await self.conn.commit()
 
     async def close(self) -> None:
         if self._conn:
@@ -1165,3 +1229,243 @@ class Database:
                 f"SELECT user_id, symbol, shares, cost FROM stock_holdings WHERE user_id IN ({marks})", list(realized)
             ) as cur:
                 return realized, await cur.fetchall()
+
+    # ------------------------------------------------------------------ 待辦（專案管理）
+    TASK_FIELDS = ("title", "note", "assignee_id", "priority", "due_at", "due_has_time", "remind_at",
+                   "project_id", "milestone_id")
+
+    async def add_task(self, guild_id: int, channel_id: int, creator_id: int, title: str, *, note: str = "",
+                       assignee_id: Optional[int] = None, priority: int = 1, due_at: Optional[float] = None,
+                       due_has_time: bool = False, remind_at: Optional[float] = None,
+                       project_id: Optional[int] = None, milestone_id: Optional[int] = None) -> int:
+        now = time.time()
+        async with self._lock:
+            cur = await self.conn.execute(
+                "INSERT INTO tasks (guild_id, channel_id, title, note, creator_id, assignee_id, priority, due_at, "
+                "due_has_time, remind_at, project_id, milestone_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (guild_id, channel_id, title, note, creator_id, assignee_id, priority, due_at, int(due_has_time),
+                 remind_at, project_id, milestone_id, now, now),
+            )
+            await self.conn.commit()
+            return cur.lastrowid
+
+    async def get_task(self, task_id: int) -> Optional[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)) as cur:
+                return await cur.fetchone()
+
+    async def set_task_message(self, task_id: int, channel_id: int, message_id: int) -> None:
+        async with self._lock:
+            await self.conn.execute("UPDATE tasks SET channel_id = ?, message_id = ? WHERE id = ?",
+                                    (channel_id, message_id, task_id))
+            await self.conn.commit()
+
+    async def update_task(self, task_id: int, **fields) -> bool:
+        """改標題、備註、負責人、優先度、截止時間。改了截止時間就重新送提醒。"""
+        unknown = set(fields) - set(self.TASK_FIELDS)
+        if unknown:
+            raise ValueError(f"不能修改的欄位：{unknown}")
+        if not fields:
+            return False
+        if "due_at" in fields:
+            fields["reminded"], fields["overdue_sent"] = 0, 0
+        sets = ", ".join(f"{key} = ?" for key in fields)
+        async with self._lock:
+            cur = await self.conn.execute(f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",
+                                          (*fields.values(), time.time(), task_id))
+            await self.conn.commit()
+            return cur.rowcount > 0
+
+    async def set_task_status(self, task_id: int, status: str, user_id: int) -> bool:
+        if status not in ("todo", "doing", "done"):
+            raise ValueError(status)
+        now = time.time()
+        done_at, done_by = (now, user_id) if status == "done" else (None, None)
+        async with self._lock:
+            cur = await self.conn.execute(
+                "UPDATE tasks SET status = ?, done_at = ?, done_by = ?, updated_at = ? WHERE id = ? AND status != ?",
+                (status, done_at, done_by, now, task_id, status),
+            )
+            await self.conn.commit()
+            return cur.rowcount > 0
+
+    async def delete_task(self, task_id: int) -> bool:
+        async with self._lock:
+            cur = await self.conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            await self.conn.commit()
+            return cur.rowcount > 0
+
+    async def count_open_tasks(self, guild_id: int) -> int:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT COUNT(*) AS n FROM tasks WHERE guild_id = ? AND status != 'done'", (guild_id,)
+            ) as cur:
+                return (await cur.fetchone())["n"]
+
+    async def list_tasks(self, guild_id: int, *, scope: str = "all", user_id: Optional[int] = None,
+                         include_done: bool = False, limit: int = 25,
+                         project_id: Optional[int] = None) -> List[aiosqlite.Row]:
+        """scope：all 全部、mine 我負責或我建立的、assigned 指派給我的、unassigned 沒人負責的。
+        排序：進行中優先，再依截止時間（沒有截止的排最後）、優先度高的在前。"""
+        where, params = ["guild_id = ?"], [guild_id]
+        if not include_done:
+            where.append("status != 'done'")
+        if scope == "mine":
+            where.append("(assignee_id = ? OR (assignee_id IS NULL AND creator_id = ?))")
+            params += [user_id, user_id]
+        elif scope == "assigned":
+            where.append("assignee_id = ?")
+            params.append(user_id)
+        elif scope == "unassigned":
+            where.append("assignee_id IS NULL")
+        if project_id is not None:
+            where.append("project_id = ?")
+            params.append(project_id)
+        order = ("CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END, "
+                 "due_at IS NULL, due_at, priority DESC, id")
+        async with self._lock:
+            async with self.conn.execute(
+                f"SELECT * FROM tasks WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?", (*params, limit)
+            ) as cur:
+                return await cur.fetchall()
+
+    async def due_task_notices(self, now: float) -> List[Tuple[str, aiosqlite.Row]]:
+        """要送的通知：('remind', 任務) 截止前提醒、('overdue', 任務) 已逾期。完成的任務不通知。"""
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT * FROM tasks WHERE status != 'done' AND due_at IS NOT NULL AND "
+                "((due_at <= ? AND overdue_sent = 0) OR (remind_at <= ? AND reminded = 0)) ORDER BY due_at",
+                (now, now),
+            ) as cur:
+                rows = await cur.fetchall()
+        return [("overdue" if row["due_at"] <= now else "remind", row) for row in rows]
+
+    async def mark_task_notice(self, task_id: int, kind: str) -> None:
+        # 逾期通知送出時，截止前提醒也一併視為已送（bot 離線很久時不會連發兩則）
+        sets = "overdue_sent = 1, reminded = 1" if kind == "overdue" else "reminded = 1"
+        async with self._lock:
+            await self.conn.execute(f"UPDATE tasks SET {sets} WHERE id = ?", (task_id,))
+            await self.conn.commit()
+
+    # ------------------------------------------------------------------ 專案與里程碑
+    async def create_project(self, guild_id: int, name: str, channel_id: int, creator_id: int,
+                             description: str = "") -> Optional[int]:
+        """同一個伺服器裡專案名稱不能重複，重複時回傳 None。"""
+        async with self._lock:
+            try:
+                cur = await self.conn.execute(
+                    "INSERT INTO projects (guild_id, name, channel_id, description, creator_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)", (guild_id, name, channel_id, description, creator_id, time.time()))
+            except aiosqlite.IntegrityError:
+                return None
+            await self.conn.commit()
+            return cur.lastrowid
+
+    async def get_project(self, project_id: int) -> Optional[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)) as cur:
+                return await cur.fetchone()
+
+    async def list_projects(self, guild_id: Optional[int] = None, include_archived: bool = False) -> List[aiosqlite.Row]:
+        """guild_id 為 None 時列出所有伺服器的專案（排程發摘要用）。"""
+        where, params = [], []
+        if guild_id is not None:
+            where.append("guild_id = ?")
+            params.append(guild_id)
+        if not include_archived:
+            where.append("archived = 0")
+        sql = "SELECT * FROM projects" + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY archived, name"
+        async with self._lock:
+            async with self.conn.execute(sql, params) as cur:
+                return await cur.fetchall()
+
+    async def count_projects(self, guild_id: int) -> int:
+        async with self._lock:
+            async with self.conn.execute("SELECT COUNT(*) AS n FROM projects WHERE guild_id = ? AND archived = 0",
+                                         (guild_id,)) as cur:
+                return (await cur.fetchone())["n"]
+
+    async def project_for_channel(self, guild_id: int, channel_id: int) -> Optional[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT * FROM projects WHERE guild_id = ? AND channel_id = ? AND archived = 0 ORDER BY id LIMIT 1",
+                (guild_id, channel_id)) as cur:
+                return await cur.fetchone()
+
+    async def update_project(self, project_id: int, **fields) -> bool:
+        unknown = set(fields) - {"name", "channel_id", "description", "archived"}
+        if unknown:
+            raise ValueError(f"不能修改的欄位：{unknown}")
+        sets = ", ".join(f"{key} = ?" for key in fields)
+        async with self._lock:
+            try:
+                cur = await self.conn.execute(f"UPDATE projects SET {sets} WHERE id = ?", (*fields.values(), project_id))
+            except aiosqlite.IntegrityError:
+                return False
+            await self.conn.commit()
+            return cur.rowcount > 0
+
+    async def create_milestone(self, project_id: int, name: str, due_at: Optional[float]) -> Optional[int]:
+        async with self._lock:
+            try:
+                cur = await self.conn.execute(
+                    "INSERT INTO milestones (project_id, name, due_at, created_at) VALUES (?, ?, ?, ?)",
+                    (project_id, name, due_at, time.time()))
+            except aiosqlite.IntegrityError:
+                return None
+            await self.conn.commit()
+            return cur.lastrowid
+
+    async def get_milestone(self, milestone_id: int) -> Optional[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute("SELECT * FROM milestones WHERE id = ?", (milestone_id,)) as cur:
+                return await cur.fetchone()
+
+    async def list_milestones(self, project_id: int) -> List[aiosqlite.Row]:
+        """里程碑與進度：每列多了 total（任務數）和 done（完成數）。"""
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT m.*, COUNT(t.id) AS total, COALESCE(SUM(t.status = 'done'), 0) AS done "
+                "FROM milestones m LEFT JOIN tasks t ON t.milestone_id = m.id WHERE m.project_id = ? "
+                "GROUP BY m.id ORDER BY m.due_at IS NULL, m.due_at, m.id", (project_id,)) as cur:
+                return await cur.fetchall()
+
+    async def delete_milestone(self, milestone_id: int) -> bool:
+        """刪除里程碑，裡面的任務保留，只是不再屬於任何里程碑。"""
+        async with self._lock:
+            await self.conn.execute("UPDATE tasks SET milestone_id = NULL WHERE milestone_id = ?", (milestone_id,))
+            cur = await self.conn.execute("DELETE FROM milestones WHERE id = ?", (milestone_id,))
+            await self.conn.commit()
+            return cur.rowcount > 0
+
+    async def project_counts(self, project_id: int) -> Dict[str, int]:
+        """{'todo': n, 'doing': n, 'done': n, 'overdue': n}"""
+        counts = {"todo": 0, "doing": 0, "done": 0, "overdue": 0}
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT status, COUNT(*) AS n, COALESCE(SUM(status != 'done' AND due_at IS NOT NULL AND due_at <= ?), 0) "
+                "AS late FROM tasks WHERE project_id = ? GROUP BY status", (time.time(), project_id)) as cur:
+                for row in await cur.fetchall():
+                    counts[row["status"]] = row["n"]
+                    counts["overdue"] += row["late"]
+        return counts
+
+    async def project_tasks_between(self, project_id: int, column: str, start: float, end: float) -> List[aiosqlite.Row]:
+        """某段時間內完成（done_at）、建立（created_at）或到期（due_at）的任務。"""
+        if column not in ("done_at", "created_at", "due_at"):
+            raise ValueError(column)
+        extra = " AND status != 'done'" if column == "due_at" else ""
+        async with self._lock:
+            async with self.conn.execute(
+                f"SELECT * FROM tasks WHERE project_id = ? AND {column} >= ? AND {column} < ?{extra} ORDER BY {column}",
+                (project_id, start, end)) as cur:
+                return await cur.fetchall()
+
+    async def project_stuck_tasks(self, project_id: int, before: float) -> List[aiosqlite.Row]:
+        """進行中、但 before 之後都沒有更新過的任務。"""
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT * FROM tasks WHERE project_id = ? AND status = 'doing' AND updated_at < ? ORDER BY updated_at",
+                (project_id, before)) as cur:
+                return await cur.fetchall()

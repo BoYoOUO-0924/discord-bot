@@ -40,6 +40,18 @@ COMMAND_NAMES = {
     "orders": "委託",
     "history": "紀錄",
     "rank": "排行",
+    # 待辦（/待辦 底下的子指令）
+    "task": "待辦",
+    "add": "新增",
+    "list": "清單",
+    "done": "完成",
+    # 專案（/專案 底下的子指令）
+    "project": "專案",
+    "create": "建立",
+    "view": "查看",
+    "milestone": "里程碑",
+    "report": "週報",
+    "archive": "封存",
 }
 
 # 同名參數在不同指令可能有不同意思，所以用「指令.參數」當 key，找不到再退回只看參數名
@@ -67,6 +79,21 @@ PARAMETER_NAMES = {
     "symbol": "股票",
     "shares": "股數",
     "play.query": "歌曲",
+    "title": "內容",
+    "assignee": "負責人",
+    "due": "截止",
+    "priority": "優先度",
+    "note": "備註",
+    "scope": "範圍",
+    "include_done": "含已完成",
+    "task": "待辦",
+    "name": "名稱",
+    "channel": "頻道",
+    "description": "說明",
+    "project": "專案",
+    "milestone": "里程碑",
+    "include_archived": "含已封存",
+    "project milestone.due": "目標日期",
 }
 
 

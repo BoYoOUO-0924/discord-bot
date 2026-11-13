@@ -41,6 +41,8 @@ class HubView(discord.ui.View):
                  ("help", "指令說明", "📖")]
         for key, label, emoji in tools:
             self._add(f"hub:{key}", label, emoji, discord.ButtonStyle.secondary, 3)
+        self._add("hub:tasks", "待辦", "📋", discord.ButtonStyle.secondary, 4)
+        self._add("hub:task_add", "新增待辦", "➕", discord.ButtonStyle.secondary, 4)
 
     def _add(self, custom_id: str, label: str, emoji: str, style: discord.ButtonStyle, row: int) -> None:
         button = discord.ui.Button(custom_id=custom_id, label=label, emoji=emoji, style=style, row=row)
@@ -84,6 +86,7 @@ class Hub(commands.Cog):
         embed.add_field(name="遊戲", value="\n".join(games), inline=False)
         embed.add_field(name="工具", value="📈 **股票**　用錢包的錢模擬買賣台股\n🎵 **音樂**　在語音頻道點歌\n"
                                           "⏰ **提醒**　時間到通知你\n"
+                                          "📋 **待辦**　任務卡片、負責人、截止提醒\n"
                                           "📊 **投票**　按鈕投票、自動截止", inline=False)
         embed.set_footer(text="每個功能也都能用斜線指令操作，輸入 / 看看；也可以 @嘎哇 用講的")
         if self.bot.user:
@@ -130,6 +133,13 @@ class Hub(commands.Cog):
             return await cog.open_modal(interaction)
         if action == "remind":
             return await interaction.response.send_modal(RemindModal(self.bot.get_cog("Reminders")))
+        if action in ("tasks", "task_add"):
+            cog = self.bot.get_cog("Tasks")
+            if not cog or not interaction.guild:
+                return await send_error(interaction, "待辦只能在伺服器裡使用。")
+            if action == "task_add":
+                return await cog.open_modal(interaction)
+            return await cog.send_list(interaction, "mine")
         if action == "poll":
             if not interaction.guild:
                 return await send_error(interaction, "投票只能在伺服器裡使用。")

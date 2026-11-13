@@ -21,6 +21,7 @@ from cogs.hub import GAME_COGS
 from cogs.reminders import RemindModal
 from cogs.seatortoise import is_question
 from core import assistant as asst
+from core import tasks as tk
 from core.ai import AIError
 from core.music import MusicError, parse_control
 from core.catalog import GAMES
@@ -46,6 +47,7 @@ LINES: Dict[str, List[str]] = {
     "game": ["想玩喔？本蛙陪你，輸了不准哭，嘎！", "好啦好啦，選一個遊戲。"],
     "stock": ["股票的事本蛙不懂，但按這裡看得到報價。", "看盤可以，別把荷葉也押下去，嘎。"],
     "remind": ["要我提醒你？你自己的腦袋呢……好啦，確認一下。", "記性跟金魚一樣，嘎。按一下我就幫你記。"],
+    "task": ["又要本蛙幫你記事？荷葉都快寫滿了……好啦，按一下。", "交代的事要做完喔，本蛙會盯著你，嘎。"],
     "music": ["本蛙開唱……不是，是幫你放歌啦，嘎。", "點歌喔？好啦好啦，荷葉舞台準備好了。", "聽歌可以，跟著唱不准走音，嘎嘎。"],
     "help": ["本蛙會的可多了，自己看說明。", "指令說明在這，看完別再問，嘎。"],
     "unsupported": ["想得美！這種事本蛙不幫忙，要的話自己用斜線指令。", "嘎？想騙本蛙？沒門，自己動手啦。"],
@@ -87,6 +89,17 @@ def buttons_for(intent: asst.Intent) -> List[Tuple[str, str, str]]:
         if intent.message and when and parse_when(when):
             return [(f"remind:{when}|{intent.message}", f"{when} 提醒我：{intent.message}"[:80], "⏰")]
         return [("remind", "設定提醒", "⏰")]
+    if name == "task":
+        if not intent.message:
+            return [("task:mine", "我的待辦", "📋"), ("task:new", "新增待辦", "➕")]
+        due = asst.normalize_when(intent.when) if intent.when else ""
+        parsed = tk.parse_due(due) if due else None
+        label = f"新增待辦：{intent.message}"
+        if parsed:
+            label += f"（{tk.fmt_due(parsed.at.timestamp(), parsed.has_time)} 截止）"
+        else:
+            due = ""
+        return [(f"task:add|{due}|{intent.assignee}|{intent.message}", label[:80], "📋")]
     if name == "game":
         games = [g for g in GAMES if g.key == intent.game] or list(GAMES)
         return [(f"game:{g.key}", g.name, g.emoji) for g in games if g.key in GAME_COGS]
@@ -95,6 +108,15 @@ def buttons_for(intent: asst.Intent) -> List[Tuple[str, str, str]]:
 
 def strip_mention(content: str, bot_id: int) -> str:
     return re.sub(rf"<@!?{bot_id}>", "", content).strip()
+
+
+def with_names(text: str, message) -> str:
+    """把訊息裡的 <@123> 換成 @名字，AI 才看得懂「交給 @小明」。"""
+    for member in getattr(message, "mentions", []) or []:
+        name = getattr(member, "display_name", None)
+        if name:
+            text = re.sub(rf"<@!?{member.id}>", f"@{name}", text)
+    return text
 
 
 class ActionView(BaseView):
@@ -207,7 +229,12 @@ class Assistant(commands.Cog):
         elif asst.YOUTUBE_LINK.search(text):
             intent = asst.apply_guards(text, asst.Intent("chat"))
         else:
-            intent = await asst.classify(self.ai, text, name, context)
+            intent = await asst.classify(self.ai, with_names(text, message), name, context)
+            if intent.name == "task":
+                intent.message = re.sub(r"<@!?\d+>", "", intent.message).strip()
+                me = self.bot.user.id if self.bot.user else 0
+                others = [m for m in message.mentions if m.id != me and not getattr(m, "bot", False)]
+                intent.assignee = others[0].id if others else 0
         history = self.history[message.channel.id]
         actions = buttons_for(intent)
         if intent.name == "music":
@@ -292,6 +319,15 @@ class Assistant(commands.Cog):
             cog = self.bot.get_cog("Stocks")
             if cog:
                 return await cog.quote_command.callback(cog, interaction, arg)
+        if kind == "task":
+            cog = self.bot.get_cog("Tasks")
+            if cog and arg == "mine":
+                return await cog.send_list(interaction, "mine")
+            if cog and arg == "new":
+                return await cog.open_modal(interaction)
+            if cog and arg.startswith("add|"):
+                _, due, assignee, title = arg.split("|", 3)
+                return await cog.create(interaction, title, due or None, None, "", int(assignee) or None)
         if kind == "remind":
             cog = self.bot.get_cog("Reminders")
             if cog and arg:
