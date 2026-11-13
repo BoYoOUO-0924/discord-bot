@@ -52,6 +52,9 @@ class GuardTest(unittest.TestCase):
 
     def test_command_questions_become_help(self):
         self.check("有哪些指令", "chat", "help")
+        self.check("你會做什麼", "chat", "help")
+        self.check("你能幹什麼？", "chat", "help")
+        self.check("你會什麼樂器", "chat", "chat")      # 只是聊天，不是問功能
         self.check("這個功能好酷，今天天氣也很好，大家晚上要不要一起玩", "chat", "chat")
 
 

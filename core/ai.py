@@ -96,8 +96,11 @@ class OllamaClient(AIClient):
             "stream": False,
             "think": False,          # 判題不需要長考，關掉快很多
             "keep_alive": "30m",     # 讓模型留在記憶體，下一題不用重新載入
-            "options": {"temperature": temperature, "num_predict": max_tokens, "seed": 42},   # 固定種子：同樣的問題得到同樣的答案
+            "options": {"temperature": temperature, "num_predict": max_tokens},
         }
+        if temperature == 0:
+            # 判題、分類固定種子：同樣的問題得到同樣的答案。閒聊（溫度 > 0）不固定，不然同一句話每次回得一模一樣
+            body["options"]["seed"] = 42
         if schema:
             body["format"] = schema
         # 遠端的 Ollama 偶爾會短暫不接受連線（例如正在載入模型），連線失敗時重試一次

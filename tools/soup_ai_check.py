@@ -83,7 +83,7 @@ async def run(url: str, model: str, ids) -> int:
         for group, question, ok in CASES[pid]:
             start = time.perf_counter()
             try:
-                display = await cog.judge_question(game, question)
+                display, point = await cog.judge(game, question)
             except AIError as e:
                 print(f"  ⚠️ {question} → 錯誤：{e}")
                 continue
@@ -93,7 +93,9 @@ async def run(url: str, model: str, ids) -> int:
             total += 1
             good = answer in ok
             correct += good
-            print(f"  {'✅' if good else '❌'} {question} → {answer}" + ("" if good else f"（預期：{'/'.join(sorted(ok))}）"))
+            key = f"　🔑{point}" if point else ""
+            print(f"  {'✅' if good else '❌'} {question} → {answer}{key}"
+                  + ("" if good else f"（預期：{'/'.join(sorted(ok))}）"))
             groups.setdefault(group, []).append((question, answer))
 
             # 重現性：開新的一局（沒有前面的問答）再問一次

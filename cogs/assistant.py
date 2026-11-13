@@ -19,6 +19,7 @@ from discord.ext import commands
 
 from cogs.hub import GAME_COGS
 from cogs.reminders import RemindModal
+from cogs.seatortoise import is_question
 from core import assistant as asst
 from core.ai import AIError
 from core.music import MusicError, parse_control
@@ -136,8 +137,8 @@ class Assistant(commands.Cog):
         me = self.bot.user
         if not me or message.author.bot or not message.guild:
             return None
-        replied_to_me = (message.reference and isinstance(message.reference.resolved, discord.Message)
-                         and message.reference.resolved.author.id == me.id)
+        replied = getattr(message.reference, "resolved", None) if message.reference else None
+        replied_to_me = getattr(getattr(replied, "author", None), "id", None) == me.id   # 被刪掉的訊息沒有 author
         if me in message.mentions or replied_to_me:
             return strip_mention(message.content, me.id) or SUMMONED
         if message.channel.id in self.channels:
@@ -148,7 +149,7 @@ class Assistant(commands.Cog):
     def belongs_to_game(self, message: discord.Message, text: str) -> bool:
         """海龜湯提問、猜數字的數字交給遊戲處理，嘎哇不插嘴。"""
         soup = self.bot.get_cog("SeaTortoise")
-        if soup and message.channel.id in soup.games and text.endswith(("?", "？")):
+        if soup and message.channel.id in soup.games and is_question(text):
             return True
         guess = self.bot.get_cog("GuessNumber")
         return bool(guess and message.channel.id in guess.games and text.isdigit())
@@ -181,14 +182,32 @@ class Assistant(commands.Cog):
         except discord.HTTPException:
             log.warning("嘎哇聊天：回覆失敗", exc_info=True)
 
+    def context_for(self, message: discord.Message) -> List[Tuple[str, str]]:
+        """這個頻道最近的對話；玩家「回覆」某則訊息時，把那則訊息也接在最後。
+
+        這樣回覆嘎哇很久以前（或重啟前）說的話、或回覆別人的訊息再 @嘎哇，嘎哇都知道在講哪一句。"""
+        history = list(self.history[message.channel.id])
+        ref = message.reference
+        replied = getattr(ref, "resolved", None) if ref else None
+        content = (getattr(replied, "content", "") or "").strip()
+        if content:
+            me = self.bot.user
+            author = replied.author
+            who = "嘎哇" if me and author.id == me.id else author.display_name
+            content = strip_mention(content, me.id) if me else content
+            if content and (who, content) not in history[-asst.HISTORY_TURNS:]:
+                history.append((who, content))
+        return history
+
     async def respond(self, message: discord.Message, text: str) -> None:
         name = message.author.display_name
+        context = self.context_for(message)
         if text == SUMMONED:
             intent = asst.Intent("chat")
         elif asst.YOUTUBE_LINK.search(text):
             intent = asst.apply_guards(text, asst.Intent("chat"))
         else:
-            intent = await asst.classify(self.ai, text, name)
+            intent = await asst.classify(self.ai, text, name, context)
         history = self.history[message.channel.id]
         actions = buttons_for(intent)
         if intent.name == "music":
@@ -200,7 +219,7 @@ class Assistant(commands.Cog):
             if view:
                 view.message = sent
         else:
-            reply = await asst.chat(self.ai, list(history), text, name) or random.choice(FAILED)
+            reply = await asst.chat(self.ai, context, text, name) or random.choice(FAILED)
             await self._reply(message, reply)
         history.append((name, text))
         history.append(("嘎哇", reply))

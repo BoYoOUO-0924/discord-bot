@@ -17,12 +17,15 @@ class FakeAI:
         self.reply = reply
         self.available = self.configured = available
         self.chat_calls = 0
+        self.prompts = []
 
     async def json(self, prompt, schema, **kwargs):
+        self.prompts.append(prompt)
         return self.result
 
     async def text(self, prompt, **kwargs):
         self.chat_calls += 1
+        self.prompts.append(prompt)
         return self.reply
 
 
@@ -157,6 +160,32 @@ class FlowTest(unittest.IsolatedAsyncioTestCase):
         link.guild = SimpleNamespace(id=1)
         await cog.on_message(link)
         music.speech.assert_awaited_with(link, "https://youtu.be/abc", "https://youtu.be/abc")
+
+    async def test_follow_up_sees_previous_turns(self):
+        ai = FakeAI(intent="weather")
+        cog, me = make_cog(ai)
+        await cog.on_message(make_message(f"<@{BOT_ID}> 今天會下雨嗎", me))
+        cog.last_message.clear()
+        await cog.on_message(make_message(f"<@{BOT_ID}> 那明天呢", me))
+        self.assertIn("小明：今天會下雨嗎", ai.prompts[-1])     # 判斷功能時看得到上一句
+
+    async def test_reply_brings_the_quoted_message(self):
+        ai = FakeAI(intent="chat")
+        cog, me = make_cog(ai)
+        message = make_message("真的假的", me, mention=False)
+        old = SimpleNamespace(content="本蛙昨天吃了三百隻蚊子，嘎。", author=me)
+        message.reference = SimpleNamespace(resolved=old)
+        await cog.on_message(message)    # 回覆嘎哇（不用 @）也會觸發
+        self.assertIn("嘎哇：本蛙昨天吃了三百隻蚊子", ai.prompts[-1])
+
+    async def test_reply_to_someone_else_with_mention(self):
+        ai = FakeAI(intent="chat")
+        cog, me = make_cog(ai)
+        message = make_message(f"<@{BOT_ID}> 你覺得他說的對嗎", me)
+        message.reference = SimpleNamespace(resolved=SimpleNamespace(
+            content="青蛙其實是爬蟲類", author=SimpleNamespace(id=8, display_name="小華")))
+        await cog.on_message(message)
+        self.assertIn("小華：青蛙其實是爬蟲類", ai.prompts[-1])
 
     async def test_cooldown(self):
         cog, me = make_cog(FakeAI())
