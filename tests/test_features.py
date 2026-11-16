@@ -28,7 +28,7 @@ class MappingTest(unittest.TestCase):
         self.assertIsNone(feature_for_action("help"))
 
     def test_every_help_command_maps_to_a_feature_or_is_basic(self):
-        basic = {"menu", "help", "clear"}
+        basic = {"menu", "help", "clear", "settings"}
         for _, commands in catalog.HELP_SECTIONS:
             for name, _, _ in commands:
                 root = name.split()[0]

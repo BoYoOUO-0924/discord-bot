@@ -4,7 +4,9 @@
 欄位改版時不容易整個壞掉。這個模組不依賴 Discord，方便測試。
 """
 import asyncio
+import json
 import logging
+import os
 import ssl
 from collections import Counter
 from dataclasses import dataclass, field
@@ -35,6 +37,59 @@ PLACES = [
     Place("台北", "臺北市", "中正區", TOWN_3DAY_TAIPEI),
     Place("淡水", "新北市", "淡水區", TOWN_3DAY_NEW_TAIPEI),
 ]
+MAX_PLACES = 3   # 每個伺服器最多設定幾個天氣地點
+
+# 全台 22 縣市、368 鄉鎮市區與它們的 3 天鄉鎮預報資料集（從 CWA API 整理，content/weather_towns.json）
+_TOWNS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "content", "weather_towns.json")
+with open(_TOWNS_PATH, encoding="utf-8") as _f:
+    COUNTIES: Dict[str, dict] = json.load(_f)
+_TOWN_COUNT: Dict[str, int] = Counter(t for c in COUNTIES.values() for t in c["towns"])
+
+
+def normalize_county(text: str) -> str:
+    """「台北市」「台北」→「臺北市」；找不到就原樣回傳。"""
+    text = (text or "").strip().replace("台", "臺")
+    if text in COUNTIES:
+        return text
+    for county in COUNTIES:
+        if county[:-1] == text or county[:2] == text:
+            return county
+    return text
+
+
+def make_place(county: str, town: str) -> Optional[Place]:
+    """縣市＋鄉鎮 → Place；不存在回傳 None。名稱只出現在一個縣市的（例如淡水區）只顯示鄉鎮，
+    重複的（例如中正區）加上縣市。"""
+    county = normalize_county(county)
+    info = COUNTIES.get(county)
+    if not info or town not in info["towns"]:
+        return None
+    label = town if _TOWN_COUNT[town] == 1 else f"{county[:2]}{town}"
+    return Place(label, county, town, info["dataset"])
+
+
+def place_key(place: Place) -> str:
+    """存進設定、放進自動完成的值：「臺北市|中正區」。"""
+    return f"{place.county}|{place.town}"
+
+
+def place_from_key(key: str) -> Optional[Place]:
+    county, _, town = (key or "").partition("|")
+    return make_place(county, town)
+
+
+def search_places(query: str, limit: int = 25) -> List[Place]:
+    """自動完成：輸入「淡水」「高雄 苓雅」「台中」都找得到。"""
+    words = (query or "").replace("台", "臺").split()
+    results = []
+    for county, info in COUNTIES.items():
+        for town in info["towns"]:
+            text = county + town
+            if all(word in text for word in words):
+                results.append(make_place(county, town))
+                if len(results) >= limit:
+                    return results
+    return results
 
 # 元素名稱：舊格式是英文代碼，新格式是中文
 TEMP = {"t", "溫度"}
@@ -333,9 +388,11 @@ async def fetch_forecasts(api_key: str, day: datetime, places: List[Place] = PLA
         for place in places:
             if place.town:
                 try:
-                    if place.town_dataset not in town_data:
-                        town_data[place.town_dataset] = await _fetch(session, api_key, place.town_dataset)
-                    forecasts.append(build_forecast(place.label, town_data[place.town_dataset], place.town, day,
+                    key = f"{place.town_dataset}|{place.town}"
+                    if key not in town_data:
+                        # 只抓需要的鄉鎮，不用整個縣市的資料
+                        town_data[key] = await _fetch(session, api_key, place.town_dataset, LocationName=place.town)
+                    forecasts.append(build_forecast(place.label, town_data[key], place.town, day,
                                                     f"{place.county}{place.town}"))
                     continue
                 except (WeatherError, aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:

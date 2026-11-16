@@ -53,6 +53,21 @@ COMMAND_NAMES = {
     "report": "週報",
     "archive": "封存",
     "github": "github",
+    # 伺服器設定（/設定 底下的子指令）
+    "settings": "設定",
+    "features": "功能開關",
+    "alerts": "警報",
+    "show": "查看",
+    "alert": "警報",
+    "catchup": "我錯過了什麼",
+    # Minecraft（/mc 底下的子指令）
+    "status": "狀態",
+    "start": "開服",
+    "stop": "關服",
+    "restart": "重開",
+    "backup": "備份",
+    "cmd": "指令",
+    "log": "紀錄",
 }
 
 # 同名參數在不同指令可能有不同意思，所以用「指令.參數」當 key，找不到再退回只看參數名
@@ -97,6 +112,16 @@ PARAMETER_NAMES = {
     "project milestone.due": "目標日期",
     "repeat": "重複",
     "repo": "repo",
+    "weather.place": "地點",
+    "place1": "地點1",
+    "place2": "地點2",
+    "place3": "地點3",
+    "time": "時間",
+    "stop": "停止",
+    "all_types": "全部特報",
+    "hours": "小時",
+    "mc cmd.command": "指令",
+    "mc log.lines": "行數",
 }
 
 

@@ -5,6 +5,7 @@
 Webhook 的開頭問候會依天氣（下雨／放晴／陰天）改變；穿衣建議只在 /weather 指令裡顯示。
 任何人都能用 /weather 立即傳送，預報會公開傳到下指令的頻道（不經過 Webhook）。
 """
+import json
 import logging
 import os
 import re
@@ -83,6 +84,33 @@ def forecast_embed(forecast: weather.Forecast, date: datetime, tomorrow: bool = 
     return embed
 
 
+async def guild_places(db, guild_id: Optional[int]) -> List[weather.Place]:
+    """這個伺服器的天氣地點；沒設定就用預設（台北、淡水）。"""
+    if guild_id:
+        raw = (await db.get_guild_settings(guild_id)).get("weather.places")
+        if raw:
+            try:
+                places = [weather.place_from_key(k) for k in json.loads(raw)]
+                places = [p for p in places if p]
+                if places:
+                    return places
+            except (ValueError, TypeError):
+                log.warning("伺服器 %s 的天氣地點設定壞掉了：%s", guild_id, raw)
+    return list(weather.PLACES)
+
+async def guild_counties(db, guild_id: int) -> List[str]:
+    """警報要關心的縣市：跟著天氣地點。"""
+    return list(dict.fromkeys(p.county for p in await guild_places(db, guild_id)))
+
+
+GUILD_KEY = "weather_sent:{}"      # meta：每個伺服器上次自動傳送的日期
+
+
+def place_choices(current: str):
+    return [app_commands.Choice(name=f"{p.county} {p.town}", value=weather.place_key(p))
+            for p in weather.search_places(current)]
+
+
 class Weather(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -93,8 +121,11 @@ class Weather(commands.Cog):
         self.state_path = os.path.join(os.path.dirname(settings.database_path), "weather_last_sent.txt")
         self.last_attempt = 0.0
         self.channel_sent: Dict[int, float] = {}   # 頻道 → 上次立即傳送的時間
+        self.guild_attempt: Dict[int, float] = {}  # 伺服器 → 上次嘗試自動傳送的時間
 
     async def cog_load(self):
+        if self.api_key:
+            self.guild_loop.start()   # 各伺服器用 /settings weather 設定的每日預報
         if not self.api_key or not self.webhook_url:
             missing = [name for name, value in (("CWA_API_KEY", self.api_key),
                                                 ("WEATHER_WEBHOOK_URL", self.webhook_url)) if not value]
@@ -107,6 +138,7 @@ class Weather(commands.Cog):
 
     async def cog_unload(self):
         self.daily_loop.cancel()
+        self.guild_loop.cancel()
 
     # ------------------------------------------------------------------ 傳送紀錄
     def sent_slots(self) -> List[str]:
@@ -154,18 +186,18 @@ class Weather(commands.Cog):
         return f"{now.date().isoformat()} {slot[0]:02d}:{slot[1]:02d}"
 
     # ------------------------------------------------------------------ 傳送
-    async def fetch(self, now: datetime, tomorrow: bool = False) -> tuple:
-        """回傳 (那一天, 預報列表)。"""
+    async def fetch(self, now: datetime, tomorrow: bool = False, places=None) -> tuple:
+        """回傳 (那一天, 預報列表)。places 不給就用預設地點（台北、淡水）。"""
         day = now + timedelta(days=1) if tomorrow else now
-        return day, await weather.fetch_forecasts(self.api_key, day)
+        return day, await weather.fetch_forecasts(self.api_key, day, places or weather.PLACES)
 
-    async def build_embeds(self, now: datetime, tomorrow: bool = False) -> List[discord.Embed]:
-        day, forecasts = await self.fetch(now, tomorrow)
+    async def build_embeds(self, now: datetime, tomorrow: bool = False, places=None) -> List[discord.Embed]:
+        day, forecasts = await self.fetch(now, tomorrow, places)
         return [forecast_embed(f, day, tomorrow) for f in forecasts]
 
-    async def daily_message(self, now: datetime, tomorrow: bool = False) -> tuple:
+    async def daily_message(self, now: datetime, tomorrow: bool = False, places=None) -> tuple:
         """每日預報的 (開頭問候, 預報卡片)，不附穿衣建議。"""
-        day, forecasts = await self.fetch(now, tomorrow)
+        day, forecasts = await self.fetch(now, tomorrow, places)
         embeds = [forecast_embed(f, day, tomorrow, clothing=False) for f in forecasts]
         heading = "明天的天氣預報" if tomorrow else "今天的天氣預報"
         content = f"{weather.greeting(forecasts)}\n-# 📅 {day.month}/{day.day}（{WEEKDAYS[day.weekday()]}）{heading}"
@@ -199,13 +231,57 @@ class Weather(commands.Cog):
     async def _wait_ready(self):
         await self.bot.wait_until_ready()
 
+    # ------------------------------------------------------------------ 各伺服器的每日預報
+    def guild_due(self, now: datetime, send_time: str, last_sent: Optional[str]) -> bool:
+        """到了這個伺服器設定的時間、還在補送時限內、今天還沒傳過。"""
+        clock = parse_clock(send_time) or parse_clock(DEFAULT_TIMES)
+        start = now.replace(hour=clock[0], minute=clock[1], second=0, microsecond=0)
+        return start <= now < start + timedelta(hours=CATCH_UP_HOURS) and last_sent != now.date().isoformat()
+
+    @tasks.loop(minutes=1)
+    async def guild_loop(self):
+        now = now_tw()
+        for guild_id, channel_id in (await self.bot.db.guilds_with_setting("weather.channel")).items():
+            if not enabled(self.bot, "weather", guild_id):
+                continue
+            settings = await self.bot.db.get_guild_settings(guild_id)
+            key = GUILD_KEY.format(guild_id)
+            if not self.guild_due(now, settings.get("weather.time", DEFAULT_TIMES), await self.bot.db.get_meta(key)):
+                continue
+            if time.time() - self.guild_attempt.get(guild_id, 0) < RETRY_SECONDS:
+                continue
+            self.guild_attempt[guild_id] = time.time()
+            try:
+                content, embeds = await self.daily_message(now, places=await guild_places(self.bot.db, guild_id))
+                channel = self.bot.get_channel(int(channel_id)) or await self.bot.fetch_channel(int(channel_id))
+                await channel.send(content=content, embeds=embeds, allowed_mentions=discord.AllowedMentions.none())
+            except (discord.NotFound, discord.Forbidden):
+                log.info("伺服器 %s 的天氣預報頻道不存在或沒有權限，今天略過", guild_id)
+            except (weather.WeatherError, aiohttp.ClientError, discord.HTTPException, TimeoutError, ValueError) as e:
+                log.warning("伺服器 %s 的天氣預報傳送失敗，%d 分鐘後重試：%s", guild_id, RETRY_SECONDS // 60, e)
+                continue
+            await self.bot.db.set_meta(key, now.date().isoformat())
+
+    @guild_loop.before_loop
+    async def _wait_ready_guild(self):
+        await self.bot.wait_until_ready()
+
     # ------------------------------------------------------------------ 指令
-    @app_commands.command(name="weather", description="查看台北、淡水今天或明天的天氣、降雨機率與穿衣建議")
+    @app_commands.command(name="weather", description="查看今天或明天的天氣、降雨機率與穿衣建議（全台各鄉鎮都可以查）")
     @app_commands.describe(day="要看哪一天，預設今天",
-                           send="立刻把預報公開傳到這個頻道（不影響每天的自動傳送）")
+                           send="立刻把預報公開傳到這個頻道（不影響每天的自動傳送）",
+                           place="要查的地點，例如 淡水、高雄 苓雅（不填就是伺服器設定的地點）")
     @app_commands.choices(day=[app_commands.Choice(name="今天", value=0), app_commands.Choice(name="明天", value=1)])
-    async def weather_command(self, interaction: discord.Interaction, day: int = 0, send: bool = False):
+    async def weather_command(self, interaction: discord.Interaction, day: int = 0, send: bool = False,
+                              place: Optional[str] = None):
         tomorrow = day == 1
+        if place:
+            chosen = weather.place_from_key(place) or next(iter(weather.search_places(place, 1)), None)
+            if not chosen:
+                return await send_error(interaction, f"找不到「{place}」這個地點，請從選單選擇。")
+            places = [chosen]
+        else:
+            places = await guild_places(getattr(self.bot, "db", None), getattr(interaction, "guild_id", None))
         if not self.api_key:
             return await send_error(interaction, "還沒有設定中央氣象署 API 金鑰（CWA_API_KEY）。")
         if send:
@@ -216,9 +292,9 @@ class Weather(commands.Cog):
         now = datetime.now(TAIPEI)
         try:
             if send:
-                content, embeds = await self.daily_message(now, tomorrow)
+                content, embeds = await self.daily_message(now, tomorrow, places)
             else:
-                embeds = await self.build_embeds(now, tomorrow)
+                embeds = await self.build_embeds(now, tomorrow, places)
         except (weather.WeatherError, aiohttp.ClientError, discord.HTTPException, TimeoutError, ValueError) as e:
             log.warning("查詢天氣失敗：%s", e)
             return await send_error(interaction, f"查詢天氣失敗：{e}")
@@ -227,6 +303,11 @@ class Weather(commands.Cog):
             await respond(interaction, content=content, embeds=embeds)
         else:
             await respond(interaction, embeds=embeds, ephemeral=True)
+
+    @weather_command.autocomplete("place")
+    async def place_autocomplete(self, interaction: discord.Interaction, current: str):
+        return place_choices(current)
+
 
 async def setup(bot):
     await bot.add_cog(Weather(bot))

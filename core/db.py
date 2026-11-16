@@ -190,6 +190,12 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at  REAL NOT NULL,
     UNIQUE (guild_id, name)
 );
+CREATE TABLE IF NOT EXISTS guild_settings (
+    guild_id INTEGER NOT NULL,
+    key      TEXT NOT NULL,                       -- 例如 weather.places、weather.channel、alerts.channel
+    value    TEXT NOT NULL,
+    PRIMARY KEY (guild_id, key)
+);
 CREATE TABLE IF NOT EXISTS feature_flags (
     guild_id INTEGER NOT NULL,                    -- 0 代表所有伺服器
     feature  TEXT NOT NULL,
@@ -1543,3 +1549,25 @@ class Database:
                 await self.conn.execute("INSERT OR REPLACE INTO feature_flags (guild_id, feature, enabled) VALUES (?, ?, ?)",
                                         (guild_id, feature, int(enabled)))
             await self.conn.commit()
+
+    # ------------------------------------------------------------------ 伺服器設定
+    async def get_guild_settings(self, guild_id: int) -> Dict[str, str]:
+        async with self._lock:
+            async with self.conn.execute("SELECT key, value FROM guild_settings WHERE guild_id = ?", (guild_id,)) as cur:
+                return {r["key"]: r["value"] for r in await cur.fetchall()}
+
+    async def set_guild_setting(self, guild_id: int, key: str, value: Optional[str]) -> None:
+        """value 為 None 時刪除（回到預設）。"""
+        async with self._lock:
+            if value is None:
+                await self.conn.execute("DELETE FROM guild_settings WHERE guild_id = ? AND key = ?", (guild_id, key))
+            else:
+                await self.conn.execute("INSERT OR REPLACE INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?)",
+                                        (guild_id, key, value))
+            await self.conn.commit()
+
+    async def guilds_with_setting(self, key: str) -> Dict[int, str]:
+        """有設定這個鍵的伺服器：{guild_id: value}。"""
+        async with self._lock:
+            async with self.conn.execute("SELECT guild_id, value FROM guild_settings WHERE key = ?", (key,)) as cur:
+                return {r["guild_id"]: r["value"] for r in await cur.fetchall()}

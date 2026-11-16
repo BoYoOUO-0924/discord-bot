@@ -378,8 +378,17 @@ footer { padding: 40px 0 56px; color: var(--muted); font-size: 14px; border-top:
         <p>按鈕投票，即時顯示票數，可以設定自動截止；再按一次同一個選項就是取消。</p>
         <ul class="cmds"><li><code>/poll [時長]</code></li></ul></article>
       <article class="card"><h3><span class="emoji">🌦️</span>天氣</h3>
-        <p>台北、淡水今天或明天的天氣、降雨機率與穿衣建議，每天早上 6 點也會自動傳送。</p>
-        <ul class="cmds"><li><code>/weather [日期]</code></li></ul></article>
+        <p>全台 368 個鄉鎮都能查今天或明天的天氣、降雨機率與穿衣建議；管理員可以設定伺服器的地點（最多 3 個）和每天自動傳送的頻道、時間。</p>
+        <ul class="cmds"><li><code>/weather [日期] [地點]</code></li><li><code>/settings weather</code><span>管理員</span></li></ul></article>
+      <article class="card"><h3><span class="emoji">🌀</span>颱風豪雨與停班停課</h3>
+        <p>颱風警報、豪雨大雨特報、停班停課公告自動通知到頻道，只通知你們地點所在的縣市；隨時也能查現況。</p>
+        <ul class="cmds"><li><code>/alert</code></li><li><code>/settings alerts</code><span>管理員</span></li></ul></article>
+      <article class="card"><h3><span class="emoji">🧾</span>我錯過了什麼 <span class="tag ai">AI</span></h3>
+        <p>離開一下回來訊息太多？AI 幫你整理這個頻道沒看到的重點，有人提到你也會附連結，只有你看得到。</p>
+        <ul class="cmds"><li><code>/catchup [小時]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">⚙️</span>伺服器設定</h3>
+        <p>管理員可以自己勾選這個伺服器要開哪些功能，不想要遊戲或股票就關掉。</p>
+        <ul class="cmds"><li><code>/settings features</code></li><li><code>/settings show</code></li></ul></article>
       <article class="card"><h3><span class="emoji">🌏</span>地震報告</h3>
         <p>資料來自中央氣象署；台北震度 4 級以上會自動通報到頻道。</p>
         <ul class="cmds"><li><code>/earthquake</code></li></ul></article>

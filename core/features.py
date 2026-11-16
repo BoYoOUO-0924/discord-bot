@@ -1,7 +1,8 @@
 """功能開關：管理後台可以關掉某些功能，可以全部伺服器一起關，也可以只關某個伺服器。
 
 判斷順序：全域關閉 → 關；某伺服器有設定 → 照那個設定；都沒設定 → 開。
-大廳（/menu）、說明（/help）、清除訊息（/clear）是基本功能，不能關。
+大廳（/menu）、說明（/help）、清除訊息（/clear）、伺服器設定（/settings）是基本功能，不能關。
+伺服器管理員也可以用 /settings features 自己開關（寫的是同一份設定）。
 """
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -38,6 +39,8 @@ FEATURES: List[Feature] = [
             ("task", "project"), ("tasks", "task_add"), ("task",)),
     Feature("weather", "🌦️", "天氣", "天氣查詢與每天早上的天氣預報", ("weather",), (), ("weather",)),
     Feature("earthquake", "🌏", "地震報告", "地震查詢與大地震自動通報", ("earthquake",), (), ("earthquake",)),
+    Feature("alerts", "🌀", "颱風豪雨與停班停課", "颱風警報、豪雨特報、停班停課查詢與自動通知", ("alert",)),
+    Feature("catchup", "🧾", "我錯過了什麼", "AI 整理頻道裡沒看到的聊天重點", ("catchup",)),
     Feature("assistant", "🐸", "嘎哇聊天", "@嘎哇 用講的叫功能、跟嘎哇閒聊"),
 ]
 FEATURES_BY_KEY: Dict[str, Feature] = {f.key: f for f in FEATURES}

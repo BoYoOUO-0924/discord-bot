@@ -39,6 +39,10 @@ EXTENSIONS = [
     "cogs.seatortoise",
     "cogs.weather",
     "cogs.earthquake",
+    "cogs.alerts",
+    "cogs.catchup",
+    "cogs.settings",
+    "cogs.minecraft",
     "cogs.stocks",
     "cogs.music",
     "cogs.assistant",
@@ -137,6 +141,14 @@ class Bot(commands.Bot):
             synced = await self.tree.sync()
         self.command_ids = {command.name: command.id for command in synced}
         log.info("已同步 %d 個斜線指令", len(synced))
+        # 只在特定伺服器出現的指令（例如 /mc）要另外同步到那些伺服器
+        for guild_id in getattr(self.settings, "minecraft_guild_ids", ()):
+            if guild_id == self.settings.dev_guild_id:
+                continue
+            try:
+                await self.tree.sync(guild=discord.Object(id=guild_id))
+            except discord.HTTPException as e:
+                log.warning("同步伺服器 %s 的專屬指令失敗：%s", guild_id, e)
 
     def mention(self, name: str) -> str:
         """可點擊的指令連結；還沒同步時退回純文字。子指令（例如「stock buy」）用上層指令的 ID。"""

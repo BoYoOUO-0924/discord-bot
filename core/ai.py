@@ -55,10 +55,12 @@ class AIClient:
         self._mark(True, "正常")
         return True
 
-    async def text(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 256) -> str:
+    async def text(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 256,
+                   num_ctx: Optional[int] = None) -> str:
         raise AIError("AI 功能尚未設定。")
 
-    async def json(self, prompt: str, schema: Dict, *, temperature: float = 0.2, max_tokens: int = 1024) -> Dict:
+    async def json(self, prompt: str, schema: Dict, *, temperature: float = 0.2, max_tokens: int = 1024,
+                   num_ctx: Optional[int] = None) -> Dict:
         raise AIError("AI 功能尚未設定。")
 
     @staticmethod
@@ -87,7 +89,8 @@ class OllamaClient(AIClient):
     def configured(self) -> bool:
         return bool(self.url and self.model)
 
-    async def _chat(self, prompt: str, schema: Optional[Dict], temperature: float, max_tokens: int) -> str:
+    async def _chat(self, prompt: str, schema: Optional[Dict], temperature: float, max_tokens: int,
+                    num_ctx: Optional[int] = None) -> str:
         if not self.configured:
             raise AIError("AI 功能尚未設定（缺少 OLLAMA_URL）。")
         body: Dict[str, Any] = {
@@ -98,6 +101,8 @@ class OllamaClient(AIClient):
             "keep_alive": "30m",     # 讓模型留在記憶體，下一題不用重新載入
             "options": {"temperature": temperature, "num_predict": max_tokens},
         }
+        if num_ctx:
+            body["options"]["num_ctx"] = num_ctx   # 長文（例如整理聊天紀錄）需要比預設大的上下文
         if temperature == 0:
             # 判題、分類固定種子：同樣的問題得到同樣的答案。閒聊（溫度 > 0）不固定，不然同一句話每次回得一模一樣
             body["options"]["seed"] = 42
@@ -133,11 +138,13 @@ class OllamaClient(AIClient):
             raise AIError("AI 沒有產生內容，請再試一次。")
         return text
 
-    async def text(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 256) -> str:
-        return await self._chat(prompt, None, temperature, max_tokens)
+    async def text(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 256,
+                   num_ctx: Optional[int] = None) -> str:
+        return await self._chat(prompt, None, temperature, max_tokens, num_ctx)
 
-    async def json(self, prompt: str, schema: Dict, *, temperature: float = 0.2, max_tokens: int = 1024) -> Dict:
-        return self._parse_json(await self._chat(prompt, schema, temperature, max_tokens))
+    async def json(self, prompt: str, schema: Dict, *, temperature: float = 0.2, max_tokens: int = 1024,
+                   num_ctx: Optional[int] = None) -> Dict:
+        return self._parse_json(await self._chat(prompt, schema, temperature, max_tokens, num_ctx))
 
     async def check(self) -> bool:
         if not self.configured:

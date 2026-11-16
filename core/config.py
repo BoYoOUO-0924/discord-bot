@@ -17,6 +17,7 @@ KNOWN_KEYS = [
     "ADMIN_PASSWORD", "ADMIN_HOST", "ADMIN_PORT", "OLLAMA_URL", "OLLAMA_MODEL",
     "CWA_API_KEY", "WEATHER_WEBHOOK_URL", "WEATHER_TIME", "EARTHQUAKE_WEBHOOK_URL",
     "TWFOLIO_DB", "TWFOLIO_CONFIG", "ASSISTANT_CHANNELS", "GITHUB_TOKEN", "GUIDE_URL",
+    "MINECRAFT_SCRIPT", "MINECRAFT_GUILD_IDS",
 ]
 
 # 已經移除的功能留下的設定：.env 裡還有的話提醒可以刪掉，不當成打錯字
@@ -159,6 +160,8 @@ class Settings:
     assistant_channels: Tuple[int, ...] = ()
     github_token: Optional[str] = None
     guide_url: Optional[str] = None
+    minecraft_script: Optional[str] = None
+    minecraft_guild_ids: Tuple[int, ...] = ()
 
 
 def load_settings() -> Settings:
@@ -192,6 +195,9 @@ def load_settings() -> Settings:
         github_token=_read("GITHUB_TOKEN"),
         # /help 的「完整功能介紹」連結（docs/index.html 用 GitHub Pages 發布）；設成空白就不顯示
         guide_url=_read("GUIDE_URL", DEFAULT_GUIDE_URL) or None,
+        # Minecraft 伺服器管理（/mc）：控制腳本（mc start/stop/status…），只在這些伺服器出現指令
+        minecraft_script=_read("MINECRAFT_SCRIPT", os.path.expanduser("~/.local/bin/mc")),
+        minecraft_guild_ids=_channel_ids(_read("MINECRAFT_GUILD_IDS", "")),
     )
 
 
