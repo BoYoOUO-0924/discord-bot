@@ -183,6 +183,7 @@ class AdminApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["kpi"]["users"], 1)
         self.assertEqual(len(data["days"]), 14)
         self.assertTrue(data["bot"]["online"])
+        self.assertIn("version", data["bot"])   # 前端靠這個發現 bot 更新、自動重新載入後台
 
 
 if __name__ == "__main__":

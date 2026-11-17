@@ -209,7 +209,27 @@ async function refreshStatus() {
     pill.replaceChildren(h("span", { class: "dot", style: { background: color, color } }), `${text}・${ai}`);
     pill.title = bot.ai_configured ? `${bot.ai_name}：${bot.ai_status}` : "沒有設定 OLLAMA_URL";
     $("#update-now").hidden = !bot.auto_update;
+    checkVersion(bot.version);
   } catch (e) { /* 狀態列失敗不影響頁面 */ }
+}
+
+// bot 更新重開後，開著的後台還是舊的網頁程式：發現版本變了就重新載入。
+// 正在打字時不強制重載，改成在狀態列放一顆「重新整理」按鈕，免得內容不見。
+let loadedVersion = null;
+function checkVersion(version) {
+  if (!version || version === "?") return;
+  if (loadedVersion === null) { loadedVersion = version; return; }
+  if (version === loadedVersion) return;
+  const typing = document.activeElement && document.activeElement.matches("input, textarea, select, [contenteditable]");
+  if (!typing) {
+    toast(`後台已更新到 ${version}，重新載入中…`);
+    setTimeout(() => location.reload(), 2000);
+    return;
+  }
+  if ($("#reload-new")) return;
+  const btn = h("button", { id: "reload-new", class: "btn small primary", type: "button",
+                            text: `⟳ 有新版本 ${version}，點這裡重新整理`, onclick: () => location.reload() });
+  $("#bot-status").after(btn);
 }
 
 function setBotInfo(bot) {
