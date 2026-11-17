@@ -24,7 +24,7 @@
 :root {
   --bg: #04070d;
   --bg-2: #070d17;
-  --surface: rgba(10, 20, 33, .72);
+  --surface: rgba(10, 20, 33, .82);
   --line: rgba(80, 220, 255, .16);
   --text: #e3f6ff;
   --text-2: #a8c3d3;
@@ -50,7 +50,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 a { color: var(--cyan); }
 code { font: .86em/1.4 var(--mono); background: rgba(53, 217, 255, .08); border: 1px solid var(--line); color: #bff3ff; padding: .1em .45em; border-radius: 5px; white-space: nowrap; }
 .wrap { max-width: 1180px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
-.grain { position: fixed; inset: -50%; z-index: 1; pointer-events: none; opacity: .05;
+.grain { position: fixed; inset: -6%; z-index: 1; will-change: transform; contain: strict; pointer-events: none; opacity: .05;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   animation: grain 1s steps(6) infinite; }
 @keyframes grain { 0% { transform: translate(0, 0); } 33% { transform: translate(-3%, 2%); } 66% { transform: translate(2%, -3%); } 100% { transform: translate(-1%, 1%); } }
@@ -85,6 +85,7 @@ code { font: .86em/1.4 var(--mono); background: rgba(53, 217, 255, .08); border:
 .nav-links a:hover, .nav-links a.on { color: var(--text); background: rgba(53, 217, 255, .1); }
 
 /* ---------- 首頁大字 ---------- */
+.hero.off *, .hero.off *::before, .hero.off *::after { animation-play-state: paused !important; }
 .hero { position: relative; min-height: min(100svh, 980px); display: grid; align-items: center; overflow: hidden; padding-block: 120px 80px; }
 #field { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
 .hero::after { content: ""; position: absolute; inset: auto 0 0; height: 40%; background: linear-gradient(transparent, var(--bg)); z-index: 1; pointer-events: none; }
@@ -92,7 +93,9 @@ code { font: .86em/1.4 var(--mono); background: rgba(53, 217, 255, .08); border:
 .eyebrow { font: 600 12px var(--mono); letter-spacing: .3em; text-transform: uppercase; color: var(--lime); display: inline-flex; gap: 10px; align-items: center; }
 .eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 10px var(--lime); animation: blink 1.4s steps(1) infinite; }
 @keyframes blink { 50% { opacity: .2; } }
-.hero h1 { margin: 26px 0 0; font: 900 clamp(64px, 14vw, 200px)/1.02 var(--sans); letter-spacing: -.02em; filter: drop-shadow(0 0 30px rgba(53, 217, 255, .35)); }
+.hero h1 { position: relative; isolation: isolate; margin: 26px 0 0; font: 900 clamp(64px, 14vw, 200px)/1.02 var(--sans); letter-spacing: -.02em; }
+.hero h1::before { content: ""; position: absolute; z-index: -1; left: -4%; top: 8%; width: min(108%, 4.4em); height: 86%; border-radius: 40%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(53, 217, 255, .28), rgba(178, 107, 255, .12) 60%, transparent); filter: blur(24px); transform: translateZ(0); }
 .hero h1 .glow, .hero h1 .char { background: linear-gradient(100deg, #fff 10%, var(--cyan) 40%, var(--violet) 70%, var(--lime) 95%); background-size: 200% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent; animation: sheen 6s linear infinite; }
 .hero h1 .char { display: inline-block; }
@@ -124,7 +127,7 @@ h2.title { margin: 10px 0 0; font: 900 clamp(36px, 6vw, 76px)/1.05 var(--sans); 
 h2.title em { font-style: normal; background: linear-gradient(100deg, var(--cyan), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .sub { color: var(--text-2); max-width: 62ch; font-size: 17px; margin: 16px 0 0; }
 .split-line { display: block; overflow: hidden; }
-.card { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 24px; overflow: hidden; backdrop-filter: blur(8px);
+.card { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 24px; overflow: hidden;
   transition: border-color .3s, box-shadow .3s; min-width: 0; }
 .card::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
   background: radial-gradient(380px circle at var(--mx, 50%) var(--my, 0%), rgba(53, 217, 255, .14), transparent 60%); }
@@ -156,9 +159,10 @@ h2.title em { font-style: normal; background: linear-gradient(100deg, var(--cyan
 .games-track { display: flex; gap: 24px; padding: 48px max(20px, calc((100vw - 1180px) / 2 + 20px)) clamp(80px, 10vw, 120px); width: max-content; will-change: transform; }
 .game { position: relative; width: min(78vw, 380px); min-height: 460px; border-radius: 24px; padding: 28px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden;
   border: 1px solid var(--line); background: var(--g, linear-gradient(160deg, #10263a, #0a1220)); transform-style: preserve-3d; transition: transform .2s ease-out; flex: none; }
-.game::after { content: ""; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: color-dodge; opacity: .4;
+.game::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .22;
   background: linear-gradient(115deg, transparent 20%, rgba(255, 0, 180, .45) 36%, rgba(0, 220, 255, .45) 48%, rgba(255, 240, 0, .4) 60%, transparent 76%);
   background-size: 250% 250%; background-position: var(--hx, 50%) var(--hy, 50%); transition: opacity .3s; }
+.game:hover::after { mix-blend-mode: color-dodge; opacity: .4; }
 .game .big { position: absolute; top: 18px; right: 18px; font-size: 110px; line-height: 1; filter: drop-shadow(0 20px 30px rgba(0, 0, 0, .5)); transform: translateZ(60px); }
 .game .n { position: absolute; top: 26px; left: 28px; font: 600 12px var(--mono); color: rgba(255, 255, 255, .6); letter-spacing: .2em; }
 .game h3 { margin: 0; font: 900 34px/1.1 var(--sans); }
@@ -661,57 +665,106 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
     }, delay);
   }
 
+  // ------------------------------------------------ 動畫迴圈：畫面外或分頁切走時暫停，省下效能給看得到的部分
+  function animate(el, draw) {
+    var visible = true, running = false;
+    function frame(now) { if (!visible || document.hidden || reduce) { running = false; return; } draw(now); requestAnimationFrame(frame); }
+    function wake() { if (!running && visible && !document.hidden) { running = true; requestAnimationFrame(frame); } }
+    if ("IntersectionObserver" in window) new IntersectionObserver(function (es) { visible = es[0].isIntersecting; wake(); }).observe(el);
+    document.addEventListener("visibilitychange", wake);
+    if (reduce) requestAnimationFrame(draw); else wake();
+  }
+  var DPR = Math.min(devicePixelRatio || 1, 1.5);
+  var heroEl = $(".hero");
+  if (heroEl && "IntersectionObserver" in window) new IntersectionObserver(function (es) { heroEl.classList.toggle("off", !es[0].isIntersecting); }).observe(heroEl);
+
   // ------------------------------------------------ 首頁：漂浮的指令與光點（Canvas）
   var field = $("#field");
   (function () {
-    var c = field.getContext("2d"), w, h, d = Math.min(devicePixelRatio || 1, 2), mouse = { x: 0, y: 0 }, t0 = performance.now();
+    var c = field.getContext("2d"), w, h, d = DPR, mouse = { x: 0, y: 0 }, t0 = performance.now(), glow;
     var WORDS = ["/checkin", "/work", "/poker", "/blackjack", "/slots", "/weather", "/stock", "/play", "/task add", "/remind", "/poll", "/catchup", "/menu", "/help", "/alert", "@嘎哇", "💰", "🃏", "♠️", "🎵", "📈", "🌦️", "📋", "🐢"];
+    // 每個字先畫成小圖（只畫一次），之後每格只要縮放貼上，比每格重新排版文字快很多
+    var BASE = 44, sprites = {};
+    function sprite(word) {
+      if (sprites[word]) return sprites[word];
+      var isCmd = word.charAt(0) === "/" || word.charAt(0) === "@", px = Math.round(BASE * d * (isCmd ? 1 : 1.4));
+      var font = isCmd ? "600 " + px + "px JetBrains Mono, monospace" : px + "px serif";
+      var m = document.createElement("canvas").getContext("2d"); m.font = font;
+      var cw = Math.ceil(m.measureText(word).width) + 4, ch = Math.ceil(px * 1.3);
+      var cv = document.createElement("canvas"); cv.width = cw; cv.height = ch;
+      var x = cv.getContext("2d"); x.font = font; x.textBaseline = "alphabetic";
+      x.fillStyle = word.charAt(0) === "/" ? "rgba(53,217,255,.85)" : word.charAt(0) === "@" ? "#7cff9c" : "#fff";
+      x.fillText(word, 2, px);
+      return (sprites[word] = { cv: cv, w: cw / (BASE * d), h: ch / (BASE * d), base: px / (BASE * d) });
+    }
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { sprites = {}; });
     var items = [];
-    function size() { var r = field.getBoundingClientRect(); w = r.width; h = r.height; field.width = w * d; field.height = h * d; c.setTransform(d, 0, 0, d, 0, 0); }
+    function size() {
+      var r = field.getBoundingClientRect(); w = r.width; h = r.height; field.width = w * d; field.height = h * d; c.setTransform(d, 0, 0, d, 0, 0);
+      glow = c.createRadialGradient(w * .7, h * .35, 0, w * .7, h * .35, Math.max(w, h) * .7);
+      glow.addColorStop(0, "rgba(53,217,255,.16)"); glow.addColorStop(.4, "rgba(178,107,255,.09)"); glow.addColorStop(1, "rgba(4,7,13,0)");
+    }
     size(); addEventListener("resize", size);
     for (var i = 0; i < 46; i++) items.push({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random(), s: WORDS[i % WORDS.length], v: .0006 + Math.random() * .0012 });
-    var stars = []; for (var k = 0; k < 140; k++) stars.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.3, p: Math.random() * 6 });
+    // 星星分成 6 組亮度，同一組一次畫完
+    var stars = [], GROUPS = 6; for (var k = 0; k < 140; k++) stars.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.3 + .2, g: k % GROUPS });
     addEventListener("pointermove", function (e) { mouse.x = e.clientX / innerWidth - .5; mouse.y = e.clientY / innerHeight - .5; });
-    function draw(now) {
-      var t = (now - t0) / 1000;
+    var last = 0;
+    animate(field, function (now) {
+      var t = (now - t0) / 1000, step = last ? Math.min((now - last) / 16.7, 3) : 1; last = now;
       c.clearRect(0, 0, w, h);
-      var g = c.createRadialGradient(w * .7, h * .35, 0, w * .7, h * .35, Math.max(w, h) * .7);
-      g.addColorStop(0, "rgba(53,217,255,.16)"); g.addColorStop(.4, "rgba(178,107,255,.09)"); g.addColorStop(1, "rgba(4,7,13,0)");
-      c.fillStyle = g; c.fillRect(0, 0, w, h);
-      stars.forEach(function (s) { c.fillStyle = "rgba(200,240,255," + (.25 + .25 * Math.sin(t * 2 + s.p)) + ")"; c.beginPath(); c.arc(s.x * w, s.y * h, s.r, 0, 6.3); c.fill(); });
+      c.fillStyle = glow; c.fillRect(0, 0, w, h);
+      for (var g = 0; g < GROUPS; g++) {
+        c.fillStyle = "rgba(200,240,255," + (.25 + .25 * Math.sin(t * 2 + g)) + ")"; c.beginPath();
+        for (var n = g; n < stars.length; n += GROUPS) { var s = stars[n]; c.rect(s.x * w - s.r, s.y * h - s.r, s.r * 2, s.r * 2); }
+        c.fill();
+      }
+      var small = w < 700;
       items.forEach(function (it) {
-        if (!reduce) { it.z -= it.v; if (it.z <= .02) { it.z = 1; it.x = Math.random() * 2 - 1; it.y = Math.random() * 2 - 1; } }
+        if (!reduce) { it.z -= it.v * step; if (it.z <= .02) { it.z = 1; it.x = Math.random() * 2 - 1; it.y = Math.random() * 2 - 1; } }
         var scale = 1 / it.z, px = w / 2 + (it.x * w * .5 - mouse.x * 120 * (1 - it.z)) * scale * .35, py = h / 2 + (it.y * h * .5 - mouse.y * 90 * (1 - it.z)) * scale * .35;
-        var alpha = Math.min(1, (1 - it.z) * 1.6) * (it.z < .12 ? it.z / .12 : 1) * (w < 700 ? .35 : 1);
+        var alpha = Math.min(1, (1 - it.z) * 1.6) * (it.z < .12 ? it.z / .12 : 1) * (small ? .35 : 1);
         var size = Math.max(9, 13 * scale * .55);
-        if (size > 90) return;
-        c.font = (it.s.charAt(0) === "/" || it.s.charAt(0) === "@" ? "600 " + size + "px JetBrains Mono, monospace" : size * 1.4 + "px serif");
-        c.fillStyle = it.s.charAt(0) === "/" ? "rgba(53,217,255," + alpha * .85 + ")" : it.s.charAt(0) === "@" ? "rgba(124,255,156," + alpha + ")" : "rgba(255,255,255," + alpha + ")";
-        c.globalAlpha = it.s.charAt(0) === "/" || it.s.charAt(0) === "@" ? 1 : alpha;
-        c.fillText(it.s, px, py);
-        c.globalAlpha = 1;
+        if (size > 90 || alpha <= .01 || px < -400 || px > w + 50 || py < -100 || py > h + 100) return;
+        // 小圖是用 BASE 字級畫的，按比例縮放到這格的字級；左邊留白 2px、基線對齊原本的 fillText
+        var sp = sprite(it.s);
+        c.globalAlpha = alpha;
+        c.drawImage(sp.cv, px - 2 * size / (BASE * d), py - sp.base * size, sp.w * size, sp.h * size);
       });
-      if (!reduce) requestAnimationFrame(draw);
-    }
-    requestAnimationFrame(draw);
+      c.globalAlpha = 1;
+    });
   })();
 
   // ------------------------------------------------ 管理後台示意：小核心全像
   (function () {
     var cv = $("#core"); if (!cv) return;
-    var c = cv.getContext("2d"), d = Math.min(devicePixelRatio || 1, 2), w, h, t0 = performance.now(), packets = [];
-    function size() { var r = cv.getBoundingClientRect(); w = r.width; h = r.height; cv.width = w * d; cv.height = h * d; c.setTransform(d, 0, 0, d, 0, 0); }
+    var c = cv.getContext("2d"), d = DPR, w, h, t0 = performance.now(), packets = [], glow, R, cx, cy;
+    function size() {
+      var r = cv.getBoundingClientRect(); w = r.width; h = r.height; cv.width = w * d; cv.height = h * d; c.setTransform(d, 0, 0, d, 0, 0);
+      cx = w / 2; cy = h / 2; R = Math.min(w, h) * .28;
+      glow = c.createRadialGradient(cx, cy, 0, cx, cy, R); glow.addColorStop(0, "rgba(220,255,255,.85)"); glow.addColorStop(.3, "rgba(53,217,255,.4)"); glow.addColorStop(1, "rgba(53,217,255,0)");
+    }
     size(); addEventListener("resize", size);
-    setInterval(function () { if (!reduce) packets.push({ n: Math.floor(Math.random() * 8), p: 0 }); }, 700);
-    function draw(now) {
+    setInterval(function () { if (!reduce && !document.hidden && packets.length < 12) packets.push({ n: Math.floor(Math.random() * 8), p: 0 }); }, 700);
+    // 經緯線：前面（亮）跟後面（暗）各收成一條路徑，一次畫完
+    var front = new Path2D(), back = new Path2D();
+    animate(cv, function (now) {
       var t = (now - t0) / 1000; c.clearRect(0, 0, w, h);
-      var cx = w / 2, cy = h / 2, R = Math.min(w, h) * .28, rot = t * .5, tilt = .4;
-      function proj(x, y, z) { var x1 = x * Math.cos(rot) - z * Math.sin(rot), z1 = x * Math.sin(rot) + z * Math.cos(rot); var y2 = y * Math.cos(tilt) - z1 * Math.sin(tilt), z2 = y * Math.sin(tilt) + z1 * Math.cos(tilt); return [cx + x1, cy + y2, z2]; }
+      var rot = t * .5, tilt = .4, cr = Math.cos(rot), sr = Math.sin(rot), ct = Math.cos(tilt), st = Math.sin(tilt);
+      function seg(x, y, z, prev) {
+        var x1 = x * cr - z * sr, z1 = x * sr + z * cr, y2 = y * ct - z1 * st, z2 = y * st + z1 * ct, px = cx + x1, py = cy + y2;
+        if (prev) { var path = prev[2] < 0 ? front : back; path.moveTo(prev[0], prev[1]); path.lineTo(px, py); }
+        return [px, py, z2];
+      }
+      front = new Path2D(); back = new Path2D();
+      for (var lat = -60; lat <= 60; lat += 30) { var a = lat * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), prev = null;
+        for (var k = 0; k <= 40; k++) { var b = k / 40 * Math.PI * 2; prev = seg(R * ca * Math.cos(b), R * sa, R * ca * Math.sin(b), prev); } }
+      for (var lon = 0; lon < 180; lon += 30) { var bb = lon * Math.PI / 180, cb = Math.cos(bb), sb = Math.sin(bb), pv = null;
+        for (var j = 0; j <= 40; j++) { var aa = j / 40 * Math.PI * 2; pv = seg(R * Math.cos(aa) * cb, R * Math.sin(aa), R * Math.cos(aa) * sb, pv); } }
       c.lineWidth = 1;
-      for (var lat = -60; lat <= 60; lat += 30) { var a = lat * Math.PI / 180, prev = null; for (var k = 0; k <= 40; k++) { var b = k / 40 * Math.PI * 2, p = proj(R * Math.cos(a) * Math.cos(b), R * Math.sin(a), R * Math.cos(a) * Math.sin(b)); if (prev) { c.strokeStyle = "rgba(53,217,255," + (prev[2] < 0 ? .6 : .14) + ")"; c.beginPath(); c.moveTo(prev[0], prev[1]); c.lineTo(p[0], p[1]); c.stroke(); } prev = p; } }
-      for (var lon = 0; lon < 180; lon += 30) { var bb = lon * Math.PI / 180, pv = null; for (var j = 0; j <= 40; j++) { var aa = j / 40 * Math.PI * 2, q = proj(R * Math.cos(aa) * Math.cos(bb), R * Math.sin(aa), R * Math.cos(aa) * Math.sin(bb)); if (pv) { c.strokeStyle = "rgba(53,217,255," + (pv[2] < 0 ? .6 : .14) + ")"; c.beginPath(); c.moveTo(pv[0], pv[1]); c.lineTo(q[0], q[1]); c.stroke(); } pv = q; } }
-      var gl = c.createRadialGradient(cx, cy, 0, cx, cy, R); gl.addColorStop(0, "rgba(220,255,255,.85)"); gl.addColorStop(.3, "rgba(53,217,255,.4)"); gl.addColorStop(1, "rgba(53,217,255,0)");
-      c.fillStyle = gl; c.beginPath(); c.arc(cx, cy, R * 1.2, 0, 6.3); c.fill();
+      c.strokeStyle = "rgba(53,217,255,.14)"; c.stroke(back);
+      c.strokeStyle = "rgba(53,217,255,.6)"; c.stroke(front);
+      c.fillStyle = glow; c.beginPath(); c.arc(cx, cy, R * 1.2, 0, 6.3); c.fill();
       var nodes = []; for (var n = 0; n < 8; n++) { var an = n / 8 * Math.PI * 2 + t * .2; nodes.push([cx + Math.cos(an) * R * 1.7, cy + Math.sin(an) * R * .5, Math.sin(an)]); }
       c.strokeStyle = "rgba(53,217,255,.3)"; c.beginPath(); c.ellipse(cx, cy, R * 1.7, R * .5, 0, 0, 6.3); c.stroke();
       nodes.forEach(function (nd) { c.fillStyle = nd[2] > 0 ? "#7cff9c" : "rgba(124,255,156,.4)"; c.beginPath(); c.arc(nd[0], nd[1], nd[2] > 0 ? 3.4 : 2.2, 0, 6.3); c.fill(); });
@@ -719,9 +772,7 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
       packets.forEach(function (p) { p.p += .02; var s = nodes[p.n], kx = (s[0] + cx) / 2, ky = Math.min(s[1], cy) - R;
         for (var z = 0; z < 8; z++) { var u = Math.max(0, p.p - z * .03), x = (1 - u) * (1 - u) * s[0] + 2 * (1 - u) * u * kx + u * u * cx, y = (1 - u) * (1 - u) * s[1] + 2 * (1 - u) * u * ky + u * u * cy;
           c.fillStyle = "rgba(200,255,255," + (.9 - z * .11) + ")"; c.beginPath(); c.arc(x, y, 2.4 - z * .2, 0, 6.3); c.fill(); } });
-      if (!reduce) requestAnimationFrame(draw);
-    }
-    requestAnimationFrame(draw);
+    });
   })();
 
   // ------------------------------------------------ 股票走勢
