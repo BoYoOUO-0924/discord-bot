@@ -13,7 +13,8 @@
 - `webadmin/`：管理後台（功能開關分頁直接讀 `FEATURES`）。前端是純 JS（CSP 只允許同網域，不能用 CDN）：
   `static/app.js` 頁面、`static/motion.js` 動畫特效、`static/style.css` 任務控制中心風格；新頁面要加進 `index.html` 側邊選單與 `app.js` 的 `PAGES`
 - `core/persona.py`：AI 個性設定（管理後台「AI 與個性」）；聊天、叫功能台詞、週報與我錯過了什麼的語氣都從這裡讀，不要在程式裡寫死機器人名稱
-- `docs/index.html`：給玩家看的功能介紹網頁；`README.md`：功能一覽與說明
+- 文件：`README.md` 只放簡介與快速開始；完整指令與功能在 `docs/features.md`，需要額外程式的設定在 `docs/advanced.md`，
+  程式架構與檔案對照在 `docs/architecture.md`；`docs/index.html` 是給玩家看的功能介紹網頁
 - 測試：`python -m unittest discover -s tests -t .`（CI 也會跑 `python -m compileall -q bot.py core cogs`）
 
 ## 新功能開發檢查點（每個新功能都必須做到這三項）
@@ -41,6 +42,7 @@
 
 ### 收尾
 - [ ] 新增測試並跑完整測試
-- [ ] 更新 `README.md`（功能一覽表、專案結構、說明段落）與 `docs/index.html`（功能卡片、嘎哇可以這樣說）
+- [ ] 更新 `docs/features.md`（指令一覽、說明段落）、`docs/architecture.md`（功能與檔案對照表）、
+      `docs/index.html`（功能卡片、嘎哇可以這樣說）；需要新設定的話也更新 `.env.example`、`core/overview.py`、README 的「加更多功能」表
 - [ ] commit 訊息第一行寫「新增／修正 …」，其餘每行「- 」一點寫給玩家看得懂的變更：
       `/changelog` 更新日誌直接顯示 commit 訊息

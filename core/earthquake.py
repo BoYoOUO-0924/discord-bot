@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 
 import aiohttp
 
+from core.alerts import area_counties
 from core.weather import WeatherError, _fetch, _get, _parse_time, ssl_context
 
 log = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ DATASETS = (SIGNIFICANT, LOCAL)
 
 # 震度由小到大；5、6 級分強弱
 INTENSITY_ORDER = ["0", "1", "2", "3", "4", "5弱", "5強", "6弱", "6強", "7"]
-LOCAL_COUNTIES = ("臺北市", "新北市")
+LOCAL_COUNTIES = ("臺北市", "新北市")   # 舊版 Webhook 通報看的縣市
 
 
 class EarthquakeError(WeatherError):
@@ -73,15 +74,19 @@ class Report:
     color: str                       # 綠 / 黃 / 橘 / 紅
     image_url: Optional[str]
     web_url: Optional[str]
-    local: Dict[str, str] = field(default_factory=dict)   # {縣市: 震度}
+    local: Dict[str, str] = field(default_factory=dict)   # {縣市: 震度}，有感的縣市都有
 
     @property
     def significant(self) -> bool:
         return self.dataset == SIGNIFICANT
 
+    def rank_among(self, counties) -> int:
+        """這些縣市裡最大的震度等級；都沒感覺是 -1。"""
+        return max((self.rank_in(c) for c in counties), default=-1)
+
     @property
     def local_rank(self) -> int:
-        return max((intensity_rank(v) for v in self.local.values()), default=-1)
+        return self.rank_among(LOCAL_COUNTIES)
 
     def rank_in(self, county: str) -> int:
         return intensity_rank(self.local.get(county))
@@ -114,18 +119,17 @@ def parse_report(item: dict, dataset: str) -> Report:
     all_levels, local = [], {}
     for area in areas:
         level = _get(area, "AreaIntensity")
-        names = f"{_get(area, 'CountyName', default='')}{_get(area, 'AreaDesc', default='')}".replace("台", "臺")
+        names = f"{_get(area, 'CountyName', default='')}{_get(area, 'AreaDesc', default='')}"
         all_levels.append(level)
-        for county in LOCAL_COUNTIES:
-            if county in names and intensity_rank(level) > intensity_rank(local.get(county)):
+        for county in area_counties(names):
+            if intensity_rank(level) > intensity_rank(local.get(county)):
                 local[county] = normalize_intensity(level)
         # 各測站震度：縣市層級沒有標示時用測站補
         for station in _get(area, "EqStation", default=[]) or []:
             station_level = _get(station, "SeismicIntensity")
             all_levels.append(station_level)
-            station_county = str(_get(station, "CountyName", default="")).replace("台", "臺")
-            for county in LOCAL_COUNTIES:
-                if county == station_county and intensity_rank(station_level) > intensity_rank(local.get(county)):
+            for county in area_counties(str(_get(station, "CountyName", default=""))):
+                if intensity_rank(station_level) > intensity_rank(local.get(county)):
                     local[county] = normalize_intensity(station_level)
 
     content = str(_get(item, "ReportContent", default="") or "").strip()

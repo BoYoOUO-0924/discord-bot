@@ -40,6 +40,13 @@ class DecisionTest(unittest.TestCase):
         self.assertEqual(decide(status(ahead=1), "success")[0], "skip")
         self.assertEqual(decide(status(branch="dev"), "success")[0], "skip")
 
+    def test_env_example_hint_only_when_alone(self):
+        # 只改了 .env.example 才可能是把設定填錯檔；跟其他程式一起改是開發中，不該提示
+        alone = decide(status(dirty=True, changed_files=[".env.example"]), "success")[1]
+        self.assertIn("複製一份改名成 .env", alone)
+        mixed = decide(status(dirty=True, changed_files=[".env.example", "bot.py"]), "success")[1]
+        self.assertNotIn("複製一份改名成 .env", mixed)
+
 
 @unittest.skipUnless(shutil.which("git"), "需要 git")
 class GitFlowTest(unittest.IsolatedAsyncioTestCase):

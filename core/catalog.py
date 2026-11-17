@@ -61,7 +61,7 @@ HELP_SECTIONS: List[Tuple[str, List[Tuple[str, str, str]]]] = [
         ("poll", "[時長]", "發起投票，可設定自動截止"),
         ("weather", "[地點]", "今天或明天的天氣、降雨機率與穿衣建議，全台各鄉鎮都能查"),
         ("alert", "", "現在的颱風警報、豪雨特報與停班停課"),
-        ("earthquake", "", "最近台北有沒有震度 4 級以上的地震；有的話也會自動通報"),
+        ("earthquake", "", "最近你們縣市有沒有震度 4 級以上的地震（縣市跟著天氣地點）"),
         ("catchup", "[小時]", "AI 整理這個頻道你沒看到的聊天重點，有人提到你也會附連結"),
         ("clear", "數量", "清除頻道訊息（管理員）"),
     ]),
@@ -69,6 +69,7 @@ HELP_SECTIONS: List[Tuple[str, List[Tuple[str, str, str]]]] = [
         ("settings features", "", "開關這個伺服器的功能"),
         ("settings weather", "[地點] [頻道] [時間]", "天氣地點（最多 3 個）與每天自動傳送預報"),
         ("settings alerts", "[頻道] [全部特報]", "颱風、豪雨與停班停課自動通知"),
+        ("settings earthquake", "[頻道] [震度門檻]", "你們縣市震度達到門檻時自動通報地震"),
         ("settings show", "", "查看目前的設定"),
     ]),
     ("🏠 入口", [

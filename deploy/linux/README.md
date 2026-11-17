@@ -65,7 +65,7 @@ tail -f ~/discord-bot/logs/bot.log  # 看即時紀錄，Ctrl+C 離開
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up       # 照畫面的網址登入「同一個帳號」
-curl http://100.123.111.120:11434/api/tags   # 有列出模型就代表連得到
+curl http://Ollama那台的IP:11434/api/tags   # 有列出模型就代表連得到
 ```
 `.env` 的 `OLLAMA_URL` 不用改。主電腦關機時海龜湯一樣會顯示「湯主暫時離線」。
 

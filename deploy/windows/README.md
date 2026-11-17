@@ -53,10 +53,10 @@ git clone https://github.com/BoYoOUO-0924/discord-bot C:\GawaBot
 ## 海龜湯的 AI 湯主（Ollama）
 海龜湯的題目來自題庫，AI 只負責回答是非題和判斷猜答。筆電可以透過 Tailscale 使用另一台電腦上的 Ollama：
 
-1. 筆電安裝 Tailscale 並登入**同一個帳號**，確認筆電能連到 Ollama 那台電腦（`100.123.111.120`）。
+1. 筆電安裝 Tailscale 並登入**同一個帳號**，確認筆電能連到 Ollama 那台電腦（Tailscale 裡那台電腦的 IP）。
 2. 在筆電的 `.env` 加上：
    ```
-   OLLAMA_URL=http://100.123.111.120:11434
+   OLLAMA_URL=http://那台電腦的TailscaleIP:11434
    OLLAMA_MODEL=gemma4:e4b-it-q4_K_M
    ```
 3. 重新啟動 bot。`logs\bot.log` 會出現「AI（ollama …）狀態：正常」，管理後台右上角也會顯示「AI 湯主正常」。

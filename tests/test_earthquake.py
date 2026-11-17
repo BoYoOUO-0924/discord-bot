@@ -54,7 +54,9 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(r.magnitude, 5.8)
         self.assertEqual(r.depth, 15.5)
         self.assertEqual(r.max_intensity, "4")
-        self.assertEqual(r.local, {"臺北市": "2", "新北市": "1"})
+        self.assertEqual(r.local, {"花蓮縣": "4", "宜蘭縣": "2", "臺北市": "2", "新北市": "1"})
+        self.assertEqual(r.rank_among(["花蓮縣", "臺北市"]), 4)
+        self.assertEqual(r.rank_among(["高雄市"]), -1)
         self.assertTrue(r.felt_locally and r.significant)
         self.assertEqual(r.number, "115045")
         self.assertEqual(r.origin_time, datetime(2026, 11, 1, 8, 0, 12, tzinfo=TAIPEI))
@@ -81,9 +83,35 @@ class CogTest(unittest.IsolatedAsyncioTestCase):
 
         settings = SimpleNamespace(cwa_api_key="k", weather_webhook_url="w", earthquake_webhook_url=None,
                                    database_path=os.path.join(folder, "bot.db"))
-        cog = Earthquake(MagicMock(settings=settings))
+        bot = MagicMock(settings=settings, features=None)
+        bot.db.guilds_with_setting = AsyncMock(return_value={})
+        cog = Earthquake(bot)
         cog.send = AsyncMock()
         return cog
+
+    async def test_guild_channels_use_their_counties_and_level(self):
+        import json
+
+        from core import weather
+
+        hualien = weather.place_key(weather.search_places("花蓮 花蓮市")[0])
+        prefs = {1: {"earthquake.channel": "11", "weather.places": json.dumps([hualien])},     # 花蓮、預設 4 級
+                 2: {"earthquake.channel": "22"},                                             # 預設台北新北
+                 3: {"earthquake.channel": "33", "weather.places": json.dumps([hualien]), "earthquake.level": "5弱"}}
+        with tempfile.TemporaryDirectory() as folder:
+            cog = self.make_cog(folder)
+            cog.webhook_url = None
+            cog.bot.db.guilds_with_setting = AsyncMock(return_value={g: p["earthquake.channel"] for g, p in prefs.items()})
+            cog.bot.db.get_guild_settings = AsyncMock(side_effect=lambda g: prefs[g])
+            channels = {}
+            cog.bot.get_channel = lambda cid: channels.setdefault(cid, MagicMock(send=AsyncMock()))
+            await cog.handle([], NOW)
+            await cog.handle(self.reports(quake()), NOW)          # 花蓮 4 級、台北 2 級
+            self.assertEqual(set(channels), {11})
+            self.assertIn("花蓮縣 4 級", channels[11].send.await_args.kwargs["content"])
+            await cog.handle(self.reports(quake()), NOW)          # 不重複
+            channels[11].send.assert_awaited_once()
+            cog.send.assert_not_awaited()                          # 沒有舊版 Webhook
 
     def reports(self, *items, dataset=eq.SIGNIFICANT):
         return eq.parse_reports(payload(*items), dataset)

@@ -17,6 +17,7 @@ from core.db import Database
 from core.activity import Activity
 from core.features import FeatureFlags, disabled_message, feature_for_command
 from core.persona import Personas
+from core.overview import feature_overview, format_overview
 from core.instance import acquire_single_instance
 from core.i18n import ZhTranslator
 from core.ui import send_error
@@ -144,6 +145,7 @@ class Bot(commands.Bot):
         await self.tree.set_translator(ZhTranslator())
         for ext in EXTENSIONS:
             await self.load_extension(ext)
+        log.info(format_overview(feature_overview(self.settings, self.ai.configured)))
 
         if self.settings.dev_guild_id:
             # 開發用：同步到指定伺服器，指令會立刻出現

@@ -102,7 +102,7 @@ def decide(status: RepoStatus, ci: Optional[str], branch: str = "main") -> Tuple
     if status.dirty:
         files = "、".join(status.changed_files[:5]) or "?"
         hint = ""
-        if ".env.example" in status.changed_files:
+        if status.changed_files == [".env.example"]:
             hint = "。看起來把設定填在 .env.example 了：請複製一份改名成 .env，再還原 .env.example"
         return "skip", f"本機改過這些檔案：{files}，為了不覆蓋，略過自動更新{hint}"
     if status.ahead:

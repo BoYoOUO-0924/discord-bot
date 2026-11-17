@@ -122,6 +122,7 @@ PARAMETER_NAMES = {
     "stop": "停止",
     "all_types": "全部特報",
     "hours": "小時",
+    "settings earthquake.level": "震度門檻",
     "mc cmd.command": "指令",
     "mc log.lines": "行數",
 }

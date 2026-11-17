@@ -1,6 +1,6 @@
 """伺服器設定（/settings，中文是 /設定）：伺服器管理員自己調整這個伺服器的設定。
 
-目前有：功能開關、天氣地點與每日預報、颱風豪雨警報與停班停課通知。需要「管理伺服器」權限。
+目前有：功能開關、天氣地點與每日預報、颱風豪雨警報與停班停課通知、地震通報。需要「管理伺服器」權限。
 功能開關跟管理後台是同一份設定；後台全域關掉的功能，伺服器這邊打不開。
 """
 import json
@@ -97,7 +97,7 @@ def features_embed(bot, guild_id: int, updated: bool = False) -> discord.Embed:
 
 class Settings(commands.Cog):
     settings_group = app_commands.Group(
-        name="settings", description="伺服器設定：功能開關、天氣地點、每日預報、颱風豪雨與停班停課通知（管理員）",
+        name="settings", description="伺服器設定：功能開關、天氣、颱風豪雨停班停課、地震通報（管理員）",
         guild_only=True, default_permissions=discord.Permissions(manage_guild=True))
 
     def __init__(self, bot):
@@ -180,6 +180,28 @@ class Settings(commands.Cog):
         await respond(interaction, embed=await self.summary(gid, "✅ 警報設定已更新"), ephemeral=True)
         log.info("伺服器 %s 更新警報設定", gid)
 
+    # ------------------------------------------------------------------ 地震
+    @settings_group.command(name="earthquake", description="天氣地點所在縣市震度達到門檻時，自動通報地震到指定頻道")
+    @app_commands.describe(channel="要通報的頻道", level="你們縣市震度達到多少才通報（預設 4 級）", stop="停止通報")
+    @app_commands.choices(level=[app_commands.Choice(name=f"{v} 級" if v.isdigit() else v, value=v)
+                                 for v in ("3", "4", "5弱", "5強", "6弱")])
+    async def earthquake_settings(self, interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None,
+                                  level: Optional[str] = None, stop: bool = False):
+        if not await self.check(interaction):
+            return
+        db, gid = self.bot.db, interaction.guild_id
+        if channel:
+            problem = can_post(channel, interaction.guild.me)
+            if problem:
+                return await send_error(interaction, problem)
+            await db.set_guild_setting(gid, "earthquake.channel", str(channel.id))
+        if level:
+            await db.set_guild_setting(gid, "earthquake.level", None if level == "4" else level)
+        if stop:
+            await db.set_guild_setting(gid, "earthquake.channel", None)
+        await respond(interaction, embed=await self.summary(gid, "✅ 地震通報設定已更新"), ephemeral=True)
+        log.info("伺服器 %s 更新地震設定", gid)
+
     # ------------------------------------------------------------------ 查看
     @settings_group.command(name="show", description="查看這個伺服器目前的設定")
     async def show(self, interaction: discord.Interaction):
@@ -202,11 +224,16 @@ class Settings(commands.Cog):
         alerts = (f"<#{alert_channel}>：{types}、停班停課\n只通知天氣地點所在的縣市（{counties}）"
                   if alert_channel else "沒有開啟")
         embed.add_field(name="🌀 颱風豪雨與停班停課", value=alerts, inline=False)
+        quake_channel = settings.get("earthquake.channel")
+        level = settings.get("earthquake.level", "4")
+        level_text = f"{level} 級" if level.isdigit() else level
+        quake = (f"<#{quake_channel}>：{counties} 震度 {level_text}以上" if quake_channel else "沒有開啟")
+        embed.add_field(name="🌏 地震通報", value=quake, inline=False)
         if getattr(self.bot, "features", None):
             on, blocked = feature_state(self.bot, guild_id)
             off = [f"{f.emoji} {f.name}" for f in FEATURES if f.key not in on]
             embed.add_field(name="🧩 功能", value=("關閉中：" + "、".join(off)) if off else "全部開啟", inline=False)
-        embed.set_footer(text="/settings features 開關功能・/settings weather 改天氣・/settings alerts 改警報")
+        embed.set_footer(text="/settings features 開關功能・/settings weather 改天氣・/settings alerts 改警報・/settings earthquake 改地震")
         return embed
 
 
