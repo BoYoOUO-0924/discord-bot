@@ -8,6 +8,7 @@
 - 所有管理操作都寫入 admin_audit 紀錄
 """
 import hmac
+import json
 import logging
 import os
 import re
@@ -16,10 +17,12 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from pathlib import Path
+from dataclasses import asdict
 from typing import Deque, Dict, List, Optional
 
 from aiohttp import web
 
+from core import persona as ps
 from core.features import FEATURES, FEATURES_BY_KEY, GLOBAL
 from core.quests import daily_quests
 from core.timeutil import today_tw
@@ -37,6 +40,11 @@ LOG_TAIL_BYTES = 1024 * 1024
 LOG_LEVELS = {"WARNING": ("WARNING", "ERROR", "CRITICAL"), "ERROR": ("ERROR", "CRITICAL")}
 LOG_LEVEL_RE = re.compile(r"\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s*\]")
 LOG_TIME_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
+
+INTENT_LABELS = {"weather": "天氣", "earthquake": "地震", "balance": "錢包", "checkin": "簽到", "work": "打工",
+                 "quests": "每日任務", "leaderboard": "排行榜", "game": "遊戲", "stock": "股票", "music": "音樂",
+                 "remind": "提醒", "task": "待辦", "help": "說明", "changelog": "更新日誌", "unsupported": "拒絕（改錢、轉帳）"}
+PREVIEW_COOLDOWN = 3
 
 GAME_NAMES = {"blackjack": "21點", "slots": "拉霸機", "guess": "猜數字", "tictactoe": "井字遊戲",
               "poker": "德州撲克", "seatortoise": "海龜湯"}
@@ -93,6 +101,8 @@ class AdminServer:
         self.started_at = time.time()
         self.version = "?"
         self.runner: Optional[web.AppRunner] = None
+        self.last_preview = 0.0
+        self.changelog_cache = None
         self.app = self.build_app()
 
     @property
@@ -120,6 +130,10 @@ class AdminServer:
             ("POST", "/api/update", self.update_now),
             ("GET", "/api/features", self.features), ("POST", "/api/features", self.set_feature),
             ("GET", "/api/board", self.board), ("POST", "/api/tasks/{task_id:\\d+}/status", self.move_task),
+            ("GET", "/api/pulse", self.pulse), ("GET", "/api/changelog", self.changelog),
+            ("GET", "/api/ai", self.ai_settings), ("POST", "/api/ai/profile", self.ai_save),
+            ("GET", "/api/ai/history", self.ai_history), ("POST", "/api/ai/restore", self.ai_restore),
+            ("POST", "/api/ai/preview", self.ai_preview), ("POST", "/api/ai/test", self.ai_test),
         ]
         for method, path, handler in routes:
             app.router.add_route(method, path, handler)
@@ -230,12 +244,15 @@ class AdminServer:
         games = [{"game": r["game"], "name": GAME_NAMES.get(r["game"], r["game"]), "played": r["played"],
                   "won": r["won"], "net": r["net"], "players": r["players"]} for r in await self.db.stats_games()]
         bot = self.bot
+        me = getattr(bot, "user", None)
         return web.json_response({
             "kpi": await self.db.stats_overview(today),
             "days": days,
             "games": games,
             "bot": {
                 "name": str(bot.user) if bot.user else "未登入",
+                "display": getattr(me, "name", None) or "Bot",
+                "avatar": str(me.display_avatar.url) if me and hasattr(me, "display_avatar") else None,
                 "online": bot.is_ready() and not bot.is_closed(),
                 "latency_ms": round(bot.latency * 1000) if bot.latency == bot.latency else None,
                 "guilds": len(bot.guilds),
@@ -596,3 +613,193 @@ class AdminServer:
         return web.json_response({"items": [
             {"at": r["created_at"], "action": r["action"], "user_id": str(r["user_id"]) if r["user_id"] else None,
              "name": r["name"], "detail": r["detail"], "ip": r["ip"]} for r in rows]})
+
+    # ================================================================== 首頁即時資料
+    def guild_list(self) -> List[dict]:
+        return [{"id": str(g.id), "name": g.name, "members": getattr(g, "member_count", None)}
+                for g in getattr(self.bot, "guilds", [])]
+
+    async def pulse(self, request: web.Request):
+        """首頁每幾秒讀一次：每分鐘指令數、新的指令事件（從 since 之後）、最近的紀錄與錯誤數。"""
+        since = request.query.get("since", "0")
+        activity = getattr(self.bot, "activity", None)
+        records = parse_log_records(read_log_tail(self.log_path, 256 * 1024)) if os.path.exists(self.log_path) else []
+        now = datetime.now()
+        hours = [0] * 24
+        for r in records:
+            if r["time"] and r["level"] in ("ERROR", "CRITICAL"):
+                try:
+                    age = (now - datetime.strptime(r["time"], "%Y-%m-%d %H:%M:%S")).total_seconds() // 3600
+                except ValueError:
+                    continue
+                if 0 <= age < 24:
+                    hours[23 - int(age)] += 1
+        recent = [{"time": (r["time"] or "")[11:], "level": r["level"] or "INFO",
+                   "text": re.sub(r"^\[[^\]]*\]\s*\[[^\]]*\]\s*", "", r["text"].split("\n", 1)[0])[:200]}
+                  for r in records[-14:]]
+        return web.json_response({
+            "per_minute": activity.per_minute() if activity else [0] * 60,
+            "today_commands": activity.today if activity else 0,
+            "seq": activity.seq if activity else 0,
+            "events": activity.since(int(since) if since.isdigit() else 0)[-30:] if activity else [],
+            "error_hours": hours, "errors_24h": sum(hours),
+            "logs": recent, "guilds": self.guild_list(),
+        })
+
+    async def changelog(self, request: web.Request):
+        from core import changelog as cl
+        if self.changelog_cache is None:
+            self.changelog_cache = cl.Changelog()
+        try:
+            entries = await self.changelog_cache.get()
+        except cl.ChangelogError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        per_page = 10
+        pages = cl.page_count(len(entries), per_page)
+        page = min(pages, max(1, int(request.query.get("page", 1) or 1)))
+        repo = self.changelog_cache.repo
+        return web.json_response({"page": page, "pages": pages, "total": len(entries), "items": [
+            {"sha": e.sha, "short": e.short_sha, "date": e.when.strftime("%Y-%m-%d"), "title": e.title, "details": e.details,
+             "url": f"https://github.com/{repo}/commit/{e.sha}" if repo else None}
+            for e in cl.page_slice(entries, page - 1, per_page)]})
+
+    # ================================================================== AI 與個性
+    @property
+    def personas(self):
+        return getattr(self.bot, "personas", None)
+
+    def ai_info(self) -> dict:
+        ai = self.bot.ai
+        return {"provider": getattr(ai, "provider", ""), "model": getattr(ai, "model", ""), "url": getattr(ai, "url", ""),
+                "configured": ai.configured, "available": ai.available, "status": ai.status,
+                "default_model": getattr(getattr(self.bot, "settings", None), "ollama_model", "")}
+
+    async def ai_settings(self, request: web.Request):
+        from cogs.assistant import LINES
+        if self.personas is None:
+            return web.json_response({"error": "這個 bot 沒有載入 AI 個性設定"}, status=400)
+        overrides = {str(g): v for g, v in self.personas.stored.items() if g != ps.GLOBAL}
+        me = getattr(self.bot, "user", None)
+        return web.json_response({
+            "ai": self.ai_info(),
+            "bot_name": getattr(me, "name", "") or "",
+            "defaults": asdict(ps.Profile()),
+            "global": self.personas.raw(ps.GLOBAL),
+            "effective": asdict(self.personas.get()),
+            "overrides": overrides,
+            "presets": {k: {"personality": v["personality"], "lines": v["lines"]} for k, v in ps.PRESETS.items()},
+            "intents": [{"key": k, "label": INTENT_LABELS.get(k, k), "defaults": LINES[k]} for k in LINES],
+            "safety": ps.SAFETY_RULES,
+            "guilds": sorted(({"id": str(g.id), "name": g.name} for g in getattr(self.bot, "guilds", [])),
+                             key=lambda g: g["name"]),
+            "limits": {"name": ps.MAX_NAME, "personality": ps.MAX_PERSONALITY, "tone": ps.MAX_TONE, "line": ps.MAX_LINE},
+        })
+
+    def guild_arg(self, value) -> Optional[int]:
+        value = str(value if value is not None else "0")
+        return int(value) if value.isdigit() else None
+
+    async def ai_save(self, request: web.Request):
+        """body：guild（"0" 代表所有伺服器）、data（要存的欄位；null 代表這層回到預設）、note。"""
+        body = await self.json_body(request)
+        guild_id = self.guild_arg(body.get("guild"))
+        data = body.get("data")
+        if guild_id is None or self.personas is None or (data is not None and not isinstance(data, dict)):
+            return web.json_response({"error": "參數不正確"}, status=400)
+        saved = await self.personas.save(guild_id, data, str(body.get("note", ""))[:100])
+        if guild_id == ps.GLOBAL:
+            await self.apply_model(saved.get("model", ""))
+        where = "所有伺服器" if guild_id == ps.GLOBAL else self.guild_name(guild_id)
+        await self.record(request, "ai_profile", None, f"AI 個性設定：{where}" + ("（恢復預設）" if data is None else ""))
+        return web.json_response({"ok": True, "saved": saved, "ai": self.ai_info()})
+
+    async def apply_model(self, model: str) -> None:
+        ai = self.bot.ai
+        target = model or getattr(getattr(self.bot, "settings", None), "ollama_model", "") or getattr(ai, "model", "")
+        if getattr(ai, "model", None) != target:
+            ai.model = target
+            if ai.configured:
+                await ai.check()
+
+    async def ai_history(self, request: web.Request):
+        guild_id = self.guild_arg(request.query.get("guild"))
+        if guild_id is None:
+            return web.json_response({"error": "參數不正確"}, status=400)
+        rows = await self.db.list_ai_profile_history(guild_id)
+        items = []
+        for r in rows:
+            try:
+                data = json.loads(r["data"])
+            except ValueError:
+                data = {}
+            items.append({"id": r["id"], "at": r["created_at"], "note": r["note"], "data": data})
+        return web.json_response({"items": items})
+
+    async def ai_restore(self, request: web.Request):
+        body = await self.json_body(request)
+        try:
+            row = await self.db.get_ai_profile_version(int(body.get("id")))
+        except (TypeError, ValueError):
+            row = None
+        if not row or self.personas is None:
+            return web.json_response({"error": "找不到這個版本"}, status=404)
+        data = json.loads(row["data"] or "{}")
+        saved = await self.personas.save(row["guild_id"], data or None, f"還原版本 #{row['id']}")
+        if row["guild_id"] == ps.GLOBAL:
+            await self.apply_model(saved.get("model", ""))
+        await self.record(request, "ai_profile", None, f"AI 個性設定：還原版本 #{row['id']}")
+        return web.json_response({"ok": True})
+
+    async def ai_preview(self, request: web.Request):
+        """試聊：用還沒儲存的設定請 AI 回一句話，也顯示判斷出的意圖。不會寫進任何資料。"""
+        from core import assistant as asst
+        from core.ai import AIError
+        body = await self.json_body(request)
+        text = str(body.get("text", "")).strip()[:asst.MAX_INPUT]
+        if not text:
+            return web.json_response({"error": "請輸入一句話"}, status=400)
+        now = time.time()
+        if now - self.last_preview < PREVIEW_COOLDOWN:
+            return web.json_response({"error": "太快了，請等幾秒再試"}, status=429)
+        self.last_preview = now
+        ai = self.bot.ai
+        if not ai.available:
+            return web.json_response({"error": f"AI 目前無法使用（{ai.status}）"}, status=503)
+        guild_id = self.guild_arg(body.get("guild")) or ps.GLOBAL
+        base = asdict(self.personas.get(guild_id)) if self.personas else asdict(ps.Profile())
+        base.update(ps.clean(body.get("data") or {}, allow_model=False))
+        profile = ps.Profile(**{k: v for k, v in base.items() if k in ps.FIELD_NAMES})
+        me = getattr(self.bot, "user", None)
+        bot_name = getattr(me, "name", "") or "機器人"
+        started = time.time()
+        try:
+            intent = await asst.classify(ai, text, "管理員")
+            if intent.name in INTENT_LABELS and intent.name != "chat":
+                from cogs.assistant import LINES
+                import random
+                reply = random.choice(profile.lines.get(intent.name) or LINES.get(intent.name, ["好的。"]))
+            else:
+                reply = await asst.chat(ai, [], text, "管理員", profile, bot_name)
+        except AIError as e:
+            return web.json_response({"error": str(e)}, status=503)
+        return web.json_response({"reply": reply, "intent": intent.name, "intent_label": INTENT_LABELS.get(intent.name, "閒聊"),
+                                  "name": profile.display_name(bot_name), "ms": round((time.time() - started) * 1000)})
+
+    async def ai_test(self, request: web.Request):
+        """測試連線：實際檢查一次 AI，並列出 Ollama 上已安裝的模型。"""
+        import aiohttp
+        ai = self.bot.ai
+        started = time.time()
+        ok = await ai.check() if ai.configured else False
+        ms = round((time.time() - started) * 1000)
+        models: List[str] = []
+        url = getattr(ai, "url", "")
+        if url:
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as session:
+                    async with session.get(f"{url}/api/tags") as resp:
+                        models = sorted(m.get("name", "") for m in (await resp.json(content_type=None)).get("models", []))
+            except Exception:
+                pass
+        return web.json_response({"ok": ok, "ms": ms, "status": ai.status, "models": models, "ai": self.ai_info()})
+

@@ -15,6 +15,7 @@ from discord.ext import commands
 
 from core import catchup
 from core.ai import AIError
+from core.persona import profile_of
 from core.timeutil import TAIPEI, now_tw
 from core.ui import Color, defer, make_embed, respond, send_error
 
@@ -124,7 +125,8 @@ class Catchup(commands.Cog):
             note = "🔌 AI 目前離線（主電腦可能沒開），先列出概況。"
         else:
             try:
-                data = await ai.json(catchup.build_prompt(text, interaction.user.display_name), catchup.SCHEMA,
+                data = await ai.json(catchup.build_prompt(text, interaction.user.display_name,
+                                                         profile_of(self.bot, interaction.guild_id).catchup_tone), catchup.SCHEMA,
                                      temperature=0.2, max_tokens=800, num_ctx=8192)
             except AIError as e:
                 log.info("我錯過了什麼：AI 整理失敗：%s", e)

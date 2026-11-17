@@ -202,6 +202,17 @@ CREATE TABLE IF NOT EXISTS feature_flags (
     enabled  INTEGER NOT NULL,
     PRIMARY KEY (guild_id, feature)
 );
+CREATE TABLE IF NOT EXISTS ai_profiles (
+    guild_id   INTEGER PRIMARY KEY,               -- 0 代表所有伺服器
+    data       TEXT NOT NULL                      -- JSON，只存有改過的欄位
+);
+CREATE TABLE IF NOT EXISTS ai_profile_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   INTEGER NOT NULL,
+    data       TEXT NOT NULL,
+    note       TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS milestones (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
@@ -1549,6 +1560,41 @@ class Database:
                 await self.conn.execute("INSERT OR REPLACE INTO feature_flags (guild_id, feature, enabled) VALUES (?, ?, ?)",
                                         (guild_id, feature, int(enabled)))
             await self.conn.commit()
+
+    # ------------------------------------------------------------------ AI 個性設定
+    async def list_ai_profiles(self) -> List[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute("SELECT guild_id, data FROM ai_profiles") as cur:
+                return await cur.fetchall()
+
+    async def set_ai_profile(self, guild_id: int, data: Optional[str]) -> None:
+        """data 為 None 時刪除（回到上一層設定）。"""
+        async with self._lock:
+            if data is None:
+                await self.conn.execute("DELETE FROM ai_profiles WHERE guild_id = ?", (guild_id,))
+            else:
+                await self.conn.execute("INSERT OR REPLACE INTO ai_profiles (guild_id, data) VALUES (?, ?)", (guild_id, data))
+            await self.conn.commit()
+
+    async def add_ai_profile_history(self, guild_id: int, data: str, note: str, at: float, keep: int) -> None:
+        async with self._lock:
+            await self.conn.execute("INSERT INTO ai_profile_history (guild_id, data, note, created_at) VALUES (?, ?, ?, ?)",
+                                    (guild_id, data, note[:100], at))
+            await self.conn.execute(
+                "DELETE FROM ai_profile_history WHERE guild_id = ? AND id NOT IN "
+                "(SELECT id FROM ai_profile_history WHERE guild_id = ? ORDER BY id DESC LIMIT ?)", (guild_id, guild_id, keep))
+            await self.conn.commit()
+
+    async def list_ai_profile_history(self, guild_id: int, limit: int = 30) -> List[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute("SELECT id, data, note, created_at FROM ai_profile_history WHERE guild_id = ? "
+                                         "ORDER BY id DESC LIMIT ?", (guild_id, limit)) as cur:
+                return await cur.fetchall()
+
+    async def get_ai_profile_version(self, version_id: int) -> Optional[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute("SELECT id, guild_id, data FROM ai_profile_history WHERE id = ?", (version_id,)) as cur:
+                return await cur.fetchone()
 
     # ------------------------------------------------------------------ 伺服器設定
     async def get_guild_settings(self, guild_id: int) -> Dict[str, str]:

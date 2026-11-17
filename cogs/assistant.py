@@ -25,6 +25,7 @@ from core import tasks as tk
 from core.ai import AIError
 from core.features import INTENT_FEATURES, disabled_message, enabled, feature_for_action
 from core.music import MusicError, parse_control
+from core.persona import profile_of
 from core.catalog import GAMES
 from core.timeutil import now_tw, parse_when
 from core.ui import BaseView, send_error
@@ -36,28 +37,28 @@ SLEEP_NOTICE_EVERY = 60    # 主電腦關機時，同一個頻道多久回一次
 MAX_CONCURRENT = 2         # 同時最多幾個 AI 請求，避免把主電腦塞爆
 HISTORY_KEEP = 20
 
-# 叫功能時嘎哇說的話（固定台詞，不用再問一次 AI，回得快也不會亂講）
+# 叫功能時機器人說的話（固定台詞，不用再問一次 AI，回得快也不會亂講）。管理後台可以改（core/persona.py）
 LINES: Dict[str, List[str]] = {
-    "weather": ["要看天氣喔？下雨的話記得告訴我，本蛙最愛下雨天了，嘎！", "天氣自己按啦，我又不是氣象主播……好啦給你按鈕。"],
-    "earthquake": ["地震？池塘有晃一下嗎……按這裡看最新的地震報告。", "別緊張，先看看中央氣象署怎麼說，嘎。"],
-    "balance": ["又要看錢包？放心，荷葉底下沒有藏你的錢。", "自己的錢自己看，嘎。"],
-    "checkin": ["簽到這種小事還要本蛙提醒？按啦。", "每天都要來簽到，不然本蛙會……才沒有想你，嘎！"],
-    "work": ["終於想工作了？去抓蚊子……我是說去打工啦！", "勤勞的人類，本蛙勉強給你一個讚，嘎。"],
-    "quests": ["今天的任務在這，做完再來跟我炫耀。", "任務清單給你，別又只看不做，嘎。"],
-    "leaderboard": ["想知道誰最有錢？反正不是你……開玩笑的啦，自己看。", "排行榜在這，本蛙才不在乎排名，嘎嘎。"],
-    "game": ["想玩喔？本蛙陪你，輸了不准哭，嘎！", "好啦好啦，選一個遊戲。"],
-    "stock": ["股票的事本蛙不懂，但按這裡看得到報價。", "看盤可以，別把荷葉也押下去，嘎。"],
-    "remind": ["要我提醒你？你自己的腦袋呢……好啦，確認一下。", "記性跟金魚一樣，嘎。按一下我就幫你記。"],
-    "task": ["又要本蛙幫你記事？荷葉都快寫滿了……好啦，按一下。", "交代的事要做完喔，本蛙會盯著你，嘎。"],
-    "music": ["本蛙開唱……不是，是幫你放歌啦，嘎。", "點歌喔？好啦好啦，荷葉舞台準備好了。", "聽歌可以，跟著唱不准走音，嘎嘎。"],
-    "help": ["本蛙會的可多了，自己看說明。", "指令說明在這，看完別再問，嘎。"],
-    "changelog": ["本蛙又變強了，自己看更新了什麼，嘎。", "新功能都寫在這，看完要誇本蛙喔……才沒有很想被誇！"],
-    "unsupported": ["想得美！這種事本蛙不幫忙，要的話自己用斜線指令。", "嘎？想騙本蛙？沒門，自己動手啦。"],
+    "weather": ["要看天氣喔？按這裡，出門前自己看清楚。", "天氣自己按啦，我又不是氣象主播……好啦給你按鈕。"],
+    "earthquake": ["地震？先別慌，按這裡看最新的地震報告。", "先看看中央氣象署怎麼說。"],
+    "balance": ["又要看錢包？自己看，我不會幫你多變出來。", "自己的錢自己看。"],
+    "checkin": ["簽到這種小事還要我提醒？按啦。", "每天都要來簽到，不然我會……才沒有想你！"],
+    "work": ["終於想工作了？按一下去打工。", "勤勞的人類，勉強給你一個讚。"],
+    "quests": ["今天的任務在這，做完再來跟我炫耀。", "任務清單給你，別又只看不做。"],
+    "leaderboard": ["想知道誰最有錢？反正不是你……開玩笑的啦，自己看。", "排行榜在這，我才不在乎排名。"],
+    "game": ["想玩喔？我陪你，輸了不准哭！", "好啦好啦，選一個遊戲。"],
+    "stock": ["股票的事我不負責，但按這裡看得到報價。", "看盤可以，別把生活費也押下去。"],
+    "remind": ["要我提醒你？你自己的腦袋呢……好啦，確認一下。", "記性跟金魚一樣。按一下我就幫你記。"],
+    "task": ["又要我幫你記事？好啦，按一下。", "交代的事要做完喔，我會盯著你。"],
+    "music": ["幫你放歌啦。", "點歌喔？好啦好啦。", "聽歌可以，跟著唱不准走音。"],
+    "help": ["我會的可多了，自己看說明。", "指令說明在這，看完別再問。"],
+    "changelog": ["我又變強了，自己看更新了什麼。", "新功能都寫在這，看完要誇我喔……才沒有很想被誇！"],
+    "unsupported": ["想得美！這種事我不幫忙，要的話自己用斜線指令。", "想騙我？沒門，自己動手啦。"],
 }
-MUSIC_FAILED = ["嘎？", "放不了啦。", "本蛙也沒辦法，嘎。"]
-SLEEPING = ["嘎……大腦（主電腦）在睡覺，等它醒來再聊。斜線指令照常可以用喔。",
-            "zzz……本蛙的大腦下線了，晚點再來找我，嘎。"]
-FAILED = ["嘎？剛剛恍神了，再說一次。", "池塘有點吵沒聽清楚，再講一次好嗎？"]
+MUSIC_FAILED = ["欸？", "放不了啦。", "我也沒辦法。"]
+SLEEPING = ["……大腦（AI 主機）在睡覺，等它醒來再聊。斜線指令照常可以用喔。",
+            "zzz……我的大腦下線了，晚點再來找我。"]
+FAILED = ["欸？剛剛恍神了，再說一次。", "有點吵沒聽清楚，再講一次好嗎？"]
 SUMMONED = "（叫了你一聲）"
 
 WEATHER_DAY = {"today": "今天", "tomorrow": "明天"}
@@ -124,7 +125,7 @@ def with_names(text: str, message) -> str:
 
 
 class ActionView(BaseView):
-    owner_denied_message = "這是別人叫嘎哇做的事，你自己 @嘎哇 說一次吧！"
+    owner_denied_message = "這是別人叫我做的事，你自己 @我 說一次吧！"
 
     def __init__(self, cog: "Assistant", owner_id: int, actions: List[Tuple[str, str, str]]):
         super().__init__(owner_id=owner_id, timeout=300)
@@ -156,6 +157,16 @@ class Assistant(commands.Cog):
     @property
     def ai(self):
         return self.bot.ai
+
+    def bot_name(self, guild=None) -> str:
+        """機器人的稱呼：後台有設定就用設定的，沒有就用 bot 在這個伺服器的名稱。"""
+        me = getattr(guild, "me", None) or self.bot.user
+        fallback = getattr(me, "display_name", None) or getattr(me, "name", "") or "機器人"
+        return profile_of(self.bot, getattr(guild, "id", None)).display_name(fallback)
+
+    def line(self, intent: str, guild_id=None) -> str:
+        custom = profile_of(self.bot, guild_id).lines.get(intent)
+        return random.choice(custom or LINES[intent])
 
     # ------------------------------------------------------------------ 判斷要不要回
     def addressed_text(self, message: discord.Message) -> Optional[str]:
@@ -221,9 +232,9 @@ class Assistant(commands.Cog):
         if content:
             me = self.bot.user
             author = replied.author
-            who = "嘎哇" if me and author.id == me.id else author.display_name
+            who = self.bot_name(message.guild) if me and author.id == me.id else author.display_name
             content = strip_mention(content, me.id) if me else content
-            if content and (who, content) not in history[-asst.HISTORY_TURNS:]:
+            if content and (who, content) not in history[-HISTORY_KEEP:]:
                 history.append((who, content))
         return history
 
@@ -251,16 +262,17 @@ class Assistant(commands.Cog):
         elif intent.name == "music":
             reply = await self._music(message, intent.song, text)
         elif intent.name in LINES and (actions or intent.name == "unsupported"):
-            reply = random.choice(LINES[intent.name])
+            reply = self.line(intent.name, guild_id)
             view = ActionView(self, message.author.id, actions) if actions else None
             sent = await self._reply(message, reply, view=view)
             if view:
                 view.message = sent
         else:
-            reply = await asst.chat(self.ai, context, text, name) or random.choice(FAILED)
+            reply = await asst.chat(self.ai, context, text, name, profile_of(self.bot, guild_id),
+                                    self.bot_name(message.guild)) or random.choice(FAILED)
             await self._reply(message, reply)
         history.append((name, text))
-        history.append(("嘎哇", reply))
+        history.append((self.bot_name(message.guild), reply))
         log.info("嘎哇聊天：%s → %s", text[:40], asst.describe(intent))
 
     async def _music(self, message: discord.Message, song: str, text: str) -> str:
@@ -269,7 +281,7 @@ class Assistant(commands.Cog):
             reply = "音樂功能目前沒有開，嘎。"
         else:
             try:
-                reply = f"{random.choice(LINES['music'])}\n{await cog.speech(message, song, text)}"
+                reply = f"{self.line('music', message.guild.id)}\n{await cog.speech(message, song, text)}"
             except MusicError as e:
                 reply = f"{random.choice(MUSIC_FAILED)}{e}"
         await self._reply(message, reply)

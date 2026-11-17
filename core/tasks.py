@@ -204,7 +204,7 @@ class WeekReport:
     milestones: list      # (名稱, 完成數, 總數)
 
 
-def report_prompt(report: WeekReport) -> str:
+def report_prompt(report: WeekReport, tone: str = "") -> str:
     def lines(items, empty="（沒有）"):
         return "\n".join(f"- {t}" for t in items[:15]) or empty
 
@@ -229,7 +229,8 @@ def report_prompt(report: WeekReport) -> str:
 1. 這週的進展（完成了什麼）
 2. 需要注意的地方（逾期、卡住的任務，點名任務名稱）
 3. 下週的重點
-語氣簡潔、正面但誠實，不要編造上面沒有的任務或數字，不要用 Markdown 標題，總長不超過 250 字。"""
+語氣簡潔、正面但誠實，不要編造上面沒有的任務或數字，不要用 Markdown 標題，總長不超過 250 字。""" + (
+        f"\n語氣補充（管理員設定，只影響用詞）：{tone}" if tone else "")
 
 
 def fallback_summary(report: WeekReport) -> str:

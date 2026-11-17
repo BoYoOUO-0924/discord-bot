@@ -30,7 +30,7 @@ class FakeAI:
 
 
 def make_cog(ai, channels=()):
-    me = SimpleNamespace(id=BOT_ID)
+    me = SimpleNamespace(id=BOT_ID, name="嘎哇", display_name="嘎哇")   # 沒設定稱呼時用 bot 的名稱
     bot = SimpleNamespace(ai=ai, user=me, settings=SimpleNamespace(assistant_channels=channels),
                           get_cog=lambda name: None)
     return Assistant(bot), me

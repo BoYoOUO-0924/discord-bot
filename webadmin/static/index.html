@@ -2,15 +2,21 @@
 <html lang="zh-Hant-TW">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>嘎哇管理後台</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>管理後台</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <!-- 背景特效：透視網格、粒子、資料流（motion.js） -->
+  <canvas id="bg" aria-hidden="true"></canvas>
+  <div class="crosshair" id="crosshair" aria-hidden="true"><div class="h"></div><div class="v"></div><div class="tag"></div></div>
+  <div class="alarm-glow" id="alarm" aria-hidden="true"></div>
+  <div class="boot" id="boot" hidden><div class="box"><div class="lines" id="boot-lines"></div><div class="bar"><i id="boot-bar"></i></div></div></div>
+
   <!-- 登入畫面 -->
   <main id="login" class="login" hidden>
-    <form id="login-form" class="login-card">
-      <h1>🎮 嘎哇管理後台</h1>
+    <form id="login-form" class="card login-card beam">
+      <h1>CONTROL CENTER</h1>
       <p class="muted">請輸入 .env 裡設定的 ADMIN_PASSWORD</p>
       <label for="password">密碼</label>
       <input id="password" type="password" autocomplete="current-password" required autofocus>
@@ -20,30 +26,46 @@
   </main>
 
   <!-- 後台主畫面 -->
-  <div id="app" hidden>
-    <header class="topbar">
-      <div class="brand">🎮 嘎哇管理後台</div>
-      <nav class="tabs" aria-label="主選單">
+  <div id="app" class="shell" hidden>
+    <aside class="side" aria-label="主選單">
+      <div class="brand"><span class="mini-av" id="brand-av">◆</span><span id="brand-name">管理後台</span></div>
+      <nav class="nav-group" aria-label="首頁"><h4>首頁</h4>
         <a href="#/overview" data-tab="overview">總覽</a>
+      </nav>
+      <nav class="nav-group" aria-label="經濟"><h4>經濟</h4>
         <a href="#/users" data-tab="users">使用者</a>
-        <a href="#/games" data-tab="games">遊戲</a>
-        <a href="#/board" data-tab="board">待辦看板</a>
+        <a href="#/games" data-tab="games">遊戲牌局</a>
+      </nav>
+      <nav class="nav-group" aria-label="功能"><h4>功能</h4>
         <a href="#/features" data-tab="features">功能開關</a>
+        <a href="#/board" data-tab="board">待辦看板</a>
+      </nav>
+      <nav class="nav-group" aria-label="AI"><h4>AI</h4>
+        <a href="#/ai" data-tab="ai">AI 與個性</a>
+      </nav>
+      <nav class="nav-group" aria-label="系統"><h4>系統</h4>
         <a href="#/serverlog" data-tab="serverlog">伺服器紀錄</a>
         <a href="#/logs" data-tab="logs">操作紀錄</a>
+        <a href="#/changelog" data-tab="changelog">更新日誌</a>
       </nav>
-      <div class="topbar-right">
-        <span id="bot-status" class="status-pill" title="bot 狀態">…</span>
-        <button id="update-now" class="btn ghost" type="button" hidden title="從 GitHub 抓最新版本並重新啟動">⬆️ 立即更新</button>
-        <button id="theme-toggle" class="btn ghost" type="button" aria-label="切換深色／淺色">🌓</button>
-        <button id="logout" class="btn ghost" type="button">登出</button>
-      </div>
-    </header>
-    <main id="view" class="view" tabindex="-1"></main>
+      <button class="kbd-hint" id="palette-open" type="button">搜尋任何東西 <kbd>Ctrl</kbd> <kbd>K</kbd></button>
+    </aside>
+    <div class="main-col">
+      <header class="topbar">
+        <span class="page-title" id="page-title">總覽</span>
+        <div class="topbar-right">
+          <span id="bot-status" class="status-pill" title="bot 狀態">…</span>
+          <button id="update-now" class="btn small" type="button" hidden title="從 GitHub 抓最新版本並重新啟動">⬆ 立即更新</button>
+          <button id="logout" class="btn small ghost" type="button">登出</button>
+        </div>
+      </header>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <div id="tooltip" class="tooltip" hidden></div>
+  <script src="/static/motion.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

@@ -62,13 +62,14 @@ def transcript(lines: List[Line], limit: int = MAX_TRANSCRIPT) -> tuple:
     return "\n".join(reversed(out)), False
 
 
-def build_prompt(text: str, reader: str) -> str:
+def build_prompt(text: str, reader: str, tone: str = "") -> str:
+    tone = f"\n語氣補充（管理員設定，只影響用詞，不影響上面的規則）：{tone}" if tone else ""
     return f"""你是 Discord 聊天整理助手。下面是 {reader} 沒看到的頻道聊天紀錄（時間 名字：內容）。
 請用繁體中文整理，讓 {reader} 十秒內知道發生了什麼：
 - summary：一兩句話講整體在聊什麼
 - points：最多 6 點重點，每點一句話，寫出誰說了／決定了什麼；有約定時間、地點、要做的事一定要寫
 - for_you：跟 {reader} 有關、需要 {reader} 回應或注意的事（有人問、找或指派事情給 {reader}）；沒有就給空陣列
-只根據紀錄內容，不要編造；閒聊、貼圖、打招呼可以省略。
+只根據紀錄內容，不要編造；閒聊、貼圖、打招呼可以省略。{tone}
 
 聊天紀錄：
 {text}"""

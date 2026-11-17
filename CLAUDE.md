@@ -10,7 +10,9 @@
 - `core/catalog.py`：`/help` 指令說明（`HELP_SECTIONS`）與遊戲目錄
 - `core/assistant.py` + `cogs/assistant.py`：@嘎哇 聊天、意圖判斷與按鈕
 - `core/i18n.py`：斜線指令與參數的中文名稱
-- `webadmin/`：管理後台（功能開關分頁直接讀 `FEATURES`）
+- `webadmin/`：管理後台（功能開關分頁直接讀 `FEATURES`）。前端是純 JS（CSP 只允許同網域，不能用 CDN）：
+  `static/app.js` 頁面、`static/motion.js` 動畫特效、`static/style.css` 任務控制中心風格；新頁面要加進 `index.html` 側邊選單與 `app.js` 的 `PAGES`
+- `core/persona.py`：AI 個性設定（管理後台「AI 與個性」）；聊天、叫功能台詞、週報與我錯過了什麼的語氣都從這裡讀，不要在程式裡寫死機器人名稱
 - `docs/index.html`：給玩家看的功能介紹網頁；`README.md`：功能一覽與說明
 - 測試：`python -m unittest discover -s tests -t .`（CI 也會跑 `python -m compileall -q bot.py core cogs`）
 
@@ -25,7 +27,8 @@
 ### 2. @bot 名稱（@嘎哇）可以對話，並依意圖呼叫功能
 - [ ] `core/assistant.py` 的 `INTENTS` 加上意圖與給 AI 看的說明；需要時在 `intent_prompt` 判斷原則補一句、
       在 `apply_guards` 加規則補強小模型容易判錯的說法
-- [ ] `cogs/assistant.py`：`LINES` 加嘎哇的台詞、`buttons_for` 回傳按鈕、`run_action` 執行按鈕
+- [ ] `cogs/assistant.py`：`LINES` 加預設台詞（用通用語氣，不要寫死角色名稱；後台可以覆寫）、
+      `webadmin/server.py` 的 `INTENT_LABELS` 加中文名稱、`buttons_for` 回傳按鈕、`run_action` 執行按鈕
       （會動到錢或資料的事只給按鈕，本人按下才執行；AI 不能直接改資料）
 - [ ] `tools/assistant_ai_check.py` 的 `CASES` 加幾句實測句子；`tests/test_assistant.py` 加規則的單元測試
 

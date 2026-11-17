@@ -14,7 +14,9 @@ from discord.ext import commands
 from core.ai import create_ai
 from core.config import env_status, legacy_keys, load_settings
 from core.db import Database
+from core.activity import Activity
 from core.features import FeatureFlags, disabled_message, feature_for_command
+from core.persona import Personas
 from core.instance import acquire_single_instance
 from core.i18n import ZhTranslator
 from core.ui import send_error
@@ -70,6 +72,10 @@ class AppTree(app_commands.CommandTree):
                     await send_error(interaction, disabled_message(feature))
                 return False
         # 自動完成每打一個字就會觸發一次，不需要記錄
+        if interaction.type is discord.InteractionType.application_command:
+            activity = getattr(interaction.client, "activity", None)
+            if activity:
+                activity.record(interaction.guild_id, command.qualified_name if command else "")
         if interaction.guild_id and interaction.type is discord.InteractionType.application_command:
             db = interaction.client.db
             await db.touch_member(interaction.guild_id, interaction.user.id)
@@ -106,6 +112,8 @@ class Bot(commands.Bot):
         self.settings = load_settings()
         self.db = Database(self.settings.database_path)
         self.features = FeatureFlags(self.db)
+        self.personas = Personas(self.db)
+        self.activity = Activity()          # 每分鐘指令數，給管理後台首頁的即時圖表
         self.ai = create_ai(self.settings)
         self.restart_requested = False
 
@@ -117,6 +125,10 @@ class Bot(commands.Bot):
     async def setup_hook(self) -> None:
         await self.db.connect()
         await self.features.load()
+        await self.personas.load()
+        model = self.personas.get().model
+        if model and hasattr(self.ai, "model"):
+            self.ai.model = model           # 管理後台換過模型
         data_dir = os.path.dirname(self.settings.database_path)
         imported = await self.db.migrate_legacy_json(data_dir)
         if imported:

@@ -20,6 +20,7 @@ from core.ai import AIError
 from core.features import enabled
 from core.timeutil import now_tw, ts
 from core.ui import Color, defer, make_embed, respond, send_error, success_embed
+from core.persona import profile_of
 
 log = logging.getLogger(__name__)
 
@@ -281,7 +282,7 @@ class Projects(commands.Cog):
         ai = self.bot.ai
         if ai.available:
             try:
-                text = await ai.text(tk.report_prompt(report), temperature=0.3, max_tokens=500)
+                text = await ai.text(tk.report_prompt(report, profile_of(self.bot).report_tone), temperature=0.3, max_tokens=500)
                 text = text.strip().replace("@everyone", "everyone").replace("@here", "here")
                 if text:
                     return text[:1500]
