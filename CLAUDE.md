@@ -11,7 +11,9 @@
 - `core/assistant.py` + `cogs/assistant.py`：@嘎哇 聊天、意圖判斷與按鈕
 - `core/i18n.py`：斜線指令與參數的中文名稱
 - `webadmin/`：管理後台（功能開關分頁直接讀 `FEATURES`）。前端是純 JS（CSP 只允許同網域，不能用 CDN）：
-  `static/app.js` 頁面、`static/motion.js` 動畫特效、`static/style.css` 任務控制中心風格；新頁面要加進 `index.html` 側邊選單與 `app.js` 的 `PAGES`
+  `static/app.js` 頁面、`static/motion.js` 動畫特效（`Motion.tilt`、`beam`、`magnetic`、`countUp`、`decode`、`animate` 等可重用）、
+  `static/style.css` 任務控制中心風格、`static/prefs.js` 動畫開關（`html.rm`＝簡化動畫，不要直接用 prefers-reduced-motion 判斷）；
+  新頁面要加進 `index.html` 側邊選單與 `app.js` 的 `PAGES`；Canvas 動畫用 `Motion.animate` 才會在畫面外自動暫停
 - `core/persona.py`：AI 個性設定（管理後台「AI 與個性」）；聊天、叫功能台詞、週報與我錯過了什麼的語氣都從這裡讀，不要在程式裡寫死機器人名稱
 - 文件：`README.md` 只放簡介與快速開始；完整指令與功能在 `docs/features.md`，需要額外程式的設定在 `docs/advanced.md`，
   程式架構與檔案對照在 `docs/architecture.md`；`docs/index.html` 是給玩家看的功能介紹網頁

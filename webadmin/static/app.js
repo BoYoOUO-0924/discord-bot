@@ -107,6 +107,24 @@ $("#logout").addEventListener("click", async () => {
   showLogin();
 });
 
+// ---------------------------------------------------------------- 動畫開關
+(() => {
+  const toggle = $("#motion-toggle");
+  toggle.textContent = Motion.reduce ? "✨ 開啟動畫" : "動畫：開";
+  toggle.title = Motion.reduce ? "目前是簡化動畫，按這裡開啟完整動畫" : "按這裡關閉動畫（記在這台電腦的瀏覽器）";
+  toggle.addEventListener("click", () => Motion.setPreference(Motion.reduce ? "on" : "off"));
+  // 系統開了「減少動態效果」又還沒選過：提示一次可以打開
+  if (document.documentElement.classList.contains("rm-sys")) {
+    const note = h("div", { class: "motion-note", role: "status" },
+      h("p", { text: "你的電腦開了「減少動態效果」（Windows：設定 → 協助工具 → 視覺效果 → 動畫效果），所以後台先用簡化動畫。" }),
+      h("button", { class: "btn small primary", type: "button", text: "開啟完整動畫", onclick: () => Motion.setPreference("on") }),
+      h("button", { class: "btn small ghost", type: "button", text: "維持簡化",
+        onclick: () => { try { localStorage.setItem("motion", "off"); } catch (e) { /* 忽略 */ } note.remove(); } }));
+    document.body.append(note);
+  }
+  Motion.magnetic($("#update-now"));
+})();
+
 // ---------------------------------------------------------------- 立即更新
 $("#update-now").addEventListener("click", async () => {
   if (!confirm("立刻從 GitHub 更新並重新啟動 bot？\n進行中的遊戲會被中斷，未結算的賭注會自動退還。")) return;
@@ -289,6 +307,10 @@ function stackedColumns(container, days) {
     const band = innerW / days.length, bw = Math.min(32, band * 0.62);
     const labelEvery = Math.ceil((days.length * 44) / innerW);
     const columns = [];
+    // 滑鼠移上去：發光十字準星對準那天的柱頂
+    const guide = s("g", { class: "xhair", visibility: "hidden" });
+    guide.append(s("line", { class: "xh", x1: m.l, x2: W - m.r, y1: 0, y2: 0 }), s("line", { class: "xv", x1: 0, x2: 0, y1: m.t, y2: m.t + innerH }),
+                 s("circle", { class: "xd", r: 4.5, cx: 0, cy: 0 }));
     days.forEach((day, i) => {
       const x = m.l + i * band + (band - bw) / 2;
       const col = s("g", { class: "col" });
@@ -315,6 +337,11 @@ function stackedColumns(container, days) {
       const hit = s("rect", { class: "hit", x: m.l + i * band, y: m.t, width: band, height: innerH });
       hit.addEventListener("mousemove", (event) => {
         columns.forEach((c, k) => c.classList.toggle("dim", k !== i));
+        const topY = m.t + innerH - (totals[i] / max) * innerH, cx = x + bw / 2;
+        guide.setAttribute("visibility", "visible");
+        guide.children[0].setAttribute("y1", topY); guide.children[0].setAttribute("y2", topY);
+        guide.children[1].setAttribute("x1", cx); guide.children[1].setAttribute("x2", cx);
+        guide.children[2].setAttribute("cx", cx); guide.children[2].setAttribute("cy", topY);
         showTip(event, [
           h("div", { class: "title", text: `${day.day.replaceAll("-", "/")}　共 ${fmt(totals[i])} 分` }),
           ...SERIES.slice().reverse().map((ser) => h("div", { class: "row" },
@@ -322,9 +349,10 @@ function stackedColumns(container, days) {
             h("span", { class: "num", text: fmt(day[ser.key] || 0) }))),
         ]);
       });
-      hit.addEventListener("mouseleave", () => { columns.forEach((c) => c.classList.remove("dim")); hideTip(); });
+      hit.addEventListener("mouseleave", () => { columns.forEach((c) => c.classList.remove("dim")); guide.setAttribute("visibility", "hidden"); hideTip(); });
       svg.append(hit);
     });
+    svg.insertBefore(guide, svg.querySelector(".hit"));
     container.replaceChildren(svg);
   };
   draw();
@@ -338,12 +366,14 @@ function fmtUptime(sec) {
   return `${d}d ${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
-function liveChart(svg, values) {
+// 每分鐘指令數：第一次由底部彈跳長出來；滑鼠移上去有發光十字準星與提示框
+function liveChart(svg, values, grow = false) {
   const W = 400, H = 190, n = values.length, step = W / Math.max(1, n - 1);
   const max = niceMax(Math.max(4, ...values));
   const pts = values.map((v, i) => [i * step, H - 16 - (v / max) * (H - 30)]);
   const line = pts.map((p) => p.map((x) => x.toFixed(1)).join(",")).join(" ");
   const peak = values.indexOf(Math.max(...values)), [px, py] = pts[peak], [lx, ly] = pts[n - 1];
+  svg._chart = { values, pts, W, H };
   svg.replaceChildren();
   const defs = s("defs");
   const fill = s("linearGradient", { id: "lfill", x1: 0, x2: 0, y1: 0, y2: 1 });
@@ -353,8 +383,10 @@ function liveChart(svg, values) {
   defs.append(fill, stroke);
   svg.append(defs);
   [.25, .5, .75].forEach((f) => svg.append(s("line", { x1: 0, x2: W, y1: H * f, y2: H * f, stroke: "rgba(80,220,255,.1)" })));
-  svg.append(s("polygon", { points: `0,${H} ${line} ${W},${H}`, fill: "url(#lfill)" }));
-  svg.append(s("polyline", { points: line, fill: "none", stroke: "url(#lstroke)", "stroke-width": 2.4, "vector-effect": "non-scaling-stroke" }));
+  const body = s("g", { class: grow ? "grow-spring" : "" });
+  body.append(s("polygon", { points: `0,${H} ${line} ${W},${H}`, fill: "url(#lfill)" }));
+  body.append(s("polyline", { points: line, fill: "none", stroke: "url(#lstroke)", "stroke-width": 2.4, "vector-effect": "non-scaling-stroke" }));
+  svg.append(body);
   if (values[peak] > 0) {
     svg.append(s("line", { x1: px, x2: px, y1: py, y2: H, stroke: "rgba(255,200,87,.5)", "stroke-dasharray": "3 3" }));
     svg.append(s("circle", { cx: px, cy: py, r: 3.5, fill: "#ffc857" }));
@@ -364,6 +396,33 @@ function liveChart(svg, values) {
   const dot = s("circle", { cx: lx, cy: ly, r: 4, fill: "#7cff9c" });
   if (!Motion.reduce) dot.append(s("animate", { attributeName: "r", values: "3;7;3", dur: "1s", repeatCount: "indefinite" }));
   svg.append(dot);
+  // 十字準星（滑鼠移上去才出現）
+  const xh = s("g", { class: "xhair", visibility: svg._hover == null ? "hidden" : "visible" });
+  xh.append(s("line", { class: "xv", x1: 0, x2: 0, y1: 0, y2: H }), s("line", { class: "xh", x1: 0, x2: W, y1: 0, y2: 0 }),
+            s("circle", { class: "xd", r: 4.5, cx: 0, cy: 0 }));
+  svg.append(xh);
+  if (svg._hover != null) placeCrosshair(svg, svg._hover);
+  if (!svg._hooked) {
+    svg._hooked = true;
+    svg.addEventListener("pointermove", (event) => {
+      const r = svg.getBoundingClientRect(), { values: vs } = svg._chart;
+      const i = Math.round(((event.clientX - r.left) / r.width) * (vs.length - 1));
+      svg._hover = Math.max(0, Math.min(vs.length - 1, i));
+      placeCrosshair(svg, svg._hover);
+      const ago = vs.length - 1 - svg._hover;
+      showTip(event, [h("div", { class: "title", text: ago ? `${ago} 分鐘前` : "這一分鐘" }),
+        h("div", { class: "row" }, h("span", { class: "swatch", style: { background: "#35d9ff", color: "#35d9ff" } }), "指令數",
+          h("span", { class: "num", text: `${vs[svg._hover]} 次` }))]);
+    });
+    svg.addEventListener("pointerleave", () => { svg._hover = null; const x = svg.querySelector(".xhair"); if (x) x.setAttribute("visibility", "hidden"); hideTip(); });
+  }
+}
+function placeCrosshair(svg, i) {
+  const xh = svg.querySelector(".xhair"), [x, y] = svg._chart.pts[i];
+  xh.setAttribute("visibility", "visible");
+  xh.querySelector(".xv").setAttribute("x1", x); xh.querySelector(".xv").setAttribute("x2", x);
+  xh.querySelector(".xh").setAttribute("y1", y); xh.querySelector(".xh").setAttribute("y2", y);
+  xh.querySelector(".xd").setAttribute("cx", x); xh.querySelector(".xd").setAttribute("cy", y);
 }
 
 async function renderOverview(view) {
@@ -371,8 +430,10 @@ async function renderOverview(view) {
   const { kpi, days, games, bot } = data;
   setBotInfo(bot);
   const totals = days.map((d) => SERIES.reduce((sum, ser) => sum + (d[ser.key] || 0), 0));
+  const intro = [];   // 進場時要逐一出現的卡片
 
-  // ---- 核心全像
+  // ---- 主視覺：粒子星雲背景＋核心全像
+  const nebula = h("canvas", { class: "nebula", "aria-hidden": "true" });
   const holoCanvas = h("canvas", { "aria-label": "機器人核心：中間是核心，外圈每個光點是一個伺服器，有人使用指令時會射出資料封包" });
   const uptime = h("b", { text: fmtUptime(bot.uptime) });
   const gaugeBox = h("div", { class: "gauges" });
@@ -380,30 +441,35 @@ async function renderOverview(view) {
   const gActive = Motion.gauge("今日活躍 %", "var(--accent-3)");
   const gCheckin = Motion.gauge("今日簽到 %", "var(--accent-2)");
   gaugeBox.append(gLatency.el, gActive.el, gCheckin.el);
-  const setGauges = (b, k) => {
-    gLatency.set((b.latency_ms ?? 0) / 500, b.latency_ms ?? "—");
+  const setGauges = (b, k, delay = 0) => {
+    gLatency.set((b.latency_ms ?? 0) / 500, b.latency_ms ?? "—", { delay });
     const pct = (n) => (k.users ? Math.round((n / k.users) * 100) : 0);
-    gActive.set(pct(k.active_today) / 100, pct(k.active_today));
-    gCheckin.set(pct(k.checkins_today) / 100, pct(k.checkins_today));
+    gActive.set(pct(k.active_today) / 100, pct(k.active_today), { delay: delay + 120 });
+    gCheckin.set(pct(k.checkins_today) / 100, pct(k.checkins_today), { delay: delay + 240 });
   };
   const sys = h("div", { class: "sys" + (bot.online ? "" : " off"), text: bot.online ? "System online" : "System offline" });
   const name = (bot.display || "BOT").toUpperCase();
-  const core = h("section", { class: "card core beam scan" }, holoCanvas,
-    h("div", {}, sys, h("div", { class: "glitch", "data-text": name, text: name }),
+  const title = h("div", { class: "glitch", "data-text": name, text: name });
+  const aiName = h("b", { text: bot.ai_configured ? bot.ai_name : "未設定" }), version = h("b", { text: bot.version });
+  const guildCount = h("b", { text: "0" });
+  const replay = h("button", { class: "replay", type: "button", text: "↻ 重播開機動畫",
+    onclick: async () => { await playBoot(); render(true); } });
+  const core = h("section", { class: "card core scan" }, nebula, holoCanvas,
+    h("div", { class: "core-info" }, sys, title,
       h("div", { class: "stat-lines" },
         h("span", {}, "運行　", uptime),
-        h("span", {}, "伺服器 ", h("b", { text: String(bot.guilds) }), "・AI ", h("b", { text: bot.ai_configured ? bot.ai_name : "未設定" })),
-        h("span", {}, "版本 ", h("b", { text: bot.version }), "・", h("b", { text: bot.ai ? "AI 正常" : "AI 暫停" }))),
-      gaugeBox,
-      h("button", { class: "replay", type: "button", text: "↻ 重播開機動畫", onclick: () => playBoot() })));
+        h("span", {}, "伺服器 ", guildCount, "・AI ", aiName),
+        h("span", {}, "版本 ", version, "・", h("b", { text: bot.ai ? "AI 正常" : "AI 暫停" }))),
+      gaugeBox, replay));
+  intro.push(core);
 
   // ---- 數字卡片
   const kpiCard = (label, value, sub, sparkValues, cls = "", color) => {
     const v = h("div", { class: "value", text: "0" });
     const card = h("div", { class: `card kpi ${cls}` }, h("div", { class: "label", text: label }), v, h("div", { class: "sub", text: sub }),
       Motion.spark(sparkValues, color));
-    Motion.scramble(v, value);
-    return { card, v };
+    intro.push(card);
+    return { card, v, value };
   };
   const kUsers = kpiCard("使用者", kpi.users, `USERS・今日活躍 ${fmt(kpi.active_today)}`, days.map((d) => d.active));
   const kPoints = kpiCard("流通存款", kpi.points, `保管中 ${fmt(kpi.held)}`, totals, "", "var(--accent-3)");
@@ -413,9 +479,15 @@ async function renderOverview(view) {
   // ---- 即時圖表與紀錄
   const liveSvg = s("svg", { viewBox: "0 0 400 190", preserveAspectRatio: "none", role: "img", "aria-label": "最近 60 分鐘每分鐘指令數" });
   const term = h("div", { class: "term", "aria-live": "off" });
-  const termCard = h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "伺服器紀錄・即時" }),
-    h("span", { class: "spacer" }), h("a", { class: "btn small", href: "#/serverlog", text: "完整紀錄" })), term);
-  const ticker = h("div", { class: "track" });
+  const fullLog = h("a", { class: "btn small", href: "#/serverlog", text: "完整紀錄" });
+  const termCard = h("section", { class: "card term-card" }, h("div", { class: "card-head" },
+    h("span", { class: "live-dot", title: "即時連線中" }), h("h2", { text: "伺服器紀錄・即時" }),
+    h("span", { class: "spacer" }), fullLog), term);
+  const liveCard = h("section", { class: "card live" }, h("div", { class: "card-head" }, h("h2", { text: "每分鐘指令數・最近 60 分鐘" })), liveSvg);
+  intro.push(liveCard, termCard);
+  // 中段跑馬燈：上排往左、下排往右
+  const trackA = h("div", { class: "track", "data-dir": "left" }), trackB = h("div", { class: "track", "data-dir": "right" });
+  const ticker = h("div", { class: "ticker", "aria-hidden": "true" }, h("div", { class: "row" }, trackA), h("div", { class: "row alt" }, trackB));
 
   // ---- 每日發放與遊戲損益（原本的總覽內容）
   const chartBox = h("div", { class: "chart" });
@@ -442,47 +514,68 @@ async function renderOverview(view) {
         h("span", { class: "zero" }), g.net ? h("span", { class: `bar ${g.net > 0 ? "pos" : "neg"}`, style: { width: `${pct}%` } }) : null)),
       h("td", { class: `num ${g.net > 0 ? "pos" : g.net < 0 ? "neg" : ""}`, text: signed(g.net) }));
   });
+  const payoutCard = h("section", { class: "card" },
+    h("div", { class: "card-head" }, h("h2", { text: "每日發放金額・近 14 天" }), h("span", { class: "spacer" }), toggle),
+    h("div", { class: "legend" }, SERIES.map((ser) =>
+      h("span", {}, h("span", { class: "swatch", style: { background: cssVar(ser.color), color: cssVar(ser.color) } }), ser.label))),
+    chartBox, tableBox,
+    h("p", { class: "muted", text: "遊戲輸贏不計入發放（是玩家之間或與莊家的移轉），請看下方各遊戲損益。" }));
+  const gamesCard = h("section", { class: "card" },
+    h("div", { class: "card-head" }, h("h2", { text: "各遊戲玩家累計損益" }),
+      h("span", { class: "muted", text: "正數＝玩家整體贏、莊家發出存款；負數＝玩家整體輸、存款被回收" })),
+    games.length ? h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, ["遊戲", "場次", "玩家數", "勝率", "損益分布", "玩家累計損益"].map((t, i) =>
+        h("th", { class: [1, 2, 3, 5].includes(i) ? "num" : "", text: t })))),
+      h("tbody", {}, gameRows)))
+      : h("p", { class: "empty", text: "還沒有遊戲紀錄。" }));
+  intro.push(ticker, payoutCard, gamesCard);
 
   view.replaceChildren(
     core,
     h("div", { class: "kpis" }, kUsers.card, kPoints.card, kCmds.card, kErr.card),
-    h("div", { class: "home-row" },
-      h("section", { class: "card live" }, h("div", { class: "card-head" }, h("h2", { text: "每分鐘指令數・最近 60 分鐘" })), liveSvg),
-      termCard),
-    h("div", { class: "ticker", "aria-hidden": "true" }, ticker),
-    h("section", { class: "card" },
-      h("div", { class: "card-head" }, h("h2", { text: "每日發放金額・近 14 天" }), h("span", { class: "spacer" }), toggle),
-      h("div", { class: "legend" }, SERIES.map((ser) =>
-        h("span", {}, h("span", { class: "swatch", style: { background: cssVar(ser.color), color: cssVar(ser.color) } }), ser.label))),
-      chartBox, tableBox,
-      h("p", { class: "muted", text: "遊戲輸贏不計入發放（是玩家之間或與莊家的移轉），請看下方各遊戲損益。" })),
-    h("section", { class: "card" },
-      h("div", { class: "card-head" }, h("h2", { text: "各遊戲玩家累計損益" }),
-        h("span", { class: "muted", text: "正數＝玩家整體贏、莊家發出存款；負數＝玩家整體輸、存款被回收" })),
-      games.length ? h("div", { class: "table-wrap" }, h("table", {},
-        h("thead", {}, h("tr", {}, ["遊戲", "場次", "玩家數", "勝率", "損益分布", "玩家累計損益"].map((t, i) =>
-          h("th", { class: [1, 2, 3, 5].includes(i) ? "num" : "", text: t })))),
-        h("tbody", {}, gameRows)))
-        : h("p", { class: "empty", text: "還沒有遊戲紀錄。" })),
+    h("div", { class: "home-row" }, liveCard, termCard),
+    ticker, payoutCard, gamesCard,
   );
+  view.classList.add("home");
+  onLeave(() => view.classList.remove("home"));
   stackedColumns(chartBox, days);
-  setGauges(bot, kpi);
 
-  const holo = new Motion.Holo(holoCanvas);
+  // ---- 特效：流光繞邊、3D 傾斜聚光燈、磁吸按鈕
+  [core, kUsers.card, kPoints.card, kCmds.card, kErr.card].forEach((el) => Motion.beam(el));
+  [core, kUsers.card, kPoints.card, kCmds.card, kErr.card, liveCard, termCard, payoutCard, gamesCard].forEach((el) => Motion.tilt(el, el.classList.contains("kpi") ? 9 : 5));
+  Motion.magnetic(replay, fullLog, toggle);
+  const nebulaFx = new Motion.Nebula(nebula, core);
+  const holo = new Motion.Holo(holoCanvas, core);
   holo.setNodes(bot.guilds);
-  onLeave(() => holo.stop());
+  onLeave(() => { holo.stop(); nebulaFx.stop(); });
+
+  // ---- 開機序列：掃描光束 → 卡片交錯浮現 → 標題解碼 → 數字滾動、儀表充能
+  Motion.laser();
+  Motion.stagger(intro, 60);
+  Motion.decode(title, name, { delay: 250, duration: 1000 });
+  Motion.decode(version, bot.version, { delay: 500, duration: 800 });
+  Motion.decode(aiName, aiName.textContent, { delay: 600, duration: 800 });
+  Motion.countUp(guildCount, bot.guilds, { delay: 300, duration: 1200 });
+  [kUsers, kPoints].forEach((k, i) => Motion.countUp(k.v, k.value, { delay: 200 + i * 80, duration: 1600 }));
+  setGauges(bot, kpi, 350);
 
   // ---- 即時更新：每 3 秒讀 /api/pulse
   let seq = null, lastLog = null, guildIndex = {};
-  const swapSpark = (card, values, color) => card.querySelector("svg").replaceWith(Motion.spark(values, color));
+  const swapSpark = (card, values, color) => card.querySelector(".spark-wrap").replaceWith(Motion.spark(values, color));
   const tickerItems = (pulse) => {
-    const items = [
+    const stats = [
       ["伺服器", `${pulse.guilds.length} 個`], ["今日簽到", `${fmt(kpi.checkins_today)} 人`], ["今日活躍", `${fmt(kpi.active_today)} 人`],
-      ["流通存款", fmt(kpi.points)], ["AI", bot.ai ? "正常" : "暫停"],
-      ...pulse.guilds.slice(0, 12).map((g) => [g.name, g.members ? `${fmt(g.members)} 位成員` : "已連線"]),
+      ["流通存款", fmt(kpi.points)], ["AI", bot.ai ? "正常" : "暫停"], ["版本", bot.version],
     ];
-    const once = items.map(([a, b]) => h("span", {}, h("b", { text: a }), "　", h("span", { class: "up", text: b })));
-    ticker.replaceChildren(...once, ...once.map((n) => n.cloneNode(true)));
+    const guildsRow = pulse.guilds.slice(0, 16).map((g) => [g.name, g.members ? `${fmt(g.members)} 位成員` : "已連線"]);
+    const fillTrack = (track, items) => {
+      // 內容至少要比畫面寬，再複製一份做無縫循環
+      let once = items.map(([a, b]) => h("span", {}, h("b", { text: a }), "　", h("span", { class: "up", text: b })));
+      while (once.length && once.length < 10) once = once.concat(once.map((n) => n.cloneNode(true)));
+      track.replaceChildren(...once, ...once.map((n) => n.cloneNode(true)));
+    };
+    fillTrack(trackA, stats);
+    fillTrack(trackB, guildsRow.length ? guildsRow : [["伺服器", "等待連線…"]]);
   };
   const pulse = async (firstTime) => {
     const p = await api(`/api/pulse?since=${seq ?? 0}`);
@@ -490,30 +583,33 @@ async function renderOverview(view) {
     holo.setNodes(p.guilds.length || bot.guilds);
     if (!firstTime) p.events.forEach((e, i) => setTimeout(() => holo.packet(guildIndex[e.guild] ?? i), i * 150));
     seq = p.seq;
-    liveChart(liveSvg, p.per_minute);
-    Motion.scramble(kCmds.v, p.today_commands);
-    Motion.scramble(kErr.v, p.errors_24h);
+    liveChart(liveSvg, p.per_minute, firstTime);
+    Motion.countUp(kCmds.v, p.today_commands, firstTime ? { delay: 360, duration: 1600 } : { duration: 700 });
+    Motion.countUp(kErr.v, p.errors_24h, firstTime ? { delay: 440, duration: 1600 } : { duration: 700 });
     if (firstTime) {
       swapSpark(kCmds.card, p.per_minute, "var(--accent-2)");
       swapSpark(kErr.card, p.error_hours, "var(--critical)");
       tickerItems(p);
+      onLeave(Motion.kinetic(ticker));
     }
     const key = (r) => `${r.time}|${r.text}`;
     const start = lastLog ? p.logs.findIndex((r) => key(r) === lastLog) + 1 : 0;
     const fresh = lastLog && start === 0 ? p.logs : p.logs.slice(start);
     let alarm = false;
-    fresh.forEach((r) => {
+    fresh.forEach((r, i) => {
       const bad = r.level === "ERROR" || r.level === "CRITICAL";
       if (bad && !firstTime) alarm = true;
-      term.append(h("div", { class: (bad ? "err " : "") + (firstTime ? "" : "new") },
-        h("span", { class: "t", text: `${r.time} ` }), h("span", { class: r.level, text: `${r.level.padEnd(7)} ` }), r.text));
+      const row = h("div", { class: (bad ? "err " : "") + (firstTime ? "" : "new") },
+        h("span", { class: "t", text: `${r.time} ` }), h("span", { class: r.level, text: `${r.level.padEnd(7)} ` }), r.text);
+      row.style.setProperty("--i", i);
+      term.append(row);
     });
     while (term.children.length > 12) term.firstChild.remove();
     if (!p.logs.length && !term.children.length) term.append(h("div", { class: "t", text: "還沒有紀錄（logs/bot.log）" }));
     if (p.logs.length) lastLog = key(p.logs[p.logs.length - 1]);
     if (alarm) { Motion.alarm(termCard); holo.packet(0, true); }
   };
-  await pulse(true).catch(() => liveChart(liveSvg, new Array(60).fill(0)));
+  await pulse(true).catch(() => liveChart(liveSvg, new Array(60).fill(0), true));
   every(3000, () => pulse(false).catch(() => {}));
   let up = bot.uptime;
   every(1000, () => { up += 1; uptime.textContent = fmtUptime(up); });

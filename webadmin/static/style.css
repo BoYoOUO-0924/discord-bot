@@ -168,7 +168,7 @@ input[type="range"] { accent-color: var(--accent); padding: 0; }
     linear-gradient(var(--accent), var(--accent)) bottom right / var(--c) 2px no-repeat,
     linear-gradient(var(--accent), var(--accent)) bottom right / 2px var(--c) no-repeat,
     var(--surface);
-  backdrop-filter: blur(6px); transition: --c .35s var(--ease-out), box-shadow .35s;
+  transition: --c .35s var(--ease-out), box-shadow .35s;
 }
 .card:hover { --c: 24px; box-shadow: 0 0 0 1px rgba(53, 217, 255, .18), 0 0 40px -14px rgba(53, 217, 255, .45); }
 .card.error { color: var(--critical); }
@@ -184,9 +184,9 @@ input[type="range"] { accent-color: var(--accent); padding: 0; }
   animation: beam 3s linear infinite; }
 @keyframes beam { to { --ang: 360deg; } }
 .scan { overflow: hidden; }
-.scan::before { content: ""; position: absolute; left: 0; right: 0; height: 35%; top: -35%; pointer-events: none; z-index: 1;
-  background: linear-gradient(transparent, rgba(53, 217, 255, .08), transparent); animation: scan 3.5s linear infinite; }
-@keyframes scan { to { top: 100%; } }
+.scan::before { content: ""; position: absolute; left: 0; right: 0; height: 35%; top: 0; pointer-events: none; z-index: 1; will-change: transform;
+  background: linear-gradient(transparent, rgba(53, 217, 255, .08), transparent); animation: scan 3.5s linear infinite; transform: translateY(-100%); }
+@keyframes scan { to { transform: translateY(286%); } }
 
 /* ---------------- 數字卡片 ---------------- */
 .kpis { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
@@ -197,8 +197,9 @@ input[type="range"] { accent-color: var(--accent); padding: 0; }
 .kpi.good .value { color: var(--accent-2); text-shadow: 0 0 18px rgba(124, 255, 156, .45); }
 .kpi .sub { font: 11px var(--mono); color: var(--muted); }
 .kpi svg { display: block; margin-top: 8px; width: 100%; height: 34px; overflow: visible; }
-.kpi svg .spark { stroke-dasharray: 1; animation: draw 1.4s .3s var(--ease-out) both; }
-@keyframes draw { from { stroke-dashoffset: 1; } }
+/* 由左往右畫出：用裁切露出（虛線長度在不縮放線寬時 Chrome 會算錯，只畫一半） */
+.kpi .spark-wrap svg { animation: draw 1.4s .3s var(--ease-out) both; }
+@keyframes draw { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 
 /* ---------------- 首頁：核心全像 ---------------- */
 .core { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 10px; align-items: center; min-height: 300px; }
@@ -240,10 +241,11 @@ input[type="range"] { accent-color: var(--accent); padding: 0; }
 @keyframes shake { 20% { transform: translateX(-5px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
 .ticker { overflow: hidden; border-block: 1px solid var(--border); background: rgba(53, 217, 255, .04); font: 12px/32px var(--mono); color: var(--muted);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
-.ticker .track { display: inline-flex; gap: 40px; white-space: nowrap; animation: marquee 40s linear infinite; padding-left: 40px; }
+.ticker .row { overflow: hidden; }
+.ticker .row.alt { border-top: 1px dashed rgba(80, 220, 255, .1); background: rgba(178, 107, 255, .04); }
+.ticker .track { display: inline-flex; gap: 40px; white-space: nowrap; padding-left: 40px; will-change: transform; }
 .ticker b { color: var(--accent); font-weight: 600; }
 .ticker .up { color: var(--accent-2); }
-@keyframes marquee { to { transform: translateX(-50%); } }
 
 /* ---------------- 圖表 ---------------- */
 .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-2); }
@@ -368,7 +370,7 @@ tbody.folded .group-bar .chev { transform: rotate(0deg); }
 .group-count.none { color: var(--critical); border-color: rgba(255, 90, 90, .35); }
 tr.feature-row { animation: rowIn .3s ease both; }
 @keyframes rowIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { tr.feature-row { animation: none; } .group-bar .chev { transition: none; } }
+html.rm tr.feature-row { animation: none; } html.rm .group-bar .chev { transition: none; }
 @media (max-width: 640px) { .feature-search { width: 100%; } }
 
 /* ---------------- AI 與個性 ---------------- */
@@ -501,7 +503,128 @@ tr.off td { color: var(--muted); }
   .gauge, .gauge svg { width: 72px; } .gauge svg { height: 72px; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
-  .scan::before, .ticker .track { animation: none !important; }
-}
+/* 簡化動畫（系統開了「減少動態效果」或自己按了關閉） */
+html.rm *, html.rm *::before, html.rm *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+html.rm .scan::before, html.rm .beam-ring, html.rm .aurora, html.rm .spot-grid, html.rm .laser { display: none !important; }
+
+/* ================================================================ 首頁（總覽）次世代特效 ================================================================ */
+/* 動畫開關提示 */
+.motion-note { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 46;
+  width: min(600px, calc(100% - 32px)); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 14px;
+  background: rgba(3, 8, 14, .95); border: 1px solid var(--accent); box-shadow: 0 0 30px -8px var(--accent); font-size: 13px; color: var(--text-2); }
+.motion-note p { margin: 0; flex: 1 1 260px; }
+
+/* 背景：緩慢漂浮呼吸的極光（大片漸層只動 transform，不用濾鏡） */
+.aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.aurora i { position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; opacity: .55; will-change: transform, opacity; }
+.aurora i:nth-child(1) { left: -15vmax; top: -25vmax; background: radial-gradient(closest-side, rgba(53, 217, 255, .16), transparent); animation: aurora-a 26s ease-in-out infinite alternate; }
+.aurora i:nth-child(2) { right: -20vmax; top: -10vmax; background: radial-gradient(closest-side, rgba(178, 107, 255, .16), transparent); animation: aurora-b 32s ease-in-out infinite alternate; }
+.aurora i:nth-child(3) { left: 25vw; bottom: -35vmax; background: radial-gradient(closest-side, rgba(124, 255, 156, .08), transparent); animation: aurora-c 38s ease-in-out infinite alternate; }
+@keyframes aurora-a { 50% { opacity: .85; } to { transform: translate(18vw, 14vh) scale(1.25); opacity: .5; } }
+@keyframes aurora-b { 50% { opacity: .35; } to { transform: translate(-22vw, 20vh) scale(.85); opacity: .8; } }
+@keyframes aurora-c { to { transform: translate(-16vw, -18vh) scale(1.3); opacity: .9; } }
+/* 游標照亮的隱藏科技網格：一塊圓形網格跟著游標，網格線對齊整個畫面 */
+.spot-grid { position: fixed; left: 0; top: 0; width: 560px; height: 560px; z-index: 1; pointer-events: none; opacity: 0; transition: opacity .4s;
+  transform: translate(-999px, -999px); will-change: transform;
+  background-image: linear-gradient(rgba(53, 217, 255, .22) 1px, transparent 1px), linear-gradient(90deg, rgba(53, 217, 255, .22) 1px, transparent 1px);
+  background-size: 40px 40px;
+  -webkit-mask-image: radial-gradient(closest-side, #000, rgba(0, 0, 0, .35) 55%, transparent); mask-image: radial-gradient(closest-side, #000, rgba(0, 0, 0, .35) 55%, transparent); }
+body.pointer .spot-grid { opacity: 1; }
+@media (pointer: coarse) { .spot-grid { display: none; } }
+
+/* 開機序列：全息掃描光束 */
+.laser { position: fixed; left: 0; right: 0; top: 0; height: 160px; z-index: 30; pointer-events: none; transform: translateY(-170px); will-change: transform, opacity;
+  background: linear-gradient(180deg, transparent, rgba(53, 217, 255, .08) 55%, rgba(178, 107, 255, .22) 82%, rgba(220, 255, 255, .95) 92%, rgba(53, 217, 255, .5) 94%, transparent);
+  box-shadow: 0 30px 60px -20px rgba(53, 217, 255, .5); animation: laser 1.05s cubic-bezier(.55, .1, .35, 1) forwards; }
+@keyframes laser { 85% { opacity: 1; } to { transform: translateY(calc(100vh + 10px)); opacity: 0; } }
+/* 開機序列：卡片交錯模糊浮現 */
+.fx-in { animation: fx-in .85s var(--ease-out) both !important; animation-delay: var(--d, 0ms) !important; }
+@keyframes fx-in { from { opacity: 0; transform: translateY(26px) scale(.955); filter: blur(10px); } 60% { filter: blur(0); } to { opacity: 1; transform: none; filter: none; } }
+
+/* 3D 傾斜＋聚光燈 */
+.tilt { transition: transform .35s var(--ease-out), --c .35s var(--ease-out), box-shadow .35s; transform-style: preserve-3d; }
+.tilt:hover { transition: transform .12s linear, --c .35s var(--ease-out), box-shadow .35s; }
+.spot { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .35s; z-index: 0;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgba(53, 217, 255, .10), transparent 60%); }
+.spot::after { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px;
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgba(140, 240, 255, .95), rgba(178, 107, 255, .5) 40%, transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.tilt:hover > .spot { opacity: 1; }
+.tilt > :not(.spot):not(.beam-ring):not(.nebula) { position: relative; z-index: 1; }
+
+/* 流光繞邊：旋轉內層的錐形漸層，外層用遮罩只留邊框 */
+.beam-ring { position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; pointer-events: none; overflow: hidden; z-index: 2;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.beam-ring i { position: absolute; left: 50%; top: 50%; width: max(150%, 260px); aspect-ratio: 1; will-change: transform;
+  background: conic-gradient(from 0deg, transparent 0 58%, rgba(53, 217, 255, .15) 66%, #35d9ff 80%, #e9fdff 84%, #b26bff 90%, transparent 97%);
+  animation: beam-spin 4.2s linear infinite; transform: translate(-50%, -50%); }
+.kpi .beam-ring i { animation-duration: 3.4s; }
+.kpis > .kpi:nth-child(2) .beam-ring i { animation-delay: -.85s; } .kpis > .kpi:nth-child(3) .beam-ring i { animation-delay: -1.7s; }
+.kpis > .kpi:nth-child(4) .beam-ring i { animation-delay: -2.55s; }
+@keyframes beam-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+
+/* 磁吸按鈕與點擊衝擊波 */
+.fx-btn { position: relative; overflow: hidden; transition: transform .35s var(--spring), box-shadow .3s, background .2s, border-color .2s; will-change: transform; }
+.fx-btn.magnet-on { transition: transform .12s linear, box-shadow .3s, background .2s, border-color .2s; box-shadow: 0 0 22px -4px var(--accent); border-color: rgba(53, 217, 255, .6); }
+.ripple { position: absolute; border-radius: 50%; pointer-events: none; transform: scale(0); opacity: .85;
+  background: radial-gradient(circle, rgba(230, 255, 255, .9), rgba(53, 217, 255, .45) 35%, rgba(178, 107, 255, .2) 55%, transparent 70%);
+  animation: ripple .7s var(--ease-out) forwards; }
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+/* 主視覺卡：粒子星雲、地球、資訊 */
+.core { overflow: hidden; }
+.core .nebula { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.core .core-info { min-width: 0; }
+.core .replay { display: inline-block; }
+
+/* 環形儀表：發光尖端＋呼吸光暈 */
+.gauge .val { transition: none; }
+.gauge .halo { stroke: var(--gc, var(--accent)); stroke-linecap: round; opacity: .16; animation: gauge-breathe 2.6s ease-in-out infinite; }
+.gauge .tip { fill: #f2fdff; filter: drop-shadow(0 0 4px var(--gc, var(--accent))); }
+.gauge .tip-halo { fill: var(--gc, var(--accent)); opacity: .35; transform-box: fill-box; transform-origin: center; animation: tip-pulse 1.6s ease-in-out infinite; }
+.gauge.empty .tip, .gauge.empty .tip-halo { opacity: 0; }
+.gauge:nth-child(2) .halo, .gauge:nth-child(2) .tip-halo { animation-delay: -.6s; } .gauge:nth-child(3) .halo, .gauge:nth-child(3) .tip-halo { animation-delay: -1.2s; }
+@keyframes gauge-breathe { 50% { opacity: .42; } }
+@keyframes tip-pulse { 50% { transform: scale(1.6); opacity: .1; } }
+
+/* 迷你走勢：心跳光點 */
+.spark-wrap { position: relative; margin-top: 8px; }
+.kpi .spark-wrap svg { margin-top: 0; }
+.spark-area { opacity: .08; animation: area-in 1.2s .9s ease-out both; }
+@keyframes area-in { from { opacity: 0; } }
+.beacon { position: absolute; left: 100%; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: var(--bc, var(--accent));
+  box-shadow: 0 0 8px var(--bc, var(--accent)), 0 0 2px #fff; animation: beacon-in .3s 1.6s both; }
+.beacon::before, .beacon::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--bc, var(--accent));
+  animation: beacon 1.8s 1.6s ease-out infinite; }
+.beacon::after { animation-delay: 2.5s; }
+@keyframes beacon { from { transform: scale(1); opacity: .9; } to { transform: scale(4.2); opacity: 0; } }
+@keyframes beacon-in { from { transform: scale(0); } }
+
+/* 圖表：彈跳生長、發光十字準星、毛玻璃提示框 */
+.grow-spring { transform-box: fill-box; transform-origin: 50% 100%; animation: spring-grow 1.1s var(--spring) both; }
+@keyframes spring-grow { from { transform: scaleY(0); opacity: 0; } 40% { opacity: 1; } }
+.home .chart .col { animation: spring-grow .9s var(--spring) both; animation-delay: calc(var(--i, 0) * 45ms + 200ms); }
+.xhair line { stroke: rgba(140, 240, 255, .75); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px #35d9ff); }
+.xhair .xd { fill: #e9fdff; stroke: #35d9ff; stroke-width: 2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 6px #35d9ff); }
+.live svg { cursor: crosshair; }
+.tooltip { background: rgba(8, 18, 30, .62); backdrop-filter: blur(10px) saturate(1.4); -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  border-color: rgba(53, 217, 255, .65); box-shadow: 0 0 0 1px rgba(178, 107, 255, .25), 0 0 28px -6px var(--accent), inset 0 1px 0 rgba(255, 255, 255, .08); }
+
+/* 即時紀錄：綠色呼吸燈、頂部掃描微光、新訊息從下方滑入並閃一下 */
+.live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 10px var(--accent-2); position: relative; }
+.live-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--accent-2); animation: live-breathe 2s ease-out infinite; }
+@keyframes live-breathe { from { transform: scale(1); opacity: .7; } to { transform: scale(2.8); opacity: 0; } }
+.card-head .live-dot + h2::before { content: none; }
+.term-card { overflow: hidden; }
+.term-card::before { content: ""; position: absolute; left: 0; top: 0; width: 40%; height: 2px; z-index: 2; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(124, 255, 156, .85), transparent); animation: term-scan 3.2s ease-in-out infinite; will-change: transform; }
+@keyframes term-scan { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.term-card .term { background: linear-gradient(180deg, rgba(124, 255, 156, .035), transparent 30%); }
+.term div.new { animation: log-in .5s var(--ease-out) both, log-flash 1.6s ease-out both; animation-delay: calc(var(--i, 0) * 70ms); }
+.term div.err.new { animation: log-in .5s var(--ease-out) both, glitch-row .5s steps(2) 1, log-flash-bad 1.6s ease-out both; }
+@keyframes log-in { from { transform: translateY(110%); opacity: 0; } }
+@keyframes log-flash { from { background: rgba(124, 255, 156, .22); border-left-color: var(--accent-2); box-shadow: inset 0 0 18px rgba(124, 255, 156, .15); } }
+@keyframes log-flash-bad { from { background: rgba(255, 77, 109, .35); } }
+/* 首頁改用上面的交錯浮現，避免進場結束後又重播一次通用的換頁動畫 */
+.view.home > * { animation: none; }
+.topbar-right > .btn { flex: none; }
