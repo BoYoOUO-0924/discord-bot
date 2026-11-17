@@ -9,6 +9,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<script>
+/* 動畫偏好：自己選過就照選的；沒選過就跟系統的「減少動態效果」。html.rm = 簡化動畫 */
+(function () {
+  var saved = null; try { saved = localStorage.getItem("motion"); } catch (e) {}
+  var sys = matchMedia("(prefers-reduced-motion: reduce)").matches, cl = document.documentElement.classList;
+  if (saved === "off" || (saved !== "on" && sys)) cl.add("rm");
+  if (sys && saved !== "on" && saved !== "off") cl.add("rm-sys");
+})();
+</script>
 <style>
 /* 版面：深色太空控制中心。首頁大字＋漂浮指令場景，往下是一連串捲動驅動的段落（橫向遊戲展示、任務卡片移動、3D 圓柱文字）。
    動畫用 GSAP ScrollTrigger；JS 或 CDN 失敗時所有內容照樣完整顯示（動畫只用 from，不預先藏內容）。 */
@@ -274,16 +283,25 @@ footer p { color: var(--muted); margin: 0; }
   .admin-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cylinder { height: 200vh; }
 }
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-  .grain, .cursor, .cursor-ring { display: none; }
-  .cylinder { height: auto; }
-  .cyl-stage { position: relative; height: auto; padding-block: 80px; perspective: none; }
-  .cyl { width: auto; height: auto; display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: center; padding-inline: 20px; }
-  .cyl span { position: static; transform: none; font-size: 32px; }
-  .cyl-caption { position: static; margin: 20px 0; }
-  .cyl-stage::before, .cyl-stage::after { display: none; }
-}
+/* 簡化動畫（系統開了「減少動態效果」或自己按了關閉） */
+html.rm *, html.rm *::before, html.rm *::after { animation: none !important; transition: none !important; }
+html.rm .grain, html.rm .cursor, html.rm .cursor-ring { display: none; }
+html.rm .cylinder { height: auto; }
+html.rm .cyl-stage { position: relative; height: auto; padding-block: 80px; perspective: none; }
+html.rm .cyl { width: auto; height: auto; display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: center; padding-inline: 20px; }
+html.rm .cyl span { position: static; transform: none; font-size: 32px; }
+html.rm .cyl-caption { position: static; margin: 20px 0; }
+html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
+/* 動畫開關與提示 */
+.motion-toggle { flex: none; margin-left: 8px; background: rgba(53, 217, 255, .08); border: 1px solid var(--line); color: var(--text-2); border-radius: 999px;
+  padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.motion-toggle:hover { color: var(--text); border-color: rgba(53, 217, 255, .5); }
+.motion-note { position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60;
+  width: min(560px, calc(100% - 32px)); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 14px 16px; border-radius: 16px;
+  background: rgba(8, 16, 28, .94); border: 1px solid rgba(53, 217, 255, .35); box-shadow: 0 20px 60px -20px rgba(0, 0, 0, .8); font-size: 14px; color: var(--text-2); }
+.motion-note p { margin: 0; flex: 1 1 240px; }
+.motion-note button { font: inherit; font-weight: 700; border-radius: 999px; padding: 8px 16px; cursor: pointer; border: 1px solid var(--line); background: none; color: var(--text-2); }
+.motion-note button.go { background: linear-gradient(135deg, #35d9ff, #8b5cff); color: #04070d; border: 0; }
 </style>
 </head>
 <body class="no-js">
@@ -299,6 +317,7 @@ footer p { color: var(--muted); margin: 0; }
       <a href="#start">開始使用</a><a href="#wallet">錢包</a><a href="#games">遊戲</a><a href="#stocks">股票</a>
       <a href="#tasks">待辦</a><a href="#tools">生活工具</a><a href="#ai">AI 聊天</a><a href="#admins">給管理員</a><a href="#faq">問題</a>
     </div>
+    <button class="motion-toggle" id="motion-toggle" type="button"></button>
   </div>
 </nav>
 
@@ -560,15 +579,35 @@ footer p { color: var(--muted); margin: 0; }
   <div class="wrap"><p>嘎哇 Bot・在 Discord 輸入 <code>/help</code> 看指令說明，或 <code>/menu</code> 打開大廳。</p></div>
 </footer>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+<script src="vendor/gsap.min.js"></script>
+<script src="vendor/ScrollTrigger.min.js"></script>
+<script src="vendor/lenis.min.js"></script>
 <script>
 (function () {
   "use strict";
   var body = document.body;
   body.classList.remove("no-js");
-  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var root = document.documentElement;
+  var reduce = root.classList.contains("rm");
+
+  // ------------------------------------------------ 動畫開關：記在瀏覽器，重新載入套用
+  var setMotion = function (v) { try { localStorage.setItem("motion", v); } catch (e) {} location.reload(); };
+  var toggle = document.getElementById("motion-toggle");
+  if (toggle) {
+    toggle.textContent = reduce ? "✨ 開啟動畫" : "動畫：開";
+    toggle.title = reduce ? "目前是簡化動畫，按這裡開啟完整動畫" : "按這裡關閉動畫";
+    toggle.addEventListener("click", function () { setMotion(reduce ? "on" : "off"); });
+  }
+  if (root.classList.contains("rm-sys")) {
+    var note = document.createElement("div");
+    note.className = "motion-note"; note.setAttribute("role", "status");
+    note.innerHTML = "<p>你的電腦開了「減少動態效果」（Windows：設定 → 協助工具 → 視覺效果 → 動畫效果），所以這頁先用簡化版。</p>" +
+      '<button class="go" type="button">開啟完整動畫</button><button type="button">維持簡化</button>';
+    var bs = note.querySelectorAll("button");
+    bs[0].addEventListener("click", function () { setMotion("on"); });
+    bs[1].addEventListener("click", function () { try { localStorage.setItem("motion", "off"); } catch (e) {} note.remove(); });
+    body.appendChild(note);
+  }
   var fine = matchMedia("(pointer: fine)").matches;
   var desktop = matchMedia("(min-width: 901px)").matches;
   var hasGsap = typeof gsap !== "undefined" && typeof ScrollTrigger !== "undefined";
