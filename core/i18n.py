@@ -61,6 +61,7 @@ COMMAND_NAMES = {
     "alert": "警報",
     "catchup": "我錯過了什麼",
     "changelog": "更新日誌",
+    "memory": "ai記憶",
     # Minecraft（/mc 底下的子指令）
     "status": "狀態",
     "start": "開服",

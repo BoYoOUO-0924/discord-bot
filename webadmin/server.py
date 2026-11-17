@@ -43,7 +43,7 @@ LOG_TIME_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
 
 INTENT_LABELS = {"weather": "天氣", "earthquake": "地震", "alert": "颱風豪雨停班停課", "catchup": "我錯過了什麼", "balance": "錢包", "checkin": "簽到", "work": "打工",
                  "quests": "每日任務", "leaderboard": "排行榜", "game": "遊戲", "stock": "股票", "music": "音樂",
-                 "remind": "提醒", "task": "待辦", "help": "說明", "changelog": "更新日誌", "unsupported": "拒絕（改錢、轉帳）"}
+                 "remind": "提醒", "task": "待辦", "help": "說明", "changelog": "更新日誌", "memory": "AI 記憶", "unsupported": "拒絕（改錢、轉帳）"}
 PREVIEW_COOLDOWN = 3
 
 GAME_NAMES = {"blackjack": "21點", "slots": "拉霸機", "guess": "猜數字", "tictactoe": "井字遊戲",

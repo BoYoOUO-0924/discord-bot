@@ -221,6 +221,15 @@ CREATE TABLE IF NOT EXISTS milestones (
     created_at REAL NOT NULL,
     UNIQUE (project_id, name)
 );
+CREATE TABLE IF NOT EXISTS ai_memories (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    content    TEXT NOT NULL,                     -- AI 記下的一件事，例如「喜歡玩 21 點」
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_memories_user ON ai_memories (guild_id, user_id);
 """
 
 TWD_PER_POINT = 100          # 舊版積分換成新台幣的比例（舊資料庫第一次啟動時換算）
@@ -1634,3 +1643,44 @@ class Database:
         async with self._lock:
             async with self.conn.execute("SELECT guild_id, value FROM guild_settings WHERE key = ?", (key,)) as cur:
                 return {r["guild_id"]: r["value"] for r in await cur.fetchall()}
+
+    # ------------------------------------------------------------------ AI 記憶
+    async def list_memories(self, guild_id: int, user_id: int) -> List[aiosqlite.Row]:
+        async with self._lock:
+            async with self.conn.execute(
+                "SELECT id, content, updated_at FROM ai_memories WHERE guild_id = ? AND user_id = ? ORDER BY id",
+                (guild_id, user_id),
+            ) as cur:
+                return await cur.fetchall()
+
+    async def apply_memory_ops(self, guild_id: int, user_id: int, add: List[str],
+                               update: Dict[int, str], delete: List[int]) -> None:
+        """一次套用 AI 整理出的修改；只會動到這個人在這個伺服器的筆記。"""
+        now = time.time()
+        async with self._lock:
+            for memory_id in delete:
+                await self.conn.execute("DELETE FROM ai_memories WHERE id = ? AND guild_id = ? AND user_id = ?",
+                                        (memory_id, guild_id, user_id))
+            for memory_id, content in update.items():
+                await self.conn.execute(
+                    "UPDATE ai_memories SET content = ?, updated_at = ? WHERE id = ? AND guild_id = ? AND user_id = ?",
+                    (content, now, memory_id, guild_id, user_id))
+            for content in add:
+                await self.conn.execute(
+                    "INSERT INTO ai_memories (guild_id, user_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (guild_id, user_id, content, now, now))
+            await self.conn.commit()
+
+    async def delete_memory(self, guild_id: int, user_id: int, memory_id: int) -> bool:
+        async with self._lock:
+            cur = await self.conn.execute("DELETE FROM ai_memories WHERE id = ? AND guild_id = ? AND user_id = ?",
+                                          (memory_id, guild_id, user_id))
+            await self.conn.commit()
+            return cur.rowcount > 0
+
+    async def clear_memories(self, guild_id: int, user_id: int) -> int:
+        async with self._lock:
+            cur = await self.conn.execute("DELETE FROM ai_memories WHERE guild_id = ? AND user_id = ?",
+                                          (guild_id, user_id))
+            await self.conn.commit()
+            return cur.rowcount

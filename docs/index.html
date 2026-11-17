@@ -465,11 +465,11 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
   </div>
 </section>
 
-<div class="cylinder" id="tools-cyl" aria-label="生活工具一覽：天氣、颱風警報、停班停課、地震報告、提醒、投票、音樂、我錯過了什麼、更新日誌">
+<div class="cylinder" id="tools-cyl" aria-label="生活工具一覽：天氣、颱風警報、停班停課、地震報告、提醒、投票、音樂、我錯過了什麼、AI 記憶、更新日誌">
   <div class="cyl-stage">
     <div class="cyl" id="cyl" aria-hidden="true">
       <span>天氣預報</span><span>颱風警報</span><span>停班停課</span><span>地震報告</span><span>提醒</span><span>投票</span>
-      <span>YouTube 音樂</span><span>我錯過了什麼</span><span>更新日誌</span><span>伺服器設定</span>
+      <span>YouTube 音樂</span><span>我錯過了什麼</span><span>AI 記憶</span><span>更新日誌</span><span>伺服器設定</span>
     </div>
     <p class="cyl-caption"><span class="kicker">Daily tools</span>台灣在地的生活小幫手，往下捲轉一圈</p>
   </div>
@@ -487,6 +487,7 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
       <article class="card"><h3><span class="emoji">⏰</span>提醒</h3><p>支援 <code>10m</code>、<code>1h30m</code>、<code>18:30</code>、<code>明天 9:00</code>，bot 重開也不會忘。</p><ul class="cmds"><li><code>/remind 時間 內容</code></li></ul></article>
       <article class="card"><h3><span class="emoji">📊</span>投票</h3><p>按鈕投票，即時顯示票數，可以設定自動截止。</p><ul class="cmds"><li><code>/poll [時長]</code></li></ul></article>
       <article class="card"><h3><span class="emoji">🧾</span>我錯過了什麼 <span class="tag-ai">AI</span></h3><p>AI 幫你整理這個頻道沒看到的重點，有人提到你也會附連結，只有你看得到。</p><ul class="cmds"><li><code>/catchup [小時]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🧠</span>AI 記憶 <span class="tag-ai">AI</span></h3><p>嘎哇聊天時會慢慢記住你的興趣和習慣，下次聊天用得上；記了什麼你都看得到，也能叫它忘掉。</p><ul class="cmds"><li><code>/memory</code></li></ul></article>
       <article class="card"><h3><span class="emoji">📰</span>更新日誌</h3><p>機器人最近更新了什麼，最新的在最前面，用按鈕翻頁。</p><ul class="cmds"><li><code>/changelog [頁數]</code></li></ul></article>
       <article class="card"><h3><span class="emoji">⚙️</span>伺服器設定</h3><p>管理員可以自己開關功能、設定天氣地點與通知頻道。</p><ul class="cmds"><li><code>/settings</code></li></ul></article>
     </div>
@@ -525,6 +526,7 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
           <li><span class="q">明天會放颱風假嗎？</span><span class="a">颱風與停班停課按鈕</span></li>
           <li><span class="q">我錯過了什麼？</span><span class="a">聊天重點懶人包</span></li>
           <li><span class="q">最近更新了什麼？</span><span class="a">更新日誌按鈕</span></li>
+          <li><span class="q">你記得我什麼？</span><span class="a">AI 記憶按鈕</span></li>
           <li><span class="q">今天好累喔</span><span class="a">照個性回話</span></li>
         </ul>
         <p class="note">轉帳、加錢、買賣股票這類會動到錢的事，AI 一律不幫忙，請用斜線指令。AI 跑在主人自己的電腦上，對話不會傳到雲端。</p>

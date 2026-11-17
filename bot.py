@@ -44,6 +44,7 @@ EXTENSIONS = [
     "cogs.earthquake",
     "cogs.alerts",
     "cogs.catchup",
+    "cogs.memory",
     "cogs.changelog",
     "cogs.settings",
     "cogs.minecraft",

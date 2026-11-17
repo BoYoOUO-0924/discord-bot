@@ -54,6 +54,8 @@ FEATURES: List[Feature] = [
     Feature("earthquake", "🌏", "地震報告", "地震查詢與大地震自動通報", ("earthquake",), (), ("earthquake",), category="weather"),
     Feature("alerts", "🌀", "颱風豪雨與停班停課", "颱風警報、豪雨特報、停班停課查詢與自動通知", ("alert",), (), ("alert",), category="weather"),
     Feature("catchup", "🧾", "我錯過了什麼", "AI 整理頻道裡沒看到的聊天重點", ("catchup",), (), ("catchup",), category="ai"),
+    Feature("memory", "🧠", "AI 記憶", "聊天時慢慢記住每個人的興趣與習慣，/memory 可以查看或刪除",
+            ("memory",), (), ("memory",), category="ai"),
     Feature("changelog", "📰", "更新日誌", "看機器人最近更新了哪些功能", ("changelog",), ("changelog",), ("changelog",), category="other"),
     Feature("assistant", "💬", "AI 聊天", "@機器人 用講的叫功能、跟機器人閒聊", category="ai"),
 ]
@@ -82,7 +84,7 @@ def feature_for_action(action: str) -> Optional[str]:
     if kind == "game":
         return action.split(":", 2)[1] if action.count(":") else None
     return {"quote": "stocks", "remind": "reminders", "task": "tasks", "weather": "weather",
-            "earthquake": "earthquake", "alert": "alerts", "catchup": "catchup",
+            "earthquake": "earthquake", "alert": "alerts", "catchup": "catchup", "memory": "memory",
             "profile": "economy"}.get(kind, HUB_FEATURES.get(kind))
 
 

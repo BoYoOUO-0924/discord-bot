@@ -4,6 +4,8 @@
 - 叫功能：AI 判斷要用哪個功能（core/assistant.py），嘎哇回一句話並附上按鈕；
   本人按下按鈕才執行，結果跟大廳按鈕完全一樣。AI 不能直接動到錢或資料。
 - 閒聊：AI 用嘎哇的個性回話，記得這個頻道最近幾句對話（只存在記憶體，重啟就忘）
+- AI 記憶：跟同一個人閒聊幾句後，在背景整理「值得記住的事」存進資料庫（core/memory.py），
+  下次聊天時參考；玩家用 /memory 查看或刪除，功能開關「AI 記憶」關掉時不讀也不寫
 - 主電腦關機（Ollama 連不到）時，嘎哇回「大腦在睡覺」，斜線指令照常可以用
 """
 import asyncio
@@ -12,7 +14,7 @@ import random
 import re
 import time
 from collections import defaultdict, deque
-from typing import Deque, Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Optional, Set, Tuple
 
 import discord
 from discord.ext import commands
@@ -21,6 +23,7 @@ from cogs.hub import GAME_COGS
 from cogs.reminders import RemindModal
 from cogs.seatortoise import is_question
 from core import assistant as asst
+from core import memory as mem
 from core import tasks as tk
 from core.ai import AIError
 from core.features import INTENT_FEATURES, disabled_message, enabled, feature_for_action
@@ -54,6 +57,7 @@ LINES: Dict[str, List[str]] = {
     "task": ["又要我幫你記事？好啦，按一下。", "交代的事要做完喔，我會盯著你。"],
     "music": ["幫你放歌啦。", "點歌喔？好啦好啦。", "聽歌可以，跟著唱不准走音。"],
     "help": ["我會的可多了，自己看說明。", "指令說明在這，看完別再問。"],
+    "memory": ["我記得你哪些事，自己看，不想被記的就刪掉。", "想知道我對你了解多少？按這裡偷看。"],
     "changelog": ["我又變強了，自己看更新了什麼。", "新功能都寫在這，看完要誇我喔……才沒有很想被誇！"],
     "unsupported": ["想得美！這種事我不幫忙，要的話自己用斜線指令。", "想騙我？沒門，自己動手啦。"],
 }
@@ -91,6 +95,8 @@ def buttons_for(intent: asst.Intent) -> List[Tuple[str, str, str]]:
         return [("help", "指令說明", "📖")]
     if name == "changelog":
         return [("changelog", "看更新日誌", "📰")]
+    if name == "memory":
+        return [("memory", "看你記得我什麼", "🧠")]
     if name == "stock":
         if intent.stock:
             return [(f"quote:{intent.stock}", f"查 {intent.stock} 的股價", "📈")]
@@ -155,10 +161,17 @@ class Assistant(commands.Cog):
         self.last_message: Dict[int, float] = {}
         self.sleep_notice: Dict[int, float] = {}
         self.slots = asyncio.Semaphore(MAX_CONCURRENT)
+        # AI 記憶：還沒整理的閒聊 {(伺服器, 玩家): [(玩家說的話, 回覆)]}，以及背景整理中的工作
+        self.pending: Dict[Tuple[int, int], List[Tuple[str, str]]] = defaultdict(list)
+        self.memory_jobs: Set[asyncio.Task] = set()
 
     async def cog_load(self):
         where = f"@機器人，或在 {len(self.channels)} 個指定頻道直接講話" if self.channels else "@機器人"
         log.info("嘎哇聊天已啟用：%s", where)
+
+    async def cog_unload(self):
+        for job in self.memory_jobs:
+            job.cancel()
 
     @property
     def ai(self):
@@ -274,12 +287,63 @@ class Assistant(commands.Cog):
             if view:
                 view.message = sent
         else:
+            note = await self.memory_note(guild_id, message.author.id, name)
             reply = await asst.chat(self.ai, context, text, name, profile_of(self.bot, guild_id),
-                                    self.bot_name(message.guild)) or random.choice(FAILED)
+                                    self.bot_name(message.guild), note) or random.choice(FAILED)
             await self._reply(message, reply)
+            if text != SUMMONED:
+                self.remember(message, text, reply)
         history.append((name, text))
         history.append((self.bot_name(message.guild), reply))
         log.info("嘎哇聊天：%s → %s", text[:40], asst.describe(intent))
+
+    # ------------------------------------------------------------------ AI 記憶
+    def memory_on(self, guild_id: Optional[int]) -> bool:
+        return bool(guild_id and getattr(self.bot, "db", None) and enabled(self.bot, "memory", guild_id))
+
+    async def memory_note(self, guild_id: Optional[int], user_id: int, name: str) -> str:
+        """聊天 prompt 裡「你記得這個人的事」那一段；功能關閉或讀取失敗就不放。"""
+        if not self.memory_on(guild_id):
+            return ""
+        try:
+            rows = await self.bot.db.list_memories(guild_id, user_id)
+        except Exception:
+            log.warning("AI 記憶：讀取失敗", exc_info=True)
+            return ""
+        return mem.format_for_chat([row["content"] for row in rows], name)
+
+    def remember(self, message: discord.Message, text: str, reply: str) -> None:
+        """記下這一輪閒聊；跟同一個人聊滿幾句就在背景整理一次記憶，不拖慢回覆。"""
+        guild_id = getattr(message.guild, "id", None)
+        if not self.memory_on(guild_id):
+            return
+        key = (guild_id, message.author.id)
+        self.pending[key].append((text, reply))
+        if len(self.pending[key]) < mem.UPDATE_EVERY:
+            return
+        exchanges = self.pending.pop(key)
+        job = asyncio.create_task(self.update_memory(guild_id, message.author.id, message.author.display_name,
+                                                     exchanges, self.bot_name(message.guild)))
+        self.memory_jobs.add(job)
+        job.add_done_callback(self.memory_jobs.discard)
+
+    async def update_memory(self, guild_id: int, user_id: int, name: str,
+                            exchanges: List[Tuple[str, str]], bot_name: str) -> None:
+        """問 AI 有沒有值得記住的新資訊，程式檢查過（core/memory.parse_ops）才寫進資料庫。"""
+        db = self.bot.db
+        try:
+            existing = [mem.Memory(row["id"], row["content"]) for row in await db.list_memories(guild_id, user_id)]
+            async with self.slots:
+                result = await self.ai.json(mem.memory_prompt(name, existing, exchanges, bot_name), mem.memory_schema(len(exchanges)),
+                                            temperature=0, max_tokens=400)
+            ops = mem.parse_ops(result or {}, existing, name)
+            if not ops.empty:
+                await db.apply_memory_ops(guild_id, user_id, ops.add, ops.update, ops.delete)
+                log.info("AI 記憶：%s 新增 %d、修改 %d、刪除 %d 條", name, len(ops.add), len(ops.update), len(ops.delete))
+        except AIError as e:
+            log.info("AI 記憶：整理失敗（%s）", e)
+        except Exception:
+            log.warning("AI 記憶：整理失敗", exc_info=True)
 
     async def _music(self, message: discord.Message, song: str, text: str) -> str:
         cog = self.bot.get_cog("Music")
@@ -357,6 +421,10 @@ class Assistant(commands.Cog):
             cog = self.bot.get_cog("Catchup")
             if cog and getattr(interaction, "guild_id", None):
                 return await cog.catchup_command.callback(cog, interaction, None)
+        if kind == "memory":
+            cog = self.bot.get_cog("Memory")
+            if cog:
+                return await cog.show(interaction)
         if kind == "quote":
             cog = self.bot.get_cog("Stocks")
             if cog:

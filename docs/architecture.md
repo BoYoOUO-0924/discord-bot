@@ -38,6 +38,7 @@ flowchart LR
 | 颱風豪雨、停班停課 | `cogs/alerts.py` | `core/alerts.py` | 特報要 `CWA_API_KEY`；停班停課不用 |
 | 地震 | `cogs/earthquake.py` | `core/earthquake.py` | `CWA_API_KEY` |
 | 嘎哇聊天 | `cogs/assistant.py` | `core/assistant.py`、`core/ai.py`、`core/persona.py`（個性設定） | `OLLAMA_URL` |
+| AI 記憶 | `cogs/memory.py`（`/memory`）、`cogs/assistant.py`（聊天時讀寫） | `core/memory.py`、`core/db.py`（`ai_memories` 資料表） | `OLLAMA_URL` |
 | 我錯過了什麼 | `cogs/catchup.py` | `core/catchup.py` | `OLLAMA_URL`（沒有也能列概況） |
 | 更新日誌 | `cogs/changelog.py` | `core/changelog.py`（讀 git 紀錄） | 要用 `git clone` 下載 |
 | 音樂 | `cogs/music.py` | `core/music.py` | 系統要裝 ffmpeg |

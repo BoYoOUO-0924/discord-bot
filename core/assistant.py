@@ -32,6 +32,7 @@ INTENTS: Dict[str, str] = {
     "alert": "颱風、颱風假、停班停課、明天要不要上班上課、豪雨大雨特報、天氣警報",
     "catchup": "我錯過了什麼、剛剛大家在聊什麼、幫我整理聊天重點、前情提要、懶人包",
     "changelog": "問機器人最近更新了什麼、有什麼新功能、改了什麼、更新日誌、改版紀錄",
+    "memory": "問機器人記得自己什麼、對自己了解多少，或要機器人忘掉關於自己的事",
     "unsupported": "要求轉帳、給別人錢、買賣股票、加錢、改分數、管理伺服器等會改動資料或需要權限的事",
     "chat": "閒聊、打招呼、心情、問意見，或以上都不是",
 }
@@ -141,6 +142,8 @@ intent 只能是以下其中一個：
 - 只是聊到天氣但沒有要查（例如「今天天氣真好心情不錯」），算 chat。
 - 颱風、停班停課、放颱風假、豪雨特報是 alert；一般的會不會下雨、氣溫是 weather。
 - 想知道剛剛頻道裡大家聊了什麼、自己錯過什麼是 catchup。
+- 問機器人「你記得我什麼」「你對我了解多少」、叫機器人「忘掉我的事」是 memory；
+  只是叫機器人記住某件事（「記住我喜歡吃拉麵」）算 chat，要時間到提醒的才是 remind。
 - 不確定時選 chat。"""
 
 
@@ -172,6 +175,8 @@ CHANGELOG_WORDS = re.compile(r"更新(了|過)?(什麼|啥|哪些)|更新日誌|
                              re.IGNORECASE)
 ALERT_WORDS = re.compile(r"颱風|停班|停課|颱風假|放假嗎|豪雨特報|大雨特報|豪雨警報")
 CATCHUP_WORDS = re.compile(r"錯過了?(什麼|啥|哪些)|(剛剛|剛才|大家|你們)(在)?聊(了)?(什麼|啥)|前情提要|懶人包|爬文")
+MEMORY_WORDS = re.compile(r"(你|妳)(還)?記得我(什麼|啥|哪些|多少)|(你|妳)對我(有)?(多少|什麼)?了解|"
+                          r"(你|妳)知道我(的)?(什麼|啥|哪些)|忘(掉|記)(我|關於我|我的事)|刪(掉|除)(我的)?記憶|清除記憶")
 HELP_WORDS = re.compile(r"指令|功能|怎麼用|說明|help|教學|(會|能|可以)(做|幹)?什麼[?？呢啊]*$", re.IGNORECASE)
 
 
@@ -181,6 +186,7 @@ def apply_guards(text: str, intent: Intent) -> Intent:
     - 股票相關但要買賣 → unsupported（AI 只能查詢，不能下單）
     - 判成閒聊但明顯在問更新（「最近更新了什麼」）→ changelog；明顯在問指令 → help
     - 判成天氣或閒聊但在問颱風、停班停課 → alert；判成閒聊但在問錯過什麼 → catchup
+    - 判成閒聊但在問「你記得我什麼」「忘掉我的事」→ memory
     - 貼了 YouTube 網址 → 直接放那個網址（不讓 AI 抄網址，抄錯一個字就放不了）
     """
     if INJECTION_WORDS.search(text):
@@ -194,6 +200,8 @@ def apply_guards(text: str, intent: Intent) -> Intent:
         return Intent("alert")
     if intent.name == "chat" and CATCHUP_WORDS.search(text) and len(text) <= 25:
         return Intent("catchup")
+    if intent.name == "chat" and MEMORY_WORDS.search(text) and len(text) <= 25:
+        return Intent("memory")
     if intent.name in ("chat", "help") and CHANGELOG_WORDS.search(text) and len(text) <= 20:
         return Intent("changelog")
     if intent.name == "chat" and HELP_WORDS.search(text) and len(text) <= 20:
@@ -208,14 +216,15 @@ async def classify(ai: AIClient, text: str, user_name: str = "",
 
 
 def chat_prompt(history: Sequence[Tuple[str, str]], text: str, user_name: str,
-                profile: Optional[Profile] = None, bot_name: str = "嘎哇") -> str:
-    """history 是 (說話的人, 內容) 的清單，舊到新；機器人自己說的話用機器人的稱呼。"""
+                profile: Optional[Profile] = None, bot_name: str = "嘎哇", memory_note: str = "") -> str:
+    """history 是 (說話的人, 內容) 的清單，舊到新；機器人自己說的話用機器人的稱呼。
+    memory_note 是 core/memory.py 整理好的「你記得這個人的事」，沒有就留空。"""
     profile = profile or Profile()
     name = profile.display_name(bot_name)
     past = _past(history, profile.history_turns)
     return f"""{build_persona(profile, bot_name)}
 - 回覆不超過 {max(20, profile.max_reply // 2)} 個字。
-
+{memory_note}
 最近的對話（舊到新）：
 {past or "（沒有）"}
 
@@ -263,9 +272,9 @@ def simplified_chars(text: str) -> List[str]:
 
 
 async def chat(ai: AIClient, history: Sequence[Tuple[str, str]], text: str, user_name: str,
-               profile: Optional[Profile] = None, bot_name: str = "嘎哇") -> str:
+               profile: Optional[Profile] = None, bot_name: str = "嘎哇", memory_note: str = "") -> str:
     profile = profile or Profile()
-    raw = await ai.text(chat_prompt(history, text, user_name, profile, bot_name),
+    raw = await ai.text(chat_prompt(history, text, user_name, profile, bot_name, memory_note),
                         temperature=profile.temperature, max_tokens=max(120, profile.max_reply))
     return clean_reply(raw, profile.display_name(bot_name), profile.max_reply)
 

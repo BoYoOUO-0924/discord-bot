@@ -65,6 +65,13 @@ class GuardTest(unittest.TestCase):
         self.check("我手機要更新了好煩", "chat", "chat")    # 只是聊天
         self.check("最近更新了什麼", "changelog", "changelog")
 
+    def test_memory_guard(self):
+        self.check("你記得我什麼", "chat", "memory")
+        self.check("你對我了解多少？", "chat", "memory")
+        self.check("忘掉我的事", "chat", "memory")
+        self.check("記住我喜歡吃拉麵", "chat", "chat")          # 叫它記東西就是聊天，背景會自己整理
+        self.check("你記得我上次說的那部電影叫什麼名字嗎，我想推薦給朋友", "chat", "chat")   # 太長
+
     def test_typhoon_and_catchup_guards(self):
         self.check("明天會放颱風假嗎", "weather", "alert")
         self.check("台北有停班停課嗎", "chat", "alert")

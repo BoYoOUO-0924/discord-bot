@@ -29,6 +29,7 @@
 
 Ollama 那台關機時，AI 功能會顯示暫停或改用簡化版，其他功能照常。
 `python tools/assistant_ai_check.py` 可以用真的模型測試嘎哇的判斷正確率。
+`python tools/memory_ai_check.py` 可以測試 AI 記憶記得準不準（會不會漏記、亂記、記到別人的事）；換模型後建議跑一次。
 
 ## 24 小時執行與自動更新
 
