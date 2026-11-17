@@ -34,8 +34,9 @@
 - [ ] `tools/assistant_ai_check.py` 的 `CASES` 加幾句實測句子；`tests/test_assistant.py` 加規則的單元測試
 
 ### 3. 管理開發後台可以開關功能
-- [ ] `core/features.py` 的 `FEATURES` 加一筆 `Feature(key, emoji, 名稱, 說明, 指令, 大廳按鈕, 嘎哇意圖)`，
-      指令、大廳按鈕、嘎哇意圖都要對應到這個 key（管理後台與 `/settings features` 會自動列出）
+- [ ] `core/features.py` 的 `FEATURES` 加一筆 `Feature(key, emoji, 名稱, 說明, 指令, 大廳按鈕, 嘎哇意圖, category=分類)`，
+      指令、大廳按鈕、嘎哇意圖都要對應到這個 key；`category` 用 `CATEGORIES` 裡的分類（沒有合適的就新增一個）
+      （管理後台與 `/settings features` 會自動依分類列出）
 - [ ] `feature_for_action` 認得這個功能的按鈕動作（大廳、嘎哇按鈕被關掉時會擋下）
 - [ ] 背景工作（定時通知、自動傳送）執行前用 `enabled(bot, key, guild_id)` 檢查
 - [ ] `tests/test_features.py` 的「每個 /help 指令都對應到功能開關」測試要通過

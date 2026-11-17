@@ -13,7 +13,7 @@ from discord.ext import commands
 
 from cogs.weather import guild_places, parse_clock, place_choices
 from core import weather
-from core.features import FEATURES, FEATURES_BY_KEY, GLOBAL
+from core.features import FEATURES, FEATURES_BY_KEY, GLOBAL, features_by_category
 from core.ui import BaseView, Color, make_embed, respond, send_error
 
 log = logging.getLogger(__name__)
@@ -45,9 +45,10 @@ def feature_state(bot, guild_id: int) -> tuple:
 
 class FeatureSelect(discord.ui.Select):
     def __init__(self, on: set, blocked: set):
+        # Discord 下拉選單不能分組，就照分類排序、說明前面寫分類
         options = [discord.SelectOption(label=f.name, value=f.key, emoji=f.emoji, default=f.key in on,
-                                        description=f.description[:100])
-                   for f in FEATURES if f.key not in blocked]
+                                        description=f"{cat[2]}｜{f.description}"[:100])
+                   for cat, items in features_by_category() for f in items if f.key not in blocked]
         super().__init__(placeholder="勾選要開啟的功能（沒勾的會關閉）", min_values=0,
                          max_values=len(options), options=options)
 
@@ -87,10 +88,14 @@ class FeatureView(BaseView):
 
 def features_embed(bot, guild_id: int, updated: bool = False) -> discord.Embed:
     on, blocked = feature_state(bot, guild_id)
-    lines = [f"{'✅' if f.key in on else '⬜'} {f.emoji} {f.name}" for f in FEATURES if f.key not in blocked]
+    description = None
     if blocked:
-        lines.append("\n🔒 機器人管理員已全域關閉：" + "、".join(FEATURES_BY_KEY[k].name for k in sorted(blocked)))
-    embed = make_embed("✅ 功能開關已更新" if updated else "🧩 功能開關", "\n".join(lines), Color.PRIMARY)
+        description = "🔒 機器人管理員已全域關閉：" + "、".join(FEATURES_BY_KEY[k].name for k in sorted(blocked))
+    embed = make_embed("✅ 功能開關已更新" if updated else "🧩 功能開關", description, Color.PRIMARY)
+    for (_, emoji, name), items in features_by_category():
+        lines = [f"{'✅' if f.key in on else '⬜'} {f.emoji} {f.name}" for f in items if f.key not in blocked]
+        if lines:
+            embed.add_field(name=f"{emoji} {name}", value="\n".join(lines), inline=True)
     embed.set_footer(text="關閉的功能：指令會提示已關閉、大廳和說明裡也不會出現。/選單 /說明 /設定 不能關")
     return embed
 

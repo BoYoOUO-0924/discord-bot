@@ -23,7 +23,7 @@ from typing import Deque, Dict, List, Optional
 from aiohttp import web
 
 from core import persona as ps
-from core.features import FEATURES, FEATURES_BY_KEY, GLOBAL
+from core.features import CATEGORIES, FEATURES, FEATURES_BY_KEY, GLOBAL
 from core.quests import daily_quests
 from core.timeutil import today_tw
 
@@ -373,7 +373,9 @@ class AdminServer:
         overrides = flags.overrides()
         guild_ids = {g.id for g in getattr(self.bot, "guilds", [])} | {g for g in overrides if g != GLOBAL}
         return web.json_response({
-            "features": [{"key": f.key, "emoji": f.emoji, "name": f.name, "description": f.description} for f in FEATURES],
+            "features": [{"key": f.key, "emoji": f.emoji, "name": f.name, "description": f.description,
+                          "category": f.category} for f in FEATURES],
+            "categories": [{"key": k, "emoji": e, "name": n} for k, e, n in CATEGORIES],
             "guilds": sorted(({"id": str(g), "name": self.guild_name(g)} for g in guild_ids), key=lambda g: g["name"]),
             "global": {f.key: overrides.get(GLOBAL, {}).get(f.key, True) for f in FEATURES},
             "overrides": {str(g): v for g, v in overrides.items() if g != GLOBAL},

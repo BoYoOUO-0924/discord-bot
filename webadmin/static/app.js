@@ -790,15 +790,46 @@ async function renderBoard(view) {
 
 // ---------------------------------------------------------------- 功能開關
 let featureGuild = "";
+let featureQuery = "";
+const FEATURE_FOLD_KEY = "features.folded";
+function foldedGroups() {
+  try { return new Set(JSON.parse(localStorage.getItem(FEATURE_FOLD_KEY) || "[]")); } catch (e) { return new Set(); }
+}
+function saveFolded(set) {
+  try { localStorage.setItem(FEATURE_FOLD_KEY, JSON.stringify([...set])); } catch (e) { /* 存不了就算了 */ }
+}
 
 async function renderFeatures(view) {
   const box = h("div");
+  const folded = foldedGroups();
+  const post = (guild, feature, enabled) => api("/api/features", { method: "POST", body: { guild, feature, enabled } });
   const save = async (guild, feature, enabled) => {
+    try { await post(guild, feature, enabled); toast("已儲存，立即生效"); } catch (e) { toast(e.message, true); }
+    await load();
+  };
+  // 整組一次開或關：只送狀態真的要改的功能
+  const saveGroup = async (changes) => {
+    if (!changes.length) { toast("這一組已經是這個狀態了"); return; }
     try {
-      await api("/api/features", { method: "POST", body: { guild, feature, enabled } });
-      toast("已儲存，立即生效");
+      for (const [guild, feature, enabled] of changes) await post(guild, feature, enabled);
+      toast(`已更新 ${changes.length} 個功能，立即生效`);
     } catch (e) { toast(e.message, true); }
     await load();
+  };
+
+  const search = h("input", { type: "search", class: "feature-search", placeholder: "搜尋功能…", value: featureQuery,
+    "aria-label": "搜尋功能", oninput: (e) => { featureQuery = e.target.value; applyFilter(); } });
+  const applyFilter = () => {
+    const q = featureQuery.trim().toLowerCase();
+    box.querySelectorAll("tbody.feature-group").forEach((group) => {
+      let shown = 0;
+      group.querySelectorAll("tr.feature-row").forEach((row) => {
+        const hit = !q || row.dataset.search.includes(q);
+        row.hidden = !hit || (!q && group.classList.contains("folded"));
+        if (hit) shown++;
+      });
+      group.hidden = q && !shown;
+    });
   };
 
   const load = async () => {
@@ -806,13 +837,14 @@ async function renderFeatures(view) {
     if (featureGuild && !data.guilds.some((g) => g.id === featureGuild)) featureGuild = "";
     const overrides = data.overrides[featureGuild] || {};
     const guildName = (data.guilds.find((g) => g.id === featureGuild) || {}).name;
+    const isOn = (f) => data.global[f.key] && (!featureGuild || overrides[f.key] !== false);
 
     const picker = h("label", { class: "inline" }, "個別伺服器 ",
       h("select", { onchange: (e) => { featureGuild = e.target.value; load(); } },
         h("option", { value: "", text: "（不選，只看全部伺服器）" }),
         data.guilds.map((g) => h("option", { value: g.id, text: g.name, selected: g.id === featureGuild }))));
 
-    const rows = data.features.map((f) => {
+    const row = (f) => {
       const globalOn = data.global[f.key];
       const globalSwitch = h("label", { class: "switch" },
         h("input", { type: "checkbox", checked: globalOn, "aria-label": `${f.name}：所有伺服器`,
@@ -828,20 +860,49 @@ async function renderFeatures(view) {
                 h("option", { value: v, text: t, selected: v === value })))
           : h("span", { class: "muted", text: "全部伺服器已關閉" }));
       }
-      const off = !globalOn || overrides[f.key] === false;
-      return h("tr", { class: off ? "off" : "" },
+      return h("tr", { class: "feature-row" + (isOn(f) ? "" : " off"), "data-search": `${f.name} ${f.description}`.toLowerCase() },
         h("td", {}, h("div", { class: "feature-name", text: `${f.emoji} ${f.name}` }), h("div", { class: "muted", text: f.description })),
         h("td", {}, globalSwitch), guildCell);
+    };
+
+    const cols = featureGuild ? 3 : 2;
+    const groups = data.categories.map((c) => {
+      const items = data.features.filter((f) => f.category === c.key);
+      if (!items.length) return null;
+      const on = items.filter(isOn).length;
+      // 整組開關：選了伺服器就作用在那個伺服器（全域關掉的略過），否則作用在所有伺服器
+      const changesFor = (want) => items.filter((f) => isOn(f) !== want && (!featureGuild || data.global[f.key]))
+        .map((f) => featureGuild ? [featureGuild, f.key, want ? null : false] : ["0", f.key, want]);
+      const tbody = h("tbody", { class: "feature-group" + (folded.has(c.key) ? " folded" : "") });
+      const toggleFold = () => {
+        tbody.classList.toggle("folded");
+        if (tbody.classList.contains("folded")) folded.add(c.key); else folded.delete(c.key);
+        saveFolded(folded);
+        head.querySelector(".fold").setAttribute("aria-expanded", String(!tbody.classList.contains("folded")));
+        applyFilter();
+      };
+      const head = h("tr", { class: "group-head" }, h("th", { colspan: cols },
+        h("div", { class: "group-bar" },
+          h("button", { class: "fold", type: "button", "aria-expanded": String(!folded.has(c.key)), onclick: toggleFold },
+            h("span", { class: "chev", text: "▸" }), h("span", { class: "group-name", text: `${c.emoji} ${c.name}` }),
+            h("span", { class: "group-count" + (on === items.length ? " all" : on ? "" : " none"), text: `${on}／${items.length} 開啟` })),
+          h("span", { class: "spacer" }),
+          h("span", { class: "group-actions" },
+            h("button", { class: "btn small", type: "button", text: "全部開啟", onclick: () => saveGroup(changesFor(true)) }),
+            h("button", { class: "btn small ghost", type: "button", text: "全部關閉", onclick: () => saveGroup(changesFor(false)) })))));
+      tbody.append(head, ...items.map(row));
+      return tbody;
     });
 
     box.replaceChildren(
-      h("div", { class: "card-head" }, h("h2", { text: "功能開關" }), h("span", { class: "spacer" }), picker),
+      h("div", { class: "card-head" }, h("h2", { text: "功能開關" }), h("span", { class: "spacer" }), search, picker),
       h("p", { class: "muted", text: "關掉的功能：指令會回覆「已關閉」、說明頁和大廳不再列出、自動通知（摘要、週報、提醒、天氣、地震）停止發送。" +
         "大廳、說明、清除訊息是基本功能，不能關。天氣預報和地震通報是用 Webhook 發的，只能在「所有伺服器」關閉。" }),
       h("div", { class: "table-wrap" }, h("table", { class: "features" },
         h("thead", {}, h("tr", {}, h("th", { text: "功能" }), h("th", { text: "所有伺服器" }),
           featureGuild ? h("th", { text: guildName }) : null)),
-        h("tbody", {}, rows))));
+        groups)));
+    applyFilter();
   };
 
   view.replaceChildren(h("section", { class: "card" }, box));

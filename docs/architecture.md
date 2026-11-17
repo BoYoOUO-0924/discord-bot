@@ -84,7 +84,7 @@ bot.py              主程式：載入功能、同步斜線指令、功能開關
 core/               不依賴 Discord 的邏輯，方便寫測試
   config.py         讀取 .env
   db.py             SQLite 資料層（所有寫入都排隊處理，不會互相覆蓋）
-  features.py       功能開關：哪些指令、按鈕屬於哪個功能
+  features.py       功能開關：哪些指令、按鈕屬於哪個功能，以及功能分類（CATEGORIES）
   overview.py       啟動時的功能總覽
   ui.py             共用的顏色、訊息格式、按鈕介面基底
   i18n.py           指令名稱中文化

@@ -19,35 +19,54 @@ class Feature:
     commands: Tuple[str, ...] = ()       # 屬於這個功能的斜線指令（最上層名稱）
     hub_actions: Tuple[str, ...] = ()    # 大廳按鈕
     intents: Tuple[str, ...] = ()        # 嘎哇聊天判斷出的功能
+    category: str = "other"              # 分類（CATEGORIES 的 key），後台與 /settings features 依這個分組
+
+
+# 功能分類：(key, emoji, 名稱)，順序就是顯示順序
+CATEGORIES: List[Tuple[str, str, str]] = [
+    ("economy", "💰", "經濟"),
+    ("games", "🎮", "遊戲"),
+    ("tools", "🧰", "生活工具"),
+    ("weather", "🌦️", "天氣與防災"),
+    ("ai", "🤖", "AI"),
+    ("other", "📰", "其他"),
+]
 
 
 FEATURES: List[Feature] = [
     Feature("economy", "💰", "錢包與日常", "簽到、打工、每日任務、轉帳、排行榜、聊天累積存款",
             ("checkin", "work", "quests", "profile", "leaderboard", "give"),
-            ("checkin", "work", "quests", "profile", "leaderboard"), ("balance", "checkin", "work", "quests", "leaderboard")),
-    Feature("blackjack", "🃏", "21點", "跟莊家比點數", ("blackjack",), ("game:blackjack",)),
-    Feature("slots", "🎰", "拉霸機", "三個一樣就中獎", ("slots",), ("game:slots",)),
-    Feature("guess", "🔢", "猜數字", "全頻道一起猜數字", ("guess",), ("game:guess",)),
-    Feature("tictactoe", "⭕", "井字遊戲", "跟朋友或機器人對戰", ("tictactoe",), ("game:tictactoe",)),
-    Feature("poker", "♠️", "德州撲克", "2–8 人德州撲克，可加電腦對手", ("poker",), ("game:poker",)),
-    Feature("seatortoise", "🐢", "海龜湯", "AI 擔任湯主的推理遊戲", ("seatortoise",), ("game:seatortoise",)),
-    Feature("stocks", "📈", "股票模擬", "用錢包的錢模擬買賣台股", ("stock",), ("stocks",), ("stock",)),
-    Feature("music", "🎵", "音樂", "在語音頻道播放 YouTube", ("play", "music"), ("music",), ("music",)),
-    Feature("reminders", "⏰", "提醒", "時間到通知你", ("remind", "reminders"), ("remind",), ("remind",)),
-    Feature("polls", "📊", "投票", "按鈕投票、自動截止", ("poll",), ("poll",)),
+            ("checkin", "work", "quests", "profile", "leaderboard"), ("balance", "checkin", "work", "quests", "leaderboard"),
+            category="economy"),
+    Feature("blackjack", "🃏", "21點", "跟莊家比點數", ("blackjack",), ("game:blackjack",), category="games"),
+    Feature("slots", "🎰", "拉霸機", "三個一樣就中獎", ("slots",), ("game:slots",), category="games"),
+    Feature("guess", "🔢", "猜數字", "全頻道一起猜數字", ("guess",), ("game:guess",), category="games"),
+    Feature("tictactoe", "⭕", "井字遊戲", "跟朋友或機器人對戰", ("tictactoe",), ("game:tictactoe",), category="games"),
+    Feature("poker", "♠️", "德州撲克", "2–8 人德州撲克，可加電腦對手", ("poker",), ("game:poker",), category="games"),
+    Feature("seatortoise", "🐢", "海龜湯", "AI 擔任湯主的推理遊戲", ("seatortoise",), ("game:seatortoise",), category="games"),
+    Feature("stocks", "📈", "股票模擬", "用錢包的錢模擬買賣台股", ("stock",), ("stocks",), ("stock",), category="economy"),
+    Feature("music", "🎵", "音樂", "在語音頻道播放 YouTube", ("play", "music"), ("music",), ("music",), category="tools"),
+    Feature("reminders", "⏰", "提醒", "時間到通知你", ("remind", "reminders"), ("remind",), ("remind",), category="tools"),
+    Feature("polls", "📊", "投票", "按鈕投票、自動截止", ("poll",), ("poll",), category="tools"),
     Feature("tasks", "📋", "待辦與專案", "任務卡片、專案、每日摘要、週報、GitHub 整合",
-            ("task", "project"), ("tasks", "task_add"), ("task",)),
-    Feature("weather", "🌦️", "天氣", "天氣查詢與每天早上的天氣預報", ("weather",), (), ("weather",)),
-    Feature("earthquake", "🌏", "地震報告", "地震查詢與大地震自動通報", ("earthquake",), (), ("earthquake",)),
-    Feature("alerts", "🌀", "颱風豪雨與停班停課", "颱風警報、豪雨特報、停班停課查詢與自動通知", ("alert",)),
-    Feature("catchup", "🧾", "我錯過了什麼", "AI 整理頻道裡沒看到的聊天重點", ("catchup",)),
-    Feature("changelog", "📰", "更新日誌", "看機器人最近更新了哪些功能", ("changelog",), ("changelog",), ("changelog",)),
-    Feature("assistant", "💬", "AI 聊天", "@機器人 用講的叫功能、跟機器人閒聊"),
+            ("task", "project"), ("tasks", "task_add"), ("task",), category="tools"),
+    Feature("weather", "🌦️", "天氣", "天氣查詢與每天早上的天氣預報", ("weather",), (), ("weather",), category="weather"),
+    Feature("earthquake", "🌏", "地震報告", "地震查詢與大地震自動通報", ("earthquake",), (), ("earthquake",), category="weather"),
+    Feature("alerts", "🌀", "颱風豪雨與停班停課", "颱風警報、豪雨特報、停班停課查詢與自動通知", ("alert",), category="weather"),
+    Feature("catchup", "🧾", "我錯過了什麼", "AI 整理頻道裡沒看到的聊天重點", ("catchup",), category="ai"),
+    Feature("changelog", "📰", "更新日誌", "看機器人最近更新了哪些功能", ("changelog",), ("changelog",), ("changelog",), category="other"),
+    Feature("assistant", "💬", "AI 聊天", "@機器人 用講的叫功能、跟機器人閒聊", category="ai"),
 ]
 FEATURES_BY_KEY: Dict[str, Feature] = {f.key: f for f in FEATURES}
 COMMAND_FEATURES: Dict[str, str] = {c: f.key for f in FEATURES for c in f.commands}
 HUB_FEATURES: Dict[str, str] = {a: f.key for f in FEATURES for a in f.hub_actions}
 INTENT_FEATURES: Dict[str, str] = {i: f.key for f in FEATURES for i in f.intents}
+
+
+def features_by_category() -> List[Tuple[Tuple[str, str, str], List[Feature]]]:
+    """[(分類, 這個分類的功能)]，照 CATEGORIES 順序，跳過沒有功能的分類。"""
+    groups = [(c, [f for f in FEATURES if f.category == c[0]]) for c in CATEGORIES]
+    return [(c, items) for c, items in groups if items]
 
 
 def feature_for_command(name: str) -> Optional[str]:

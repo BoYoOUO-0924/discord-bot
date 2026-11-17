@@ -353,6 +353,23 @@ table.features tr.off .feature-name { color: var(--muted); text-decoration: line
 .switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #9fb6c4; transition: transform .3s var(--spring), background .25s; }
 .switch input:checked { background: rgba(53, 217, 255, .3); box-shadow: 0 0 14px -2px var(--accent); }
 .switch input:checked::after { transform: translateX(18px); background: var(--accent); }
+.feature-search { width: 180px; max-width: 100%; }
+table.features tr.group-head th { padding: 18px 8px 8px; border-bottom: 1px solid var(--border); background: none; }
+tbody.feature-group:first-of-type tr.group-head th { padding-top: 6px; }
+.group-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.group-bar .spacer { flex: 1; }
+.group-bar .fold { display: inline-flex; align-items: center; gap: 10px; background: none; border: 0; color: var(--text); cursor: pointer; padding: 4px 0; font: inherit; }
+.group-actions { display: inline-flex; gap: 6px; white-space: nowrap; }
+.group-bar .chev { display: inline-block; font-size: 14px; width: 14px; text-align: center; color: var(--accent); transition: transform .25s var(--spring); transform: rotate(90deg); }
+tbody.folded .group-bar .chev { transform: rotate(0deg); }
+.group-name { font-size: 15px; font-weight: 700; letter-spacing: .04em; text-transform: none; }
+.group-count { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.group-count.all { color: var(--accent); border-color: rgba(53, 217, 255, .4); box-shadow: 0 0 10px -4px var(--accent); }
+.group-count.none { color: var(--critical); border-color: rgba(255, 90, 90, .35); }
+tr.feature-row { animation: rowIn .3s ease both; }
+@keyframes rowIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { tr.feature-row { animation: none; } .group-bar .chev { transition: none; } }
+@media (max-width: 640px) { .feature-search { width: 100%; } }
 
 /* ---------------- AI 與個性 ---------------- */
 .ai-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }

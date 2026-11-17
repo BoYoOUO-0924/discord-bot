@@ -9,7 +9,8 @@ from aiohttp.test_utils import TestClient, TestServer
 from cogs.hub import Hub
 from core import catalog
 from core.db import Database
-from core.features import (FEATURES, GLOBAL, FeatureFlags, feature_for_action, feature_for_command)
+from core.features import (CATEGORIES, FEATURES, GLOBAL, FeatureFlags, feature_for_action, feature_for_command,
+                           features_by_category)
 from tests.test_webadmin import HEADERS, PASSWORD, FakeBot
 from webadmin.server import AdminServer
 
@@ -34,6 +35,17 @@ class MappingTest(unittest.TestCase):
                 root = name.split()[0]
                 with self.subTest(name=name):
                     self.assertTrue(root in basic or feature_for_command(name), f"/{name} 沒有對應的功能開關")
+
+    def test_every_feature_has_a_known_category(self):
+        known = {key for key, _, _ in CATEGORIES}
+        for feature in FEATURES:
+            with self.subTest(feature=feature.key):
+                self.assertIn(feature.category, known, f"{feature.name} 的分類 {feature.category} 不在 CATEGORIES 裡")
+        grouped = [f.key for _, items in features_by_category() for f in items]
+        self.assertEqual(sorted(grouped), sorted(f.key for f in FEATURES))     # 每個功能剛好出現一次
+        self.assertEqual(features_by_category()[1][0][0], "games")
+        self.assertEqual({f.key for f in dict((c[0], i) for c, i in features_by_category())["games"]},
+                         {"blackjack", "slots", "guess", "tictactoe", "poker", "seatortoise"})
 
 
 class FlagsTest(unittest.IsolatedAsyncioTestCase):
@@ -65,6 +77,20 @@ class FlagsTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(again.is_enabled("poker", 1))
         with self.assertRaises(ValueError):
             await again.set(1, "nope", False)
+
+    async def test_settings_embed_groups_by_category(self):
+        from cogs.settings import FeatureSelect, feature_state, features_embed
+        await self.flags.set(1, "poker", False)
+        await self.flags.set(GLOBAL, "music", False)
+        bot = SimpleNamespace(features=self.flags)
+        embed = features_embed(bot, 1)
+        fields = {f.name: f.value for f in embed.fields}
+        self.assertIn("⬜ ♠️ 德州撲克", fields["🎮 遊戲"])
+        self.assertIn("✅ 🃏 21點", fields["🎮 遊戲"])
+        self.assertNotIn("音樂", fields["🧰 生活工具"])                  # 全域關掉的不列在分組裡
+        self.assertIn("音樂", embed.description)
+        select = FeatureSelect(*feature_state(bot, 1))
+        self.assertTrue(select.options[0].description.startswith("經濟｜"))
 
     async def test_hub_blocks_disabled_and_help_hides_it(self):
         await self.flags.set(1, "stocks", False)
@@ -108,6 +134,8 @@ class FeatureApiTest(unittest.IsolatedAsyncioTestCase):
         data = await (await self.client.get("/api/features")).json()
         self.assertEqual(len(data["features"]), len(FEATURES))
         self.assertTrue(all(data["global"].values()))
+        category_keys = [c["key"] for c in data["categories"]]
+        self.assertTrue(all(f["category"] in category_keys for f in data["features"]))
 
         self.assertEqual((await self.post(guild="0", feature="music", enabled=False)).status, 200)
         self.assertEqual((await self.post(guild="123", feature="poker", enabled=False)).status, 200)
