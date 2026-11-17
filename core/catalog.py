@@ -52,7 +52,7 @@ HELP_SECTIONS: List[Tuple[str, List[Tuple[str, str, str]]]] = [
         ("project github", "專案 [repo]", "綁定 GitHub：通知 issue、PR、CI 失敗；commit 寫 task#12 完成待辦"),
     ]),
     ("🎵 音樂", [
-        ("play", "歌曲", "在你所在的語音頻道放 YouTube 的歌；也可以 @嘎哇 放周杰倫的晴天"),
+        ("play", "歌曲", "在你所在的語音頻道放 YouTube 的歌；也可以 @機器人 放周杰倫的晴天"),
         ("music", "", "叫出控制面板（上一首、暫停、下一首、播放清單、停止）"),
     ]),
     ("🧰 工具", [

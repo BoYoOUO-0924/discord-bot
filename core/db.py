@@ -1261,6 +1261,23 @@ class Database:
             ) as cur:
                 return realized, await cur.fetchall()
 
+    async def stock_admin_overview(self, recent: int = 40) -> Dict[str, List[aiosqlite.Row]]:
+        """管理後台用：所有人的持股、每個人的已實現損益、委託中的單、最近成交或取消的單。"""
+        async with self._lock:
+            async with self.conn.execute("SELECT user_id, symbol, shares, reserved, cost FROM stock_holdings") as cur:
+                holdings = await cur.fetchall()
+            async with self.conn.execute(
+                "SELECT user_id, COALESCE(SUM(realized), 0) AS realized, COUNT(*) AS trades FROM stock_orders "
+                "WHERE status = 'filled' GROUP BY user_id") as cur:
+                realized = await cur.fetchall()
+            async with self.conn.execute("SELECT * FROM stock_orders WHERE status = 'pending' ORDER BY id") as cur:
+                pending = await cur.fetchall()
+            async with self.conn.execute(
+                "SELECT * FROM stock_orders WHERE status != 'pending' ORDER BY COALESCE(filled_at, created_at) DESC, id DESC "
+                "LIMIT ?", (recent,)) as cur:
+                history = await cur.fetchall()
+        return {"holdings": holdings, "realized": realized, "pending": pending, "history": history}
+
     # ------------------------------------------------------------------ 待辦（專案管理）
     TASK_FIELDS = ("title", "note", "assignee_id", "priority", "due_at", "due_has_time", "remind_at",
                    "project_id", "milestone_id", "repeat")

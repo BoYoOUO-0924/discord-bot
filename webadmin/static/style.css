@@ -418,6 +418,48 @@ details.lines textarea { margin-top: 8px; font-size: 13px; }
 @keyframes pal-in { from { transform: translateY(-12px) scale(.97); opacity: 0; } }
 @keyframes item-in { from { transform: translateY(6px); opacity: 0; } }
 
+/* ---------------- 伺服器設定 ---------------- */
+.guild-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.guild-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text-2); text-decoration: none; transition: border-color .2s, box-shadow .2s, background .2s; }
+.guild-pill:hover { border-color: var(--accent); color: var(--text); }
+.guild-pill.on { background: rgba(53, 217, 255, .12); border-color: var(--accent); color: #eafcff; box-shadow: 0 0 18px -6px var(--accent); }
+.guild-pill .g-av { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, var(--accent-3), var(--accent)); color: var(--on-accent); font-weight: 700; font-size: 13px; }
+.guild-pill small { color: var(--muted); font: 11px var(--mono); }
+.place-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 12px; border-radius: 999px; background: rgba(53, 217, 255, .12);
+  border: 1px solid var(--accent); font-size: 13px; animation: pop .3s var(--spring); }
+.place-chip button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 6px; }
+.place-chip button:hover { color: var(--critical); }
+.place-results { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.place-results .chip:disabled { opacity: .4; cursor: default; }
+
+/* ---------------- 音樂 ---------------- */
+.music-list { display: grid; gap: 16px; }
+.now { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.thumb { width: 160px; aspect-ratio: 16 / 9; max-width: 100%; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); background: rgba(53, 217, 255, .06); flex: none; }
+.now-text { flex: 1 1 260px; min-width: 0; }
+.now-title { font-size: 17px; font-weight: 600; color: #eafcff; text-decoration: none; overflow-wrap: anywhere; }
+.now-title:hover { color: var(--accent); }
+.eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+.eq i { width: 3px; height: 4px; background: var(--accent-2); box-shadow: 0 0 6px var(--accent-2); border-radius: 1px; }
+.eq.on i { animation: eq .9s ease-in-out infinite; }
+.eq.on i:nth-child(2) { animation-delay: -.3s; } .eq.on i:nth-child(3) { animation-delay: -.6s; } .eq.on i:nth-child(4) { animation-delay: -.15s; }
+@keyframes eq { 0%, 100% { height: 3px; } 50% { height: 14px; } }
+.queue { margin: 14px 0 0; padding-left: 24px; display: grid; gap: 2px; font-size: 14px; max-height: 280px; overflow-y: auto; }
+.queue li { padding: 3px 4px; border-radius: 3px; }
+.queue li small { display: block; color: var(--muted); font: 11px var(--mono); }
+.queue li.on { background: rgba(53, 217, 255, .1); color: #eafcff; box-shadow: inset 2px 0 0 var(--accent); }
+.queue li.past { color: var(--muted); }
+.q-title { overflow-wrap: anywhere; }
+
+/* ---------------- 股票、Minecraft ---------------- */
+td.rank { width: 36px; text-align: center; }
+tr.off td { color: var(--muted); }
+.console { font: 12px/1.55 var(--mono); background: rgba(0, 0, 0, .45); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px;
+  margin: 8px 0 0; white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow: auto; color: var(--text-2); }
+.console.tall { max-height: 420px; min-height: 200px; }
+.mc-busy { display: inline-flex; align-items: center; gap: 6px; font: 12px var(--mono); color: var(--warn); }
+
 /* ---------------- 窄螢幕 ---------------- */
 @media (max-width: 960px) {
   .shell { grid-template-columns: minmax(0, 1fr); }

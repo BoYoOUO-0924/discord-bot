@@ -80,7 +80,7 @@ class PanelView(discord.ui.View):
         voice = self.player.voice
         member_voice = getattr(interaction.user, "voice", None)
         if not voice or not member_voice or member_voice.channel != voice.channel:
-            await send_error(interaction, "要在嘎哇所在的語音頻道裡才能控制喔！")
+            await send_error(interaction, "要在我所在的語音頻道裡才能控制喔！")
             return False
         return True
 
@@ -348,7 +348,7 @@ class Music(commands.Cog):
         if action == "queue":
             return "播放清單"
         if action == "stop":
-            await self.leave(guild.id, "⏹️ 已停止播放，嘎哇離開語音頻道。")
+            await self.leave(guild.id, "⏹️ 已停止播放，離開語音頻道。")
             return "已停止播放"
         async with player.lock:
             if action == "pause":
@@ -394,7 +394,7 @@ class Music(commands.Cog):
                 item.disabled = True
             player.view.stop()
         if player.panel:
-            embed = make_embed("⏹️ 播放結束", reason or "嘎哇離開語音頻道了。", Color.MUTED)
+            embed = make_embed("⏹️ 播放結束", reason or "已離開語音頻道。", Color.MUTED)
             try:
                 await player.panel.edit(embed=embed, view=player.view)
             except discord.HTTPException:
@@ -411,7 +411,7 @@ class Music(commands.Cog):
             title, color = "💤 播放清單放完了", Color.MUTED
         description = f"**[{track.title}]({track.url})**" if track else "清單是空的"
         if not (player.playing or player.paused or player.loading):
-            description += "\n用 /play 或 @嘎哇 再點幾首歌吧！"
+            description += "\n用 /play 或 @我 再點幾首歌吧！"
         embed = make_embed(title, description, color)
         if track:
             embed.add_field(name="長度", value=fmt_duration(track.duration))
@@ -480,7 +480,7 @@ class Music(commands.Cog):
                 return "面板在這，自己看。"
             return note
         if not song:
-            raise MusicError("要放什麼歌？說歌名給我聽，例如「@嘎哇 放周杰倫的晴天」。")
+            raise MusicError("要放什麼歌？說歌名給我聽，例如「@我 放周杰倫的晴天」。")
         return await self.request(message.author, message.channel, song)
 
     # ------------------------------------------------------------------ 自動離開
@@ -513,7 +513,7 @@ class Music(commands.Cog):
     async def on_voice_state_update(self, member, before, after):
         # 嘎哇被踢出語音頻道
         if self.bot.user and member.id == self.bot.user.id and before.channel and after.channel is None:
-            await self.leave(member.guild.id, "嘎哇被移出語音頻道了。")
+            await self.leave(member.guild.id, "被移出語音頻道了。")
 
     # ------------------------------------------------------------------ 指令
     async def open_modal(self, interaction: discord.Interaction) -> None:

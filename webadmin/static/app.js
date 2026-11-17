@@ -132,7 +132,8 @@ function stopTimers() {
   cleanups.forEach((fn) => { try { fn(); } catch (e) { /* 忽略 */ } }); cleanups = [];
 }
 
-const PAGES = { overview: "總覽", users: "使用者", games: "遊戲牌局", features: "功能開關", board: "待辦看板",
+const PAGES = { overview: "總覽", users: "使用者", games: "遊戲牌局", stocks: "股票", features: "功能開關",
+                guilds: "伺服器設定", board: "待辦看板", music: "音樂", minecraft: "Minecraft",
                 ai: "AI 與個性", serverlog: "伺服器紀錄", logs: "操作紀錄", changelog: "更新日誌" };
 let botInfo = null;
 
@@ -184,6 +185,10 @@ async function render(first = false) {
     else if (page === "logs") await renderAudit(view);
     else if (page === "ai") await renderAI(view);
     else if (page === "changelog") await renderChangelog(view);
+    else if (page === "guilds") await renderGuildSettings(view, id);
+    else if (page === "music") await renderMusic(view);
+    else if (page === "stocks") await renderStocks(view);
+    else if (page === "minecraft") await renderMinecraft(view);
     else await renderOverview(view);
   } catch (e) {
     if (e.message !== "請先登入") view.replaceChildren(h("div", { class: "card error", text: e.message }));
@@ -826,7 +831,8 @@ async function renderFeatures(view) {
 // ---------------------------------------------------------------- 管理操作紀錄
 const ACTIONS = { login: "登入後台", points: "調整存款", streak: "修改連續簽到", reset_work: "重設打工冷卻",
                   end_game: "結束遊戲", refund_hold: "退還賭注", update: "立即更新",
-                  move_task: "移動待辦", feature: "功能開關", ai_profile: "AI 個性設定" };
+                  move_task: "移動待辦", feature: "功能開關", ai_profile: "AI 個性設定",
+                  guild_settings: "伺服器設定", music: "音樂控制", stock_cancel: "取消股票委託", minecraft: "Minecraft" };
 
 async function renderAudit(view) {
   const data = await api("/api/audit");
@@ -1118,6 +1124,265 @@ async function renderChangelog(view) {
       h("button", { class: "btn small", type: "button", text: "◀ 上一頁", disabled: data.page <= 1, onclick: () => go(data.page - 1) }),
       h("button", { class: "btn small", type: "button", text: "下一頁 ▶", disabled: data.page >= data.pages, onclick: () => go(data.page + 1) }),
       h("button", { class: "btn small", type: "button", text: "最舊 ⏭", disabled: data.page >= data.pages, onclick: () => go(data.pages) }))));
+}
+
+// ---------------------------------------------------------------- 共用：會變形的儲存按鈕
+function morphButton(label, action) {
+  const btn = h("button", { class: "btn primary morph", type: "button", text: label });
+  btn.addEventListener("click", async () => {
+    if (btn.classList.contains("loading")) return;
+    btn.classList.add("loading");
+    try {
+      await action();
+      btn.classList.replace("loading", "done");
+      setTimeout(() => btn.classList.remove("done"), 1400);
+    } catch (e) { btn.classList.remove("loading"); toast(e.message, true); }
+  });
+  return btn;
+}
+
+// ---------------------------------------------------------------- 伺服器設定（天氣地點、每日預報、警報）
+async function renderGuildSettings(view, id) {
+  const { guilds } = await api("/api/guilds");
+  if (!guilds.length) {
+    view.replaceChildren(h("section", { class: "card" }, h("p", { class: "empty", text: "bot 目前沒有加入任何伺服器。" })));
+    return;
+  }
+  const guildId = guilds.some((g) => g.id === id) ? id : guilds[0].id;
+  const data = await api(`/api/guilds/${guildId}/settings`);
+
+  const picker = h("div", { class: "guild-list" }, guilds.map((g) =>
+    h("a", { href: `#/guilds/${g.id}`, class: "guild-pill" + (g.id === guildId ? " on" : "") },
+      h("span", { class: "g-av", text: (g.name || "?").slice(0, 1) }), h("span", { class: "g-name", text: g.name }),
+      g.members ? h("small", { text: `${fmt(g.members)} 人` }) : null)));
+
+  // ---- 天氣地點（最多 3 個，可搜尋全台鄉鎮）
+  let places = data.places.slice();
+  let placesChanged = false;
+  const chips = h("div", { class: "chips" });
+  const placeLabel = h("label", { for: "place-search" });
+  const drawChips = () => (placeLabel.textContent = `天氣地點（${places.length}/3）`) && chips.replaceChildren(...places.map((p, i) => h("span", { class: "place-chip" }, p.label,
+    h("button", { type: "button", "aria-label": `移除 ${p.label}`, text: "×",
+      onclick: () => { places.splice(i, 1); placesChanged = true; drawChips(); } }))),
+    ...(places.length ? [] : [h("span", { class: "muted", text: "沒有選地點時用預設（台北、淡水）" })]));
+  drawChips();
+  const search = h("input", { type: "search", id: "place-search", placeholder: "搜尋鄉鎮或縣市，例如 淡水、高雄 苓雅" });
+  const results = h("div", { class: "place-results" });
+  let typing;
+  search.addEventListener("input", () => {
+    clearTimeout(typing);
+    typing = setTimeout(async () => {
+      const q = search.value.trim();
+      if (!q) { results.replaceChildren(); return; }
+      const r = await api(`/api/places?${new URLSearchParams({ q })}`);
+      results.replaceChildren(...r.items.slice(0, 8).map((p) => h("button", { type: "button", class: "chip", text: p.label,
+        disabled: places.length >= 3 || places.some((x) => x.key === p.key),
+        onclick: () => { places.push(p); placesChanged = true; drawChips(); search.value = ""; results.replaceChildren(); } })));
+      if (!r.items.length) results.append(h("span", { class: "muted", text: "找不到這個地點" }));
+    }, 250);
+  });
+
+  const channelSelect = (current, id) => h("select", { id },
+    h("option", { value: "", text: "（不傳送）", selected: !current }),
+    data.channels.map((c) => h("option", { value: c.id, selected: c.id === current, disabled: !!c.problem,
+      text: `#${c.name}${c.problem ? `（${c.problem}）` : ""}` })));
+  const weatherChannel = channelSelect(data.weather.channel, "w-channel");
+  const weatherTime = h("input", { type: "time", id: "w-time", value: data.weather.time });
+  const alertChannel = channelSelect(data.alerts.channel, "a-channel");
+  const alertAll = h("input", { type: "checkbox", checked: data.alerts.all_types, "aria-label": "所有天氣特報都通知" });
+
+  const save = morphButton("儲存", async () => {
+    const body = { weather_channel: weatherChannel.value || null, weather_time: weatherTime.value,
+                   alerts_channel: alertChannel.value || null, alerts_all: alertAll.checked };
+    if (placesChanged) body.places = places.map((p) => p.key);
+    await api(`/api/guilds/${guildId}/settings`, { method: "POST", body });
+    placesChanged = false;
+    toast("已儲存，立即生效");
+  });
+  const field = (label, control, hint) => h("div", { class: "field" }, h("label", { for: control.id, text: label }), control,
+    hint ? h("span", { class: "hint", text: hint }) : null);
+
+  view.replaceChildren(
+    h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "伺服器" }),
+      h("span", { class: "muted", text: "跟 Discord 裡的 /settings 是同一份設定" })), picker),
+    h("div", { class: "grid-2" },
+      h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: `天氣・${data.guild.name}` })),
+        h("div", { class: "field" }, placeLabel, chips, search, results),
+        field("每天自動傳送預報的頻道", weatherChannel),
+        field("傳送時間", weatherTime)),
+      h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "颱風豪雨與停班停課" })),
+        field("通知頻道", alertChannel, "只通知天氣地點所在縣市的颱風、豪雨、大雨特報與停班停課"),
+        h("label", { class: "switch" }, alertAll, "強風、低溫等所有天氣特報也通知"),
+        h("p", { class: "muted", style: { marginTop: "16px" } }, "功能開關在",
+          h("a", { href: "#/features", onclick: () => { featureGuild = guildId; }, text: "「功能開關」頁" }), "，選這個伺服器即可。"))),
+    h("div", { class: "save-bar" }, save),
+  );
+}
+
+// ---------------------------------------------------------------- 音樂
+async function renderMusic(view) {
+  const box = h("div", { class: "music-list" });
+  const STATE = { playing: ["播放中", "good"], paused: ["暫停", ""], loading: ["載入中", ""], idle: ["待機", ""] };
+  const control = async (guild, action) => {
+    try { const r = await api(`/api/music/${guild}/control`, { method: "POST", body: { action } }); toast(r.message); }
+    catch (e) { toast(e.message, true); }
+    load().catch(() => {});
+  };
+  const load = async () => {
+    const data = await api("/api/music");
+    if (!data.enabled) { box.replaceChildren(h("p", { class: "empty", text: "音樂功能沒有載入。" })); return; }
+    if (!data.players.length) { box.replaceChildren(h("section", { class: "card" }, h("p", { class: "empty", text: "目前沒有伺服器在放歌。有人用 /play 點歌後會出現在這裡。" }))); return; }
+    box.replaceChildren(...data.players.map((p) => {
+      const cur = p.current;
+      const [label, cls] = STATE[p.state] || STATE.idle;
+      const eq = h("span", { class: "eq" + (p.state === "playing" ? " on" : ""), "aria-hidden": "true" }, h("i"), h("i"), h("i"), h("i"));
+      const btn = (text, action, disabled, title) => h("button", { class: "btn small", type: "button", text, disabled, title,
+        onclick: () => control(p.guild, action) });
+      return h("section", { class: "card music-card" + (p.state === "playing" ? " beam" : "") },
+        h("div", { class: "card-head" }, h("h2", { text: p.guild_name }), h("span", { class: `badge ${cls}`, text: label }), eq,
+          h("span", { class: "spacer" }), h("span", { class: "muted", text: p.channel ? `🔊 ${p.channel}・${p.listeners.length} 人在聽` : "" })),
+        cur ? h("div", { class: "now" },
+          cur.thumbnail ? h("img", { class: "thumb", src: cur.thumbnail, alt: "",
+            onerror: (e) => e.currentTarget.replaceWith(h("div", { class: "thumb" })) }) : h("div", { class: "thumb" }),
+          h("div", { class: "now-text" },
+            h("a", { href: cur.url, target: "_blank", rel: "noopener", class: "now-title", text: cur.title }),
+            h("div", { class: "muted", text: `${cur.duration}・${cur.requester || "?"} 點的` }),
+            h("div", { class: "toolbar", style: { marginTop: "10px" } },
+              btn("⏮ 上一首", "prev", !p.has_prev), p.state === "paused" ? btn("▶ 繼續", "resume") : btn("⏸ 暫停", "pause", p.state !== "playing"),
+              btn("⏭ 下一首", "next", !p.has_next), h("button", { class: "btn small danger", type: "button", text: "⏹ 停止並離開",
+                onclick: () => { if (confirm(`確定停止「${p.guild_name}」的音樂並離開語音頻道？`)) control(p.guild, "stop"); } }))))
+          : h("p", { class: "empty", text: "沒有正在播放的歌。" }),
+        p.tracks.length ? h("ol", { class: "queue" }, p.tracks.map((t) => h("li", { class: t.index === p.index ? "on" : t.index < p.index ? "past" : "" },
+          h("span", { class: "q-title", text: t.title }), h("small", { text: `${t.duration}・${t.requester}` })))) : null,
+        p.listeners.length ? h("p", { class: "muted", text: `在聽的人：${p.listeners.join("、")}` }) : null);
+    }));
+  };
+  view.replaceChildren(h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "音樂" }),
+    h("span", { class: "muted", text: "各伺服器正在播放的歌與播放清單，每 5 秒更新" }))), box);
+  await load();
+  every(5000, () => load().catch(() => {}));
+}
+
+// ---------------------------------------------------------------- 股票
+async function renderStocks(view) {
+  const data = await api("/api/stocks");
+  const sum = data.summary;
+  const unrealized = sum.value - sum.cost;
+  const tile = (label, value, cls = "", sub = "") => {
+    const v = h("div", { class: "value", text: "0" });
+    Motion.scramble(v, value, (n) => (typeof n === "number" && cls ? signed(n) : fmt(n)));
+    return h("div", { class: `card kpi ${cls}` }, h("div", { class: "label", text: label }), v, sub ? h("div", { class: "sub", text: sub }) : null);
+  };
+  const pnlClass = (n) => (n > 0 ? "pos" : n < 0 ? "neg" : "");
+  const userLink = (u) => h("a", { href: `#/users/${u.id}`, text: u.name });
+  const side = (o) => h("span", { class: `badge ${o.side === "buy" ? "good" : "bad"}`, text: o.side === "buy" ? "買進" : "賣出" });
+  const table = (heads, rows, empty) => rows.length ? h("div", { class: "table-wrap" }, h("table", {},
+    h("thead", {}, h("tr", {}, heads.map(([t, num]) => h("th", { class: num ? "num" : "", text: t })))), h("tbody", {}, rows)))
+    : h("p", { class: "empty", text: empty });
+
+  const cancel = async (o) => {
+    if (!confirm(`確定取消 ${o.user.name} 的委託 #${o.id}（${o.side === "buy" ? "買進" : "賣出"} ${o.symbol} ${fmt(o.shares)} 股）？\n預扣的錢或股票會退回。`)) return;
+    try { await api(`/api/stocks/orders/${o.id}/cancel`, { method: "POST" }); toast("已取消並退回"); render(true); }
+    catch (e) { toast(e.message, true); }
+  };
+
+  view.replaceChildren(
+    data.available ? null : h("section", { class: "card error", text: "股票資料庫（twfolio）沒有連上：持股市值會用成本估算，Discord 的 /股票 也會停用。" }),
+    h("div", { class: "kpis" },
+      tile("交易人數", sum.traders), tile("持股市值", sum.value, "", data.quotes_live ? "證交所即時行情" : "最近收盤價"),
+      tile("未實現損益", unrealized, unrealized >= 0 ? "good" : "bad"), tile("已實現損益", sum.realized, sum.realized >= 0 ? "good" : "bad"),
+      tile("委託中", sum.pending)),
+    h("div", { class: "grid-2" },
+      h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "損益排行（已實現＋未實現）" })),
+        table([["#"], ["玩家"], ["總損益", 1], ["持股", 0]], data.ranking.map((r, i) => h("tr", {},
+          h("td", { class: "rank", text: i < 3 ? ["🥇", "🥈", "🥉"][i] : String(i + 1) }), h("td", {}, userLink(r)),
+          h("td", { class: `num ${pnlClass(r.total)}`, text: signed(r.total) }),
+          h("td", { class: "muted", text: r.symbols.join("、") || "空手" }))), "還沒有人交易過股票。")),
+      h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "熱門持股" })),
+        table([["股票"], ["人數", 1], ["股數", 1], ["現價", 1], ["漲跌", 1], ["市值", 1]], data.symbols.map((a) => h("tr", {},
+          h("td", {}, `${a.symbol} `, h("span", { class: "muted", text: a.name })), h("td", { class: "num", text: fmt(a.holders) }),
+          h("td", { class: "num", text: fmt(a.shares) }), h("td", { class: "num", text: a.price ?? "—" }),
+          h("td", { class: `num ${pnlClass(a.change_pct ?? 0)}`, text: a.change_pct == null ? "—" : `${a.change_pct > 0 ? "+" : ""}${a.change_pct}%` }),
+          h("td", { class: "num", text: fmt(a.value) }))), "目前沒有人持有股票。"))),
+    h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "委託中的單" }),
+      h("span", { class: "muted", text: "盤後下的單會用下一個交易日的開盤價成交；取消會退回預扣" })),
+      table([["#", 1], ["玩家"], ["買賣"], ["股票"], ["股數", 1], ["預扣", 1], ["最早成交日"], [""]], data.pending.map((o) => h("tr", {},
+        h("td", { class: "num id", text: o.id }), h("td", {}, userLink(o.user)), h("td", {}, side(o)),
+        h("td", {}, `${o.symbol} `, h("span", { class: "muted", text: o.name })), h("td", { class: "num", text: fmt(o.shares) }),
+        h("td", { class: "num", text: o.reserved ? fmt(o.reserved) : "—" }), h("td", { text: o.not_before || "—" }),
+        h("td", {}, h("button", { class: "btn small danger", type: "button", text: "取消", onclick: () => cancel(o) })))), "沒有委託中的單。")),
+    h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "最近的成交與取消" })),
+      table([["時間"], ["玩家"], ["買賣"], ["股票"], ["股數", 1], ["成交價", 1], ["已實現", 1], ["備註"]], data.history.map((o) => h("tr", { class: o.status === "cancelled" ? "off" : "" },
+        h("td", { text: fmtTime(o.at) }), h("td", {}, userLink(o.user)), h("td", {}, side(o)),
+        h("td", {}, `${o.symbol} `, h("span", { class: "muted", text: o.name })), h("td", { class: "num", text: fmt(o.shares) }),
+        h("td", { class: "num", text: o.status === "filled" ? o.price : "已取消" }),
+        h("td", { class: `num ${pnlClass(o.realized ?? 0)}`, text: o.realized == null ? "—" : signed(o.realized) }),
+        h("td", { class: "muted", text: o.note || "" }))), "還沒有交易紀錄。")),
+  );
+}
+
+// ---------------------------------------------------------------- Minecraft
+async function renderMinecraft(view) {
+  const first = await api("/api/minecraft");
+  if (!first.enabled) {
+    view.replaceChildren(h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "Minecraft" })),
+      h("p", { class: "empty", text: "Minecraft 管理沒有啟用。在 .env 設定 MINECRAFT_GUILD_IDS（要出現 /mc 的伺服器）與 MINECRAFT_SCRIPT（控制腳本）後重新啟動 bot。" })));
+    return;
+  }
+  const pill = h("span", { class: "badge" });
+  const status = h("pre", { class: "console" });
+  const busy = h("div", { class: "mc-busy", hidden: true }, h("span", { class: "dots" }, h("i"), h("i"), h("i")), h("span"));
+  const last = h("div");
+  const buttons = [["start", "▶ 開服", "開服需要幾分鐘"], ["stop", "■ 關服", "會先通知玩家、存檔、備份再關"],
+                   ["restart", "↻ 重開", "關服再開服"], ["backup", "💾 備份", "立刻備份一次"]].map(([action, label, hint]) =>
+    h("button", { class: "btn" + (action === "stop" ? " danger" : action === "start" ? " primary" : ""), type: "button", text: label, title: hint,
+      onclick: async () => {
+        if (!confirm(`確定要${label.slice(2)}嗎？\n${hint}`)) return;
+        try { const r = await api("/api/minecraft/action", { method: "POST", body: { action } }); toast(r.message); load(); }
+        catch (e) { toast(e.message, true); }
+      } }));
+  const draw = (d) => {
+    pill.textContent = d.online ? "● 線上" : "● 離線";
+    pill.className = `badge ${d.online ? "good" : "bad"}`;
+    status.textContent = d.status || "（沒有輸出）";
+    busy.hidden = !d.busy;
+    busy.lastChild.textContent = d.busy ? ` 正在${d.busy}…` : "";
+    buttons.forEach((b) => { b.disabled = !!d.busy; });
+    last.replaceChildren(...(d.last ? [h("div", { class: "card-head" }, h("h3", { text: `上次從後台${d.last.action}` }),
+      h("span", { class: `badge ${d.last.ok ? "good" : "bad"}`, text: d.last.ok ? "成功" : "有問題" }), h("span", { class: "muted", text: fmtTime(d.last.at) })),
+      h("pre", { class: "console", text: d.last.output || "（沒有輸出）" })] : []));
+  };
+  const load = async () => draw(await api("/api/minecraft"));
+
+  const cmd = h("input", { id: "mc-cmd", placeholder: "例如 list、say 大家好、op 玩家名稱（不用加 /）" });
+  const cmdOut = h("pre", { class: "console", hidden: true });
+  const runCmd = async () => {
+    if (!cmd.value.trim()) return;
+    try { const r = await api("/api/minecraft/cmd", { method: "POST", body: { command: cmd.value } });
+      cmdOut.hidden = false; cmdOut.textContent = `> ${cmd.value}\n${r.output || "（沒有輸出）"}`; cmd.value = ""; }
+    catch (e) { toast(e.message, true); }
+  };
+  cmd.addEventListener("keydown", (e) => { if (e.key === "Enter") runCmd(); });
+  const logLines = h("select", { "aria-label": "行數" }, [30, 60, 100, 200].map((n) => h("option", { value: n, text: `${n} 行` })));
+  const logBox = h("pre", { class: "console tall", text: "按「讀取」看伺服器最近的紀錄" });
+  const loadLog = async () => {
+    try { logBox.textContent = (await api(`/api/minecraft/log?lines=${logLines.value}`)).output || "（沒有輸出）"; logBox.scrollTop = logBox.scrollHeight; }
+    catch (e) { toast(e.message, true); }
+  };
+
+  view.replaceChildren(
+    h("section", { class: "card beam scan" }, h("div", { class: "card-head" }, h("h2", { text: "伺服器狀態" }), pill, busy,
+      h("span", { class: "spacer" }), h("button", { class: "btn small", type: "button", text: "重新整理", onclick: () => load() })),
+      status, h("div", { class: "toolbar", style: { marginTop: "12px" } }, buttons), last),
+    h("div", { class: "grid-2" },
+      h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "控制台指令" })),
+        h("div", { class: "chat-input" }, cmd, h("button", { class: "btn primary", type: "button", text: "送出", onclick: runCmd })),
+        h("p", { class: "muted", text: "關服請用上面的「關服」按鈕，才會先通知玩家並備份。" }), cmdOut),
+      h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "伺服器紀錄" }), h("span", { class: "spacer" }),
+        logLines, h("button", { class: "btn small", type: "button", text: "讀取", onclick: loadLog })), logBox)),
+  );
+  draw(first);
+  every(8000, () => load().catch(() => {}));
 }
 
 // ---------------------------------------------------------------- Ctrl+K 指令面板

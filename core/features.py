@@ -42,7 +42,7 @@ FEATURES: List[Feature] = [
     Feature("alerts", "🌀", "颱風豪雨與停班停課", "颱風警報、豪雨特報、停班停課查詢與自動通知", ("alert",)),
     Feature("catchup", "🧾", "我錯過了什麼", "AI 整理頻道裡沒看到的聊天重點", ("catchup",)),
     Feature("changelog", "📰", "更新日誌", "看機器人最近更新了哪些功能", ("changelog",), ("changelog",), ("changelog",)),
-    Feature("assistant", "🐸", "嘎哇聊天", "@嘎哇 用講的叫功能、跟嘎哇閒聊"),
+    Feature("assistant", "💬", "AI 聊天", "@機器人 用講的叫功能、跟機器人閒聊"),
 ]
 FEATURES_BY_KEY: Dict[str, Feature] = {f.key: f for f in FEATURES}
 COMMAND_FEATURES: Dict[str, str] = {c: f.key for f in FEATURES for c in f.commands}

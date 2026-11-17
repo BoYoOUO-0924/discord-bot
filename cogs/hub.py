@@ -95,7 +95,7 @@ class Hub(commands.Cog):
                                           "📋 **待辦**　任務卡片、負責人、截止提醒\n"
                                           "📊 **投票**　按鈕投票、自動截止\n"
                                           "📰 **更新日誌**　看最近更新了哪些功能", inline=False)
-        embed.set_footer(text="每個功能也都能用斜線指令操作，輸入 / 看看；也可以 @嘎哇 用講的")
+        embed.set_footer(text="每個功能也都能用斜線指令操作，輸入 / 看看；也可以 @機器人 用講的")
         if self.bot.user:
             embed.set_thumbnail(url=self.bot.user.display_avatar.url)
         return embed

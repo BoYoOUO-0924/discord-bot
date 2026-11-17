@@ -103,6 +103,7 @@ class AdminServer:
         self.runner: Optional[web.AppRunner] = None
         self.last_preview = 0.0
         self.changelog_cache = None
+        self.mc_last: Optional[dict] = None       # 最近一次從後台開關 Minecraft 的結果
         self.app = self.build_app()
 
     @property
@@ -134,6 +135,13 @@ class AdminServer:
             ("GET", "/api/ai", self.ai_settings), ("POST", "/api/ai/profile", self.ai_save),
             ("GET", "/api/ai/history", self.ai_history), ("POST", "/api/ai/restore", self.ai_restore),
             ("POST", "/api/ai/preview", self.ai_preview), ("POST", "/api/ai/test", self.ai_test),
+            ("GET", "/api/guilds", self.guilds), ("GET", "/api/places", self.places),
+            ("GET", "/api/guilds/{guild_id:\\d+}/settings", self.guild_settings),
+            ("POST", "/api/guilds/{guild_id:\\d+}/settings", self.save_guild_settings),
+            ("GET", "/api/music", self.music), ("POST", "/api/music/{guild_id:\\d+}/control", self.music_control),
+            ("GET", "/api/stocks", self.stocks), ("POST", "/api/stocks/orders/{order_id:\\d+}/cancel", self.stock_cancel),
+            ("GET", "/api/minecraft", self.minecraft), ("POST", "/api/minecraft/action", self.minecraft_action),
+            ("POST", "/api/minecraft/cmd", self.minecraft_cmd), ("GET", "/api/minecraft/log", self.minecraft_log),
         ]
         for method, path, handler in routes:
             app.router.add_route(method, path, handler)
@@ -158,7 +166,7 @@ class AdminServer:
     async def security_headers(self, request: web.Request, handler):
         response = await handler(request)
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' https://cdn.discordapp.com data:; "
+            "default-src 'self'; img-src 'self' https://cdn.discordapp.com https://i.ytimg.com data:; "
             "style-src 'self'; script-src 'self'; frame-ancestors 'none'")
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -802,4 +810,288 @@ class AdminServer:
             except Exception:
                 pass
         return web.json_response({"ok": ok, "ms": ms, "status": ai.status, "models": models, "ai": self.ai_info()})
+
+    # ================================================================== 伺服器設定（天氣、警報）
+    def find_guild(self, request: web.Request):
+        guild_id = int(request.match_info["guild_id"])
+        guild = self.bot.get_guild(guild_id) if hasattr(self.bot, "get_guild") else None
+        return guild_id, guild
+
+    async def guilds(self, request: web.Request):
+        return web.json_response({"guilds": sorted(self.guild_list(), key=lambda g: g["name"])})
+
+    async def places(self, request: web.Request):
+        from core import weather
+        found = weather.search_places(request.query.get("q", ""), limit=20)
+        return web.json_response({"items": [{"key": weather.place_key(p), "label": f"{p.county} {p.town or ''}".strip()}
+                                            for p in found]})
+
+    @staticmethod
+    def channel_problem(channel, me) -> Optional[str]:
+        if me is None or not hasattr(channel, "permissions_for"):
+            return None
+        perms = channel.permissions_for(me)
+        if not perms.view_channel or not perms.send_messages:
+            return "沒有發訊息權限"
+        if not perms.embed_links:
+            return "沒有嵌入連結權限"
+        return None
+
+    async def guild_settings(self, request: web.Request):
+        from cogs.settings import DEFAULT_TIME
+        from cogs.weather import guild_places
+        from core import weather
+        guild_id, guild = self.find_guild(request)
+        if not guild:
+            return web.json_response({"error": "找不到這個伺服器（bot 可能已經不在裡面）"}, status=404)
+        settings = await self.db.get_guild_settings(guild_id)
+        places = await guild_places(self.db, guild_id)
+        me = getattr(guild, "me", None)
+        channels = [{"id": str(c.id), "name": c.name, "problem": self.channel_problem(c, me)}
+                    for c in getattr(guild, "text_channels", [])]
+        return web.json_response({
+            "guild": {"id": str(guild_id), "name": guild.name},
+            "places": [{"key": weather.place_key(p), "label": f"{p.county} {p.town or ''}".strip()} for p in places],
+            "custom_places": "weather.places" in settings,
+            "weather": {"channel": settings.get("weather.channel"), "time": settings.get("weather.time", DEFAULT_TIME)},
+            "alerts": {"channel": settings.get("alerts.channel"), "all_types": bool(settings.get("alerts.all_types"))},
+            "channels": channels,
+        })
+
+    async def save_guild_settings(self, request: web.Request):
+        """body 只需要帶要改的欄位：places（鄉鎮 key 清單，空清單＝回到預設）、weather_channel、weather_time、
+        alerts_channel（null＝停止）、alerts_all。"""
+        from cogs.weather import parse_clock
+        from core import weather
+        guild_id, guild = self.find_guild(request)
+        if not guild:
+            return web.json_response({"error": "找不到這個伺服器"}, status=404)
+        body = await self.json_body(request)
+        db, changes = self.db, []
+        channel_ids = {str(c.id): c for c in getattr(guild, "text_channels", [])}
+
+        def channel_arg(key):
+            value = body.get(key)
+            if value in (None, ""):
+                return None, None
+            channel = channel_ids.get(str(value))
+            if not channel:
+                return None, "找不到這個頻道"
+            problem = self.channel_problem(channel, getattr(guild, "me", None))
+            return (None, f"#{channel.name}：{problem}") if problem else (channel, None)
+
+        if "places" in body:
+            keys = body["places"] if isinstance(body["places"], list) else []
+            places = []
+            for key in keys[:3]:
+                place = weather.place_from_key(str(key))
+                if not place:
+                    return web.json_response({"error": f"找不到地點：{key}"}, status=400)
+                if place not in places:
+                    places.append(place)
+            await db.set_guild_setting(guild_id, "weather.places",
+                                       json.dumps([weather.place_key(p) for p in places]) if places else None)
+            changes.append("天氣地點")
+        if "weather_time" in body:
+            clock = parse_clock(str(body["weather_time"] or ""))
+            if not clock:
+                return web.json_response({"error": "時間格式請用 06:00 這樣的寫法"}, status=400)
+            await db.set_guild_setting(guild_id, "weather.time", "%02d:%02d" % clock)
+            changes.append("預報時間")
+        for key, setting, label in (("weather_channel", "weather.channel", "每日預報頻道"),
+                                    ("alerts_channel", "alerts.channel", "警報頻道")):
+            if key in body:
+                channel, error = channel_arg(key)
+                if error:
+                    return web.json_response({"error": error}, status=400)
+                await db.set_guild_setting(guild_id, setting, str(channel.id) if channel else None)
+                changes.append(label)
+        if "alerts_all" in body:
+            await db.set_guild_setting(guild_id, "alerts.all_types", "1" if body["alerts_all"] else None)
+            changes.append("特報種類")
+        if changes:
+            await self.record(request, "guild_settings", None, f"{guild.name}：更新{'、'.join(changes)}")
+        return web.json_response({"ok": True})
+
+    # ================================================================== 音樂
+    async def music(self, request: web.Request):
+        from core.music import fmt_duration
+        cog = self.bot.get_cog("Music")
+        if cog is None:
+            return web.json_response({"enabled": False, "players": []})
+        players = []
+        for guild_id, player in getattr(cog, "players", {}).items():
+            voice = player.voice
+            channel = getattr(voice, "channel", None)
+            listeners = [m.display_name for m in getattr(channel, "members", []) if not getattr(m, "bot", False)]
+            track = player.queue.current
+
+            def info(t, i):
+                return {"index": i, "title": t.title, "url": t.url, "duration": fmt_duration(t.duration),
+                        "requester": t.requester_name, "thumbnail": t.thumbnail}
+            players.append({
+                "guild": str(guild_id), "guild_name": player.guild.name, "channel": getattr(channel, "name", None),
+                "state": "playing" if player.playing else "paused" if player.paused else "loading" if player.loading else "idle",
+                "current": info(track, player.queue.index) if track else None,
+                "tracks": [info(t, i) for i, t in enumerate(player.queue.tracks)], "index": player.queue.index,
+                "has_next": player.queue.has_next, "has_prev": player.queue.has_prev, "listeners": listeners,
+            })
+        return web.json_response({"enabled": True, "players": players})
+
+    async def music_control(self, request: web.Request):
+        from core.music import MusicError
+        cog = self.bot.get_cog("Music")
+        guild_id, guild = self.find_guild(request)
+        action = (await self.json_body(request)).get("action")
+        if cog is None or guild is None:
+            return web.json_response({"error": "音樂功能沒有載入，或找不到伺服器"}, status=404)
+        if action not in ("pause", "resume", "next", "prev", "stop"):
+            return web.json_response({"error": "未知的操作"}, status=400)
+        try:
+            note = await cog.control(guild, action)
+        except MusicError as e:
+            return web.json_response({"error": str(e)}, status=409)
+        await self.record(request, "music", None, f"{guild.name}：{note}")
+        return web.json_response({"ok": True, "message": note})
+
+    # ================================================================== 股票
+    async def stocks(self, request: web.Request):
+        import asyncio
+        from core import stocks as st
+        data = await self.db.stock_admin_overview()
+        cog = self.bot.get_cog("Stocks")
+        market = getattr(cog, "market", None)
+        available = bool(market and market.db.available)
+        symbols = {h["symbol"] for h in data["holdings"]}
+        quotes, names = {}, {}
+        if available and symbols:
+            try:
+                quotes = await asyncio.wait_for(market.quotes(symbols), 10)
+            except Exception as e:
+                log.info("後台查股價失敗：%s", e)
+        for row in data["pending"] + data["history"]:
+            names[row["symbol"]] = row["name"]
+        for symbol, q in quotes.items():
+            names.setdefault(symbol, q.name)
+        user_ids = {h["user_id"] for h in data["holdings"]} | {r["user_id"] for r in data["realized"]} | \
+                   {o["user_id"] for o in data["pending"] + data["history"]}
+        people = await self.db.get_names(list(user_ids))
+
+        def who(uid):
+            return {"id": str(uid), "name": people.get(uid, (None,))[0] or str(uid)}
+
+        pnl = {r["user_id"]: {"realized": r["realized"], "trades": r["trades"], "value": 0, "cost": 0, "symbols": []}
+               for r in data["realized"]}
+        by_symbol: Dict[str, dict] = {}
+        for h in data["holdings"]:
+            q = quotes.get(h["symbol"])
+            value = st.gross_amount(q.reference, h["shares"]) if q and q.reference else h["cost"]
+            p = pnl.setdefault(h["user_id"], {"realized": 0, "trades": 0, "value": 0, "cost": 0, "symbols": []})
+            p["value"] += value
+            p["cost"] += h["cost"]
+            p["symbols"].append((value, h["symbol"]))
+            agg = by_symbol.setdefault(h["symbol"], {"symbol": h["symbol"], "name": names.get(h["symbol"], h["symbol"]),
+                                                     "holders": 0, "shares": 0, "cost": 0, "value": 0,
+                                                     "price": str(q.reference) if q and q.reference else None,
+                                                     "change_pct": round(float(q.change_pct), 2) if q and q.change_pct is not None else None})
+            agg["holders"] += 1
+            agg["shares"] += h["shares"]
+            agg["cost"] += h["cost"]
+            agg["value"] += value
+        ranking = sorted(({**who(uid), "realized": p["realized"], "unrealized": p["value"] - p["cost"],
+                           "total": p["realized"] + p["value"] - p["cost"], "value": p["value"], "trades": p["trades"],
+                           "symbols": [sym for _, sym in sorted(p["symbols"], reverse=True)[:3]]}
+                          for uid, p in pnl.items()), key=lambda r: -r["total"])
+
+        def order(o):
+            return {"id": o["id"], "user": who(o["user_id"]), "side": o["side"], "symbol": o["symbol"], "name": o["name"],
+                    "shares": o["shares"], "status": o["status"], "price": o["price"], "reserved": o["reserved"],
+                    "realized": o["realized"], "note": o["note"], "at": o["filled_at"] or o["created_at"],
+                    "not_before": o["not_before"]}
+        return web.json_response({
+            "available": available, "quotes_live": any(q.live for q in quotes.values()),
+            "summary": {"traders": len(ranking), "value": sum(a["value"] for a in by_symbol.values()),
+                        "cost": sum(a["cost"] for a in by_symbol.values()),
+                        "realized": sum(r["realized"] for r in data["realized"]), "pending": len(data["pending"])},
+            "ranking": ranking[:50],
+            "symbols": sorted(by_symbol.values(), key=lambda a: -a["value"]),
+            "pending": [order(o) for o in data["pending"]],
+            "history": [order(o) for o in data["history"]],
+        })
+
+    async def stock_cancel(self, request: web.Request):
+        order_id = int(request.match_info["order_id"])
+        order = await self.db.stock_cancel(order_id, "管理員從後台取消")
+        if not order:
+            return web.json_response({"error": "這張委託已經成交或取消了"}, status=404)
+        side = "買進" if order["side"] == "buy" else "賣出"
+        await self.record(request, "stock_cancel", order["user_id"],
+                          f"取消股票委託 #{order_id}：{side} {order['symbol']} {order['name']} {order['shares']:,} 股")
+        return web.json_response({"ok": True})
+
+    # ================================================================== Minecraft
+    def mc_cog(self):
+        return self.bot.get_cog("Minecraft")
+
+    async def minecraft(self, request: web.Request):
+        from cogs.minecraft import clean_output, run_script
+        cog = self.mc_cog()
+        if cog is None:
+            return web.json_response({"enabled": False})
+        code, out = await run_script(cog.script, "status")
+        return web.json_response({"enabled": True, "busy": cog.busy, "online": "🟢" in out, "status": clean_output(out),
+                                  "code": code, "last": self.mc_last, "script": cog.script})
+
+    async def minecraft_action(self, request: web.Request):
+        import asyncio
+        from cogs.minecraft import START_TIMEOUT, STOP_TIMEOUT, clean_output, run_script, tmux_server_ok
+        cog = self.mc_cog()
+        action = (await self.json_body(request)).get("action")
+        titles = {"start": ("開服", START_TIMEOUT), "stop": ("關服", STOP_TIMEOUT),
+                  "restart": ("重開", STOP_TIMEOUT + START_TIMEOUT), "backup": ("備份", STOP_TIMEOUT)}
+        if cog is None:
+            return web.json_response({"error": "Minecraft 管理沒有啟用（.env 的 MINECRAFT_GUILD_IDS）"}, status=404)
+        if action not in titles:
+            return web.json_response({"error": "未知的操作"}, status=400)
+        if cog.busy:
+            return web.json_response({"error": f"正在{cog.busy}，請等它完成"}, status=409)
+        if action in ("start", "restart"):
+            ok, reason = await tmux_server_ok()
+            if not ok:
+                return web.json_response({"error": reason}, status=409)
+        title, timeout = titles[action]
+        cog.busy = title
+        await self.record(request, "minecraft", None, f"/mc {action}（後台）")
+
+        async def run():
+            try:
+                code, out = await run_script(cog.script, action, timeout=timeout)
+            except Exception as e:
+                code, out = -1, f"執行失敗：{e}"
+            finally:
+                cog.busy = None
+            self.mc_last = {"action": title, "ok": code == 0, "output": clean_output(out), "at": time.time()}
+        asyncio.create_task(run())
+        return web.json_response({"ok": True, "message": f"開始{title}，完成後這裡會顯示結果"})
+
+    async def minecraft_cmd(self, request: web.Request):
+        from cogs.minecraft import check_command, clean_output, run_script
+        cog = self.mc_cog()
+        if cog is None:
+            return web.json_response({"error": "Minecraft 管理沒有啟用"}, status=404)
+        text, error = check_command(str((await self.json_body(request)).get("command", "")))
+        if error:
+            return web.json_response({"error": error}, status=400)
+        await self.record(request, "minecraft", None, f"/mc cmd {text}（後台）")
+        code, out = await run_script(cog.script, "cmd", text)
+        return web.json_response({"ok": code == 0, "output": clean_output(out)})
+
+    async def minecraft_log(self, request: web.Request):
+        from cogs.minecraft import clean_output, run_script
+        cog = self.mc_cog()
+        if cog is None:
+            return web.json_response({"error": "Minecraft 管理沒有啟用"}, status=404)
+        lines = min(200, max(5, int(request.query.get("lines", 40) or 40)))
+        code, out = await run_script(cog.script, "log", str(lines))
+        return web.json_response({"output": clean_output(out)})
 

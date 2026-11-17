@@ -151,7 +151,7 @@ class Assistant(commands.Cog):
         self.slots = asyncio.Semaphore(MAX_CONCURRENT)
 
     async def cog_load(self):
-        where = f"@嘎哇，或在 {len(self.channels)} 個指定頻道直接講話" if self.channels else "@嘎哇"
+        where = f"@機器人，或在 {len(self.channels)} 個指定頻道直接講話" if self.channels else "@機器人"
         log.info("嘎哇聊天已啟用：%s", where)
 
     @property
