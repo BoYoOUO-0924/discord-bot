@@ -57,6 +57,14 @@ class GuardTest(unittest.TestCase):
         self.check("你會什麼樂器", "chat", "chat")      # 只是聊天，不是問功能
         self.check("這個功能好酷，今天天氣也很好，大家晚上要不要一起玩", "chat", "chat")
 
+    def test_update_questions_become_changelog(self):
+        self.check("最近更新了什麼", "chat", "changelog")
+        self.check("有什麼新功能", "help", "changelog")
+        self.check("更新日誌", "chat", "changelog")
+        self.check("changelog", "chat", "changelog")
+        self.check("我手機要更新了好煩", "chat", "chat")    # 只是聊天
+        self.check("最近更新了什麼", "changelog", "changelog")
+
 
 class PromptTest(unittest.TestCase):
     def test_message_is_fenced_and_clipped(self):

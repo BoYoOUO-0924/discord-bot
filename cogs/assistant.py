@@ -51,6 +51,7 @@ LINES: Dict[str, List[str]] = {
     "task": ["又要本蛙幫你記事？荷葉都快寫滿了……好啦，按一下。", "交代的事要做完喔，本蛙會盯著你，嘎。"],
     "music": ["本蛙開唱……不是，是幫你放歌啦，嘎。", "點歌喔？好啦好啦，荷葉舞台準備好了。", "聽歌可以，跟著唱不准走音，嘎嘎。"],
     "help": ["本蛙會的可多了，自己看說明。", "指令說明在這，看完別再問，嘎。"],
+    "changelog": ["本蛙又變強了，自己看更新了什麼，嘎。", "新功能都寫在這，看完要誇本蛙喔……才沒有很想被誇！"],
     "unsupported": ["想得美！這種事本蛙不幫忙，要的話自己用斜線指令。", "嘎？想騙本蛙？沒門，自己動手啦。"],
 }
 MUSIC_FAILED = ["嘎？", "放不了啦。", "本蛙也沒辦法，嘎。"]
@@ -81,6 +82,8 @@ def buttons_for(intent: asst.Intent) -> List[Tuple[str, str, str]]:
         return [("leaderboard", "排行榜", "🏆")]
     if name == "help":
         return [("help", "指令說明", "📖")]
+    if name == "changelog":
+        return [("changelog", "看更新日誌", "📰")]
     if name == "stock":
         if intent.stock:
             return [(f"quote:{intent.stock}", f"查 {intent.stock} 的股價", "📈")]
@@ -318,7 +321,7 @@ class Assistant(commands.Cog):
             return await send_error(interaction, disabled_message(feature))
         kind, _, arg = action.partition(":")
         hub = self.bot.get_cog("Hub")
-        if kind in ("checkin", "work", "quests", "profile", "leaderboard", "help", "stocks", "game") and hub:
+        if kind in ("checkin", "work", "quests", "profile", "leaderboard", "help", "stocks", "game", "changelog") and hub:
             return await hub.handle(interaction, action)
         if kind == "weather":
             cog = self.bot.get_cog("Weather")

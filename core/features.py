@@ -41,6 +41,7 @@ FEATURES: List[Feature] = [
     Feature("earthquake", "🌏", "地震報告", "地震查詢與大地震自動通報", ("earthquake",), (), ("earthquake",)),
     Feature("alerts", "🌀", "颱風豪雨與停班停課", "颱風警報、豪雨特報、停班停課查詢與自動通知", ("alert",)),
     Feature("catchup", "🧾", "我錯過了什麼", "AI 整理頻道裡沒看到的聊天重點", ("catchup",)),
+    Feature("changelog", "📰", "更新日誌", "看機器人最近更新了哪些功能", ("changelog",), ("changelog",), ("changelog",)),
     Feature("assistant", "🐸", "嘎哇聊天", "@嘎哇 用講的叫功能、跟嘎哇閒聊"),
 ]
 FEATURES_BY_KEY: Dict[str, Feature] = {f.key: f for f in FEATURES}

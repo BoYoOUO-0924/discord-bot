@@ -74,5 +74,6 @@ HELP_SECTIONS: List[Tuple[str, List[Tuple[str, str, str]]]] = [
     ("🏠 入口", [
         ("menu", "", "打開大廳，用按鈕操作所有功能"),
         ("help", "", "顯示這份說明"),
+        ("changelog", "[頁數]", "看機器人更新了哪些功能，用按鈕翻上一頁、下一頁"),
     ]),
 ]

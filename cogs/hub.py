@@ -45,6 +45,7 @@ class HubView(discord.ui.View):
             self._add(f"hub:{key}", label, emoji, discord.ButtonStyle.secondary, 3)
         self._add("hub:tasks", "待辦", "📋", discord.ButtonStyle.secondary, 4)
         self._add("hub:task_add", "新增待辦", "➕", discord.ButtonStyle.secondary, 4)
+        self._add("hub:changelog", "更新日誌", "📰", discord.ButtonStyle.secondary, 4)
 
     def _add(self, custom_id: str, label: str, emoji: str, style: discord.ButtonStyle, row: int) -> None:
         button = discord.ui.Button(custom_id=custom_id, label=label, emoji=emoji, style=style, row=row)
@@ -92,7 +93,8 @@ class Hub(commands.Cog):
         embed.add_field(name="工具", value="📈 **股票**　用錢包的錢模擬買賣台股\n🎵 **音樂**　在語音頻道點歌\n"
                                           "⏰ **提醒**　時間到通知你\n"
                                           "📋 **待辦**　任務卡片、負責人、截止提醒\n"
-                                          "📊 **投票**　按鈕投票、自動截止", inline=False)
+                                          "📊 **投票**　按鈕投票、自動截止\n"
+                                          "📰 **更新日誌**　看最近更新了哪些功能", inline=False)
         embed.set_footer(text="每個功能也都能用斜線指令操作，輸入 / 看看；也可以 @嘎哇 用講的")
         if self.bot.user:
             embed.set_thumbnail(url=self.bot.user.display_avatar.url)
@@ -166,6 +168,11 @@ class Hub(commands.Cog):
             if action == "task_add":
                 return await cog.open_modal(interaction)
             return await cog.send_list(interaction, "mine")
+        if action == "changelog":
+            cog = self.bot.get_cog("Changelog")
+            if not cog:
+                return await send_error(interaction, "更新日誌目前無法使用。")
+            return await cog.send(interaction)
         if action == "poll":
             if not interaction.guild:
                 return await send_error(interaction, "投票只能在伺服器裡使用。")

@@ -60,6 +60,7 @@ COMMAND_NAMES = {
     "show": "查看",
     "alert": "警報",
     "catchup": "我錯過了什麼",
+    "changelog": "更新日誌",
     # Minecraft（/mc 底下的子指令）
     "status": "狀態",
     "start": "開服",
@@ -76,6 +77,7 @@ PARAMETER_NAMES = {
     "give.user": "對象",
     "give.amount": "金額",
     "clear.amount": "數量",
+    "changelog.page": "頁數",
     "when": "時間",
     "message": "內容",
     "duration": "時長",
