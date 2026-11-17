@@ -630,7 +630,7 @@ class AdminServer:
     async def pulse(self, request: web.Request):
         """首頁每幾秒讀一次：每分鐘指令數、新的指令事件（從 since 之後）、最近的紀錄與錯誤數。"""
         since = request.query.get("since", "0")
-        activity = getattr(self.bot, "activity", None)
+        activity = getattr(self.bot, "command_stats", None)
         records = parse_log_records(read_log_tail(self.log_path, 256 * 1024)) if os.path.exists(self.log_path) else []
         now = datetime.now()
         hours = [0] * 24

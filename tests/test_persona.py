@@ -121,7 +121,7 @@ class AiApiTest(unittest.IsolatedAsyncioTestCase):
         self.bot = FakeBot(self.db)
         self.bot.ai = FakeAI()
         self.bot.personas = ps.Personas(self.db)
-        self.bot.activity = Activity()
+        self.bot.command_stats = Activity()
         self.bot.settings = SimpleNamespace(auto_update=False, ollama_model="gemma")
         server = AdminServer(self.bot, PASSWORD, "127.0.0.1", 0, os.path.join(self.tmp.name, "bot.log"))
         self.client = TestClient(TestServer(server.app))
@@ -178,7 +178,7 @@ class AiApiTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_pulse(self):
         await self.login()
-        self.bot.activity.record(1, "weather")
+        self.bot.command_stats.record(1, "weather")
         data = await (await self.client.get("/api/pulse?since=0")).json()
         self.assertEqual(len(data["per_minute"]), 60)
         self.assertEqual(data["today_commands"], 1)

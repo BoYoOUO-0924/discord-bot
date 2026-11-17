@@ -74,7 +74,7 @@ class AppTree(app_commands.CommandTree):
                 return False
         # 自動完成每打一個字就會觸發一次，不需要記錄
         if interaction.type is discord.InteractionType.application_command:
-            activity = getattr(interaction.client, "activity", None)
+            activity = getattr(interaction.client, "command_stats", None)
             if activity:
                 activity.record(interaction.guild_id, command.qualified_name if command else "")
         if interaction.guild_id and interaction.type is discord.InteractionType.application_command:
@@ -114,7 +114,7 @@ class Bot(commands.Bot):
         self.db = Database(self.settings.database_path)
         self.features = FeatureFlags(self.db)
         self.personas = Personas(self.db)
-        self.activity = Activity()          # 每分鐘指令數，給管理後台首頁的即時圖表
+        self.command_stats = Activity()        # 每分鐘指令數，給管理後台首頁的即時圖表
         self.ai = create_ai(self.settings)
         self.restart_requested = False
 
