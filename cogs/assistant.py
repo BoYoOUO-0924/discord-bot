@@ -41,6 +41,8 @@ HISTORY_KEEP = 20
 LINES: Dict[str, List[str]] = {
     "weather": ["要看天氣喔？按這裡，出門前自己看清楚。", "天氣自己按啦，我又不是氣象主播……好啦給你按鈕。"],
     "earthquake": ["地震？先別慌，按這裡看最新的地震報告。", "先看看中央氣象署怎麼說。"],
+    "alert": ["想放颱風假喔？先看看有沒有停班停課再說。", "颱風豪雨的消息在這，別只顧著期待放假。"],
+    "catchup": ["剛剛沒在看齁？我幫你整理重點，只有你看得到。", "錯過了喔？好啦，懶人包給你。"],
     "balance": ["又要看錢包？自己看，我不會幫你多變出來。", "自己的錢自己看。"],
     "checkin": ["簽到這種小事還要我提醒？按啦。", "每天都要來簽到，不然我會……才沒有想你！"],
     "work": ["終於想工作了？按一下去打工。", "勤勞的人類，勉強給你一個讚。"],
@@ -71,6 +73,10 @@ def buttons_for(intent: asst.Intent) -> List[Tuple[str, str, str]]:
         return [(f"weather:{intent.day}", f"看{WEATHER_DAY[intent.day]}的天氣", "🌦️")]
     if name == "earthquake":
         return [("earthquake", "最新地震報告", "🌏")]
+    if name == "alert":
+        return [("alert", "颱風豪雨與停班停課", "🌀")]
+    if name == "catchup":
+        return [("catchup", "整理我錯過的", "🧾")]
     if name == "balance":
         return [("profile", "我的錢包與戰績", "👤")]
     if name == "checkin":
@@ -343,6 +349,14 @@ class Assistant(commands.Cog):
             cog = self.bot.get_cog("Earthquake")
             if cog:
                 return await cog.earthquake_command.callback(cog, interaction, False)
+        if kind == "alert":
+            cog = self.bot.get_cog("Alerts")
+            if cog:
+                return await cog.alert_command.callback(cog, interaction)
+        if kind == "catchup":
+            cog = self.bot.get_cog("Catchup")
+            if cog and getattr(interaction, "guild_id", None):
+                return await cog.catchup_command.callback(cog, interaction, None)
         if kind == "quote":
             cog = self.bot.get_cog("Stocks")
             if cog:

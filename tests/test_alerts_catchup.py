@@ -189,6 +189,7 @@ class CatchupTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_collect_stops_at_my_last_message(self):
         channel = FakeChannel([
+            message(7, 5, "小明", "@嘎哇 我錯過了什麼", 0),          # 剛剛叫功能的那句不算「上次看到這裡」
             message(6, 7, "阿華", "@小明 晚上要不要吃火鍋", 1, mentions=(5,)),
             message(5, 8, "機器人", "遊戲結果", 2, bot=True),
             message(4, 8, "小美", "好啊", 3, reply_to=5),

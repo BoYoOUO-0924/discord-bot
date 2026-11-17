@@ -41,7 +41,7 @@ LOG_LEVELS = {"WARNING": ("WARNING", "ERROR", "CRITICAL"), "ERROR": ("ERROR", "C
 LOG_LEVEL_RE = re.compile(r"\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s*\]")
 LOG_TIME_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
 
-INTENT_LABELS = {"weather": "天氣", "earthquake": "地震", "balance": "錢包", "checkin": "簽到", "work": "打工",
+INTENT_LABELS = {"weather": "天氣", "earthquake": "地震", "alert": "颱風豪雨停班停課", "catchup": "我錯過了什麼", "balance": "錢包", "checkin": "簽到", "work": "打工",
                  "quests": "每日任務", "leaderboard": "排行榜", "game": "遊戲", "stock": "股票", "music": "音樂",
                  "remind": "提醒", "task": "待辦", "help": "說明", "changelog": "更新日誌", "unsupported": "拒絕（改錢、轉帳）"}
 PREVIEW_COOLDOWN = 3
@@ -840,7 +840,7 @@ class AdminServer:
         return None
 
     async def guild_settings(self, request: web.Request):
-        from cogs.settings import DEFAULT_TIME
+        from cogs.settings import DEFAULT_EARTHQUAKE_LEVEL, DEFAULT_TIME, EARTHQUAKE_LEVELS, level_label
         from cogs.weather import guild_places
         from core import weather
         guild_id, guild = self.find_guild(request)
@@ -857,12 +857,16 @@ class AdminServer:
             "custom_places": "weather.places" in settings,
             "weather": {"channel": settings.get("weather.channel"), "time": settings.get("weather.time", DEFAULT_TIME)},
             "alerts": {"channel": settings.get("alerts.channel"), "all_types": bool(settings.get("alerts.all_types"))},
+            "earthquake": {"channel": settings.get("earthquake.channel"),
+                           "level": settings.get("earthquake.level", DEFAULT_EARTHQUAKE_LEVEL),
+                           "levels": [{"value": v, "label": level_label(v)} for v in EARTHQUAKE_LEVELS]},
             "channels": channels,
         })
 
     async def save_guild_settings(self, request: web.Request):
         """body 只需要帶要改的欄位：places（鄉鎮 key 清單，空清單＝回到預設）、weather_channel、weather_time、
-        alerts_channel（null＝停止）、alerts_all。"""
+        alerts_channel（null＝停止）、alerts_all、earthquake_channel（null＝停止）、earthquake_level。"""
+        from cogs.settings import DEFAULT_EARTHQUAKE_LEVEL, EARTHQUAKE_LEVELS
         from cogs.weather import parse_clock
         from core import weather
         guild_id, guild = self.find_guild(request)
@@ -901,7 +905,8 @@ class AdminServer:
             await db.set_guild_setting(guild_id, "weather.time", "%02d:%02d" % clock)
             changes.append("預報時間")
         for key, setting, label in (("weather_channel", "weather.channel", "每日預報頻道"),
-                                    ("alerts_channel", "alerts.channel", "警報頻道")):
+                                    ("alerts_channel", "alerts.channel", "警報頻道"),
+                                    ("earthquake_channel", "earthquake.channel", "地震通報頻道")):
             if key in body:
                 channel, error = channel_arg(key)
                 if error:
@@ -911,6 +916,12 @@ class AdminServer:
         if "alerts_all" in body:
             await db.set_guild_setting(guild_id, "alerts.all_types", "1" if body["alerts_all"] else None)
             changes.append("特報種類")
+        if "earthquake_level" in body:
+            level = str(body["earthquake_level"] or DEFAULT_EARTHQUAKE_LEVEL)
+            if level not in EARTHQUAKE_LEVELS:
+                return web.json_response({"error": "震度門檻只能選 " + "、".join(EARTHQUAKE_LEVELS)}, status=400)
+            await db.set_guild_setting(guild_id, "earthquake.level", None if level == DEFAULT_EARTHQUAKE_LEVEL else level)
+            changes.append("地震門檻")
         if changes:
             await self.record(request, "guild_settings", None, f"{guild.name}：更新{'、'.join(changes)}")
         return web.json_response({"ok": True})

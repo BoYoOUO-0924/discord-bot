@@ -94,6 +94,18 @@ class PagesApiTest(unittest.IsolatedAsyncioTestCase):
         saved = await self.db.get_guild_settings(77)
         self.assertNotIn("weather.places", saved)
         self.assertNotIn("alerts.channel", saved)
+
+        # 地震通報：頻道與門檻，預設 4 級不存
+        self.assertEqual(data["earthquake"]["level"], "4")
+        self.assertIn({"value": "5弱", "label": "5弱"}, data["earthquake"]["levels"])
+        await self.post("/api/guilds/77/settings", {"earthquake_channel": "1", "earthquake_level": "5弱"})
+        saved = await self.db.get_guild_settings(77)
+        self.assertEqual((saved["earthquake.channel"], saved["earthquake.level"]), ("1", "5弱"))
+        self.assertEqual((await self.post("/api/guilds/77/settings", {"earthquake_level": "9"})).status, 400)
+        await self.post("/api/guilds/77/settings", {"earthquake_channel": None, "earthquake_level": "4"})
+        saved = await self.db.get_guild_settings(77)
+        self.assertNotIn("earthquake.channel", saved)
+        self.assertNotIn("earthquake.level", saved)
         self.assertEqual((await self.client.get("/api/guilds/5/settings")).status, 404)
         audit = await (await self.client.get("/api/audit")).json()
         self.assertTrue(any(a["action"] == "guild_settings" for a in audit["items"]))

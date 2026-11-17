@@ -52,8 +52,8 @@ FEATURES: List[Feature] = [
             ("task", "project"), ("tasks", "task_add"), ("task",), category="tools"),
     Feature("weather", "🌦️", "天氣", "天氣查詢與每天早上的天氣預報", ("weather",), (), ("weather",), category="weather"),
     Feature("earthquake", "🌏", "地震報告", "地震查詢與大地震自動通報", ("earthquake",), (), ("earthquake",), category="weather"),
-    Feature("alerts", "🌀", "颱風豪雨與停班停課", "颱風警報、豪雨特報、停班停課查詢與自動通知", ("alert",), category="weather"),
-    Feature("catchup", "🧾", "我錯過了什麼", "AI 整理頻道裡沒看到的聊天重點", ("catchup",), category="ai"),
+    Feature("alerts", "🌀", "颱風豪雨與停班停課", "颱風警報、豪雨特報、停班停課查詢與自動通知", ("alert",), (), ("alert",), category="weather"),
+    Feature("catchup", "🧾", "我錯過了什麼", "AI 整理頻道裡沒看到的聊天重點", ("catchup",), (), ("catchup",), category="ai"),
     Feature("changelog", "📰", "更新日誌", "看機器人最近更新了哪些功能", ("changelog",), ("changelog",), ("changelog",), category="other"),
     Feature("assistant", "💬", "AI 聊天", "@機器人 用講的叫功能、跟機器人閒聊", category="ai"),
 ]
@@ -82,7 +82,8 @@ def feature_for_action(action: str) -> Optional[str]:
     if kind == "game":
         return action.split(":", 2)[1] if action.count(":") else None
     return {"quote": "stocks", "remind": "reminders", "task": "tasks", "weather": "weather",
-            "earthquake": "earthquake", "profile": "economy"}.get(kind, HUB_FEATURES.get(kind))
+            "earthquake": "earthquake", "alert": "alerts", "catchup": "catchup",
+            "profile": "economy"}.get(kind, HUB_FEATURES.get(kind))
 
 
 class FeatureFlags:

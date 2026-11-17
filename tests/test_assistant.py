@@ -65,6 +65,14 @@ class GuardTest(unittest.TestCase):
         self.check("我手機要更新了好煩", "chat", "chat")    # 只是聊天
         self.check("最近更新了什麼", "changelog", "changelog")
 
+    def test_typhoon_and_catchup_guards(self):
+        self.check("明天會放颱風假嗎", "weather", "alert")
+        self.check("台北有停班停課嗎", "chat", "alert")
+        self.check("明天會下雨嗎", "weather", "weather")      # 一般天氣還是天氣
+        self.check("我錯過了什麼", "chat", "catchup")
+        self.check("剛剛大家在聊什麼", "chat", "catchup")
+        self.check("昨天的電影我錯過了什麼劇情嗎？好可惜，下次一起去看吧", "chat", "chat")   # 太長，只是聊天
+
 
 class PromptTest(unittest.TestCase):
     def test_message_is_fenced_and_clipped(self):

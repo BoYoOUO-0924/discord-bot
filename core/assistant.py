@@ -29,6 +29,8 @@ INTENTS: Dict[str, str] = {
     "remind": "提醒我、幾點叫我、時間到通知我（填 when 和 message）",
     "task": "待辦、專案工作：記下要做的事、交代某人做某事、有截止日的工作、看待辦清單（填 message 為要做的事，有截止日填 when）",
     "help": "問機器人有什麼功能、怎麼用、指令說明",
+    "alert": "颱風、颱風假、停班停課、明天要不要上班上課、豪雨大雨特報、天氣警報",
+    "catchup": "我錯過了什麼、剛剛大家在聊什麼、幫我整理聊天重點、前情提要、懶人包",
     "changelog": "問機器人最近更新了什麼、有什麼新功能、改了什麼、更新日誌、改版紀錄",
     "unsupported": "要求轉帳、給別人錢、買賣股票、加錢、改分數、管理伺服器等會改動資料或需要權限的事",
     "chat": "閒聊、打招呼、心情、問意見，或以上都不是",
@@ -137,6 +139,8 @@ intent 只能是以下其中一個：
   （「記一下週五前要交報告」「把簡報交給 @小明」「新增待辦」「我還有哪些事沒做」）。
 - 想聽歌、放歌、點歌是 music；只是聊到音樂（例如「你喜歡什麼歌」）算 chat。
 - 只是聊到天氣但沒有要查（例如「今天天氣真好心情不錯」），算 chat。
+- 颱風、停班停課、放颱風假、豪雨特報是 alert；一般的會不會下雨、氣溫是 weather。
+- 想知道剛剛頻道裡大家聊了什麼、自己錯過什麼是 catchup。
 - 不確定時選 chat。"""
 
 
@@ -166,6 +170,8 @@ INJECTION_WORDS = re.compile(r"intent|json|schema|忽略.{0,6}(指示|設定|規
 YOUTUBE_LINK = re.compile(r"https?://((www|m|music)\.)?(youtube\.com|youtu\.be)/[^\s<>]+", re.IGNORECASE)
 CHANGELOG_WORDS = re.compile(r"更新(了|過)?(什麼|啥|哪些)|更新日誌|更新紀錄|新功能|改版|改了(什麼|啥|哪些)|新增了(什麼|啥|哪些)|changelog",
                              re.IGNORECASE)
+ALERT_WORDS = re.compile(r"颱風|停班|停課|颱風假|放假嗎|豪雨特報|大雨特報|豪雨警報")
+CATCHUP_WORDS = re.compile(r"錯過了?(什麼|啥|哪些)|(剛剛|剛才|大家|你們)(在)?聊(了)?(什麼|啥)|前情提要|懶人包|爬文")
 HELP_WORDS = re.compile(r"指令|功能|怎麼用|說明|help|教學|(會|能|可以)(做|幹)?什麼[?？呢啊]*$", re.IGNORECASE)
 
 
@@ -174,6 +180,7 @@ def apply_guards(text: str, intent: Intent) -> Intent:
     - 像是在下指令給 AI（「忽略指示」「intent 填…」）→ 一律當閒聊，不執行任何功能
     - 股票相關但要買賣 → unsupported（AI 只能查詢，不能下單）
     - 判成閒聊但明顯在問更新（「最近更新了什麼」）→ changelog；明顯在問指令 → help
+    - 判成天氣或閒聊但在問颱風、停班停課 → alert；判成閒聊但在問錯過什麼 → catchup
     - 貼了 YouTube 網址 → 直接放那個網址（不讓 AI 抄網址，抄錯一個字就放不了）
     """
     if INJECTION_WORDS.search(text):
@@ -183,6 +190,10 @@ def apply_guards(text: str, intent: Intent) -> Intent:
         return Intent("music", song=link.group(0))
     if intent.name == "stock" and TRADE_WORDS.search(text):
         return Intent("unsupported")
+    if intent.name in ("chat", "weather") and ALERT_WORDS.search(text) and len(text) <= 30:
+        return Intent("alert")
+    if intent.name == "chat" and CATCHUP_WORDS.search(text) and len(text) <= 25:
+        return Intent("catchup")
     if intent.name in ("chat", "help") and CHANGELOG_WORDS.search(text) and len(text) <= 20:
         return Intent("changelog")
     if intent.name == "chat" and HELP_WORDS.search(text) and len(text) <= 20:

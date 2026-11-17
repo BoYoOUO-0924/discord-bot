@@ -1222,7 +1222,7 @@ function morphButton(label, action) {
   return btn;
 }
 
-// ---------------------------------------------------------------- 伺服器設定（天氣地點、每日預報、警報）
+// ---------------------------------------------------------------- 伺服器設定（天氣地點、每日預報、警報、地震）
 async function renderGuildSettings(view, id) {
   const { guilds } = await api("/api/guilds");
   if (!guilds.length) {
@@ -1271,10 +1271,14 @@ async function renderGuildSettings(view, id) {
   const weatherTime = h("input", { type: "time", id: "w-time", value: data.weather.time });
   const alertChannel = channelSelect(data.alerts.channel, "a-channel");
   const alertAll = h("input", { type: "checkbox", checked: data.alerts.all_types, "aria-label": "所有天氣特報都通知" });
+  const quakeChannel = channelSelect(data.earthquake.channel, "e-channel");
+  const quakeLevel = h("select", { id: "e-level" }, data.earthquake.levels.map((l) =>
+    h("option", { value: l.value, text: l.label, selected: l.value === data.earthquake.level })));
 
   const save = morphButton("儲存", async () => {
     const body = { weather_channel: weatherChannel.value || null, weather_time: weatherTime.value,
-                   alerts_channel: alertChannel.value || null, alerts_all: alertAll.checked };
+                   alerts_channel: alertChannel.value || null, alerts_all: alertAll.checked,
+                   earthquake_channel: quakeChannel.value || null, earthquake_level: quakeLevel.value };
     if (placesChanged) body.places = places.map((p) => p.key);
     await api(`/api/guilds/${guildId}/settings`, { method: "POST", body });
     placesChanged = false;
@@ -1293,7 +1297,10 @@ async function renderGuildSettings(view, id) {
         field("傳送時間", weatherTime)),
       h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "颱風豪雨與停班停課" })),
         field("通知頻道", alertChannel, "只通知天氣地點所在縣市的颱風、豪雨、大雨特報與停班停課"),
-        h("label", { class: "switch" }, alertAll, "強風、低溫等所有天氣特報也通知"),
+        h("label", { class: "switch" }, alertAll, "強風、低溫等所有天氣特報也通知")),
+      h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "地震通報" })),
+        field("通報頻道", quakeChannel, "天氣地點所在縣市的震度達到門檻時通報"),
+        field("震度門檻", quakeLevel),
         h("p", { class: "muted", style: { marginTop: "16px" } }, "功能開關在",
           h("a", { href: "#/features", onclick: () => { featureGuild = guildId; }, text: "「功能開關」頁" }), "，選這個伺服器即可。"))),
     h("div", { class: "save-bar" }, save),

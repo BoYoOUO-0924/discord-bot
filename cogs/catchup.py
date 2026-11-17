@@ -1,6 +1,7 @@
 """我錯過了什麼（/catchup）：AI 整理這個頻道你沒看到的聊天重點，只有你看得到。
 
 - 預設從你在這個頻道最後一次發言之後開始，最多往回 24 小時、500 則；也可以指定最近幾小時。
+  剛剛幾分鐘內自己的發言（例如對 @嘎哇 說「我錯過了什麼」）不算，不然會一讀就停。
 - 提到你或回覆你的訊息會直接附上連結，不靠 AI。
 - AI（Ollama）離線時仍然會列出訊息數、誰在聊、跟你有關的訊息。
 """
@@ -25,6 +26,7 @@ MAX_HOURS = 24
 MAX_MESSAGES = 500
 COOLDOWN = 60
 MAX_MENTIONS = 5
+JUST_NOW = timedelta(minutes=3)   # 這麼近的自己發言不當作「上次看到這裡」
 
 
 def mentions_user(message, user_id: int) -> bool:
@@ -35,13 +37,13 @@ def mentions_user(message, user_id: int) -> bool:
 
 
 async def collect(channel, user_id: int, hours: Optional[int], now) -> catchup.Missed:
-    """從新到舊讀訊息：沒指定小時就讀到你自己的上一則發言為止。"""
+    """從新到舊讀訊息：沒指定小時就讀到你自己的上一則發言為止（剛剛 3 分鐘內的不算）。"""
     after = now - timedelta(hours=min(hours or MAX_HOURS, MAX_HOURS))
     missed = catchup.Missed()
     first = None
     async for message in channel.history(limit=MAX_MESSAGES, after=after, oldest_first=False):
         if message.author.id == user_id:
-            if hours is None:
+            if hours is None and message.created_at < now - JUST_NOW:
                 break
             continue
         if message.author.bot:

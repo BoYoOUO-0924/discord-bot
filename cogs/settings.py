@@ -18,6 +18,13 @@ from core.ui import BaseView, Color, make_embed, respond, send_error
 
 log = logging.getLogger(__name__)
 
+EARTHQUAKE_LEVELS = ("3", "4", "5弱", "5強", "6弱")   # 地震通報門檻的選項（/settings earthquake 與管理後台共用）
+DEFAULT_EARTHQUAKE_LEVEL = "4"
+
+
+def level_label(level: str) -> str:
+    return f"{level} 級" if level.isdigit() else level
+
 DEFAULT_TIME = "06:00"
 
 
@@ -188,8 +195,7 @@ class Settings(commands.Cog):
     # ------------------------------------------------------------------ 地震
     @settings_group.command(name="earthquake", description="天氣地點所在縣市震度達到門檻時，自動通報地震到指定頻道")
     @app_commands.describe(channel="要通報的頻道", level="你們縣市震度達到多少才通報（預設 4 級）", stop="停止通報")
-    @app_commands.choices(level=[app_commands.Choice(name=f"{v} 級" if v.isdigit() else v, value=v)
-                                 for v in ("3", "4", "5弱", "5強", "6弱")])
+    @app_commands.choices(level=[app_commands.Choice(name=level_label(v), value=v) for v in EARTHQUAKE_LEVELS])
     async def earthquake_settings(self, interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None,
                                   level: Optional[str] = None, stop: bool = False):
         if not await self.check(interaction):
@@ -201,7 +207,7 @@ class Settings(commands.Cog):
                 return await send_error(interaction, problem)
             await db.set_guild_setting(gid, "earthquake.channel", str(channel.id))
         if level:
-            await db.set_guild_setting(gid, "earthquake.level", None if level == "4" else level)
+            await db.set_guild_setting(gid, "earthquake.level", None if level == DEFAULT_EARTHQUAKE_LEVEL else level)
         if stop:
             await db.set_guild_setting(gid, "earthquake.channel", None)
         await respond(interaction, embed=await self.summary(gid, "✅ 地震通報設定已更新"), ephemeral=True)
@@ -230,7 +236,7 @@ class Settings(commands.Cog):
                   if alert_channel else "沒有開啟")
         embed.add_field(name="🌀 颱風豪雨與停班停課", value=alerts, inline=False)
         quake_channel = settings.get("earthquake.channel")
-        level = settings.get("earthquake.level", "4")
+        level = settings.get("earthquake.level", DEFAULT_EARTHQUAKE_LEVEL)
         level_text = f"{level} 級" if level.isdigit() else level
         quake = (f"<#{quake_channel}>：{counties} 震度 {level_text}以上" if quake_channel else "沒有開啟")
         embed.add_field(name="🌏 地震通報", value=quake, inline=False)
