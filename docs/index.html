@@ -4,471 +4,845 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>嘎哇 Bot 功能介紹</title>
-<meta name="description" content="嘎哇是一個繁體中文 Discord 機器人：新台幣錢包、六款遊戲、股票模擬、音樂、待辦與專案管理、天氣與地震通知，還能 @嘎哇 用講的叫功能。">
+<meta name="description" content="嘎哇是一個繁體中文 Discord 機器人：新台幣錢包、六款遊戲、台股模擬、音樂、待辦與專案管理、天氣與地震通知，還能 @ 它用講的叫功能，個性可以自己設定。">
+<meta name="theme-color" content="#04070d">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
+/* 版面：深色太空控制中心。首頁大字＋漂浮指令場景，往下是一連串捲動驅動的段落（橫向遊戲展示、任務卡片移動、3D 圓柱文字）。
+   動畫用 GSAP ScrollTrigger；JS 或 CDN 失敗時所有內容照樣完整顯示（動畫只用 from，不預先藏內容）。 */
 :root {
-  --bg: #f7f8f4;
-  --surface: #ffffff;
-  --surface-2: #eef2e8;
-  --text: #17201a;
-  --text-2: #4a5a4f;
-  --muted: #7b8a7f;
-  --border: rgba(23, 32, 26, .10);
-  --accent: #2f9e57;
-  --accent-ink: #1f7a40;
-  --accent-soft: #dff3e5;
-  --gold: #c58a0b;
-  --danger: #c94a3c;
-  --code-bg: #eef2e8;
-  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(23,32,26,.06);
-  color-scheme: light;
+  --bg: #04070d;
+  --bg-2: #070d17;
+  --surface: rgba(10, 20, 33, .72);
+  --line: rgba(80, 220, 255, .16);
+  --text: #e3f6ff;
+  --text-2: #a8c3d3;
+  --muted: #6a8799;
+  --cyan: #35d9ff;
+  --lime: #7cff9c;
+  --violet: #b26bff;
+  --gold: #ffc857;
+  --rose: #ff4d6d;
+  --display: "Space Grotesk", "Noto Sans TC", system-ui, sans-serif;
+  --sans: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --ease: cubic-bezier(.16, 1, .3, 1);
+  color-scheme: dark;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0f1411; --surface: #171e19; --surface-2: #1f2822; --text: #e8efe9; --text-2: #b6c4ba; --muted: #7f8f84;
-    --border: rgba(255,255,255,.09); --accent: #4cc27a; --accent-ink: #6fd897; --accent-soft: #1d3426;
-    --gold: #e5ad3a; --danger: #ef7a6c; --code-bg: #222c25; --shadow: none; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0f1411; --surface: #171e19; --surface-2: #1f2822; --text: #e8efe9; --text-2: #b6c4ba; --muted: #7f8f84;
-  --border: rgba(255,255,255,.09); --accent: #4cc27a; --accent-ink: #6fd897; --accent-soft: #1d3426;
-  --gold: #e5ad3a; --danger: #ef7a6c; --code-bg: #222c25; --shadow: none; color-scheme: dark;
-}
-
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 72px; }
-body {
-  margin: 0; background: var(--bg); color: var(--text);
-  font: 16px/1.7 "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, -apple-system, sans-serif;
-  padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
-}
-a { color: var(--accent-ink); }
-code {
-  font: .9em/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--code-bg);
-  padding: .1em .45em; border-radius: 6px; white-space: nowrap;
-}
-.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; }
+html { scroll-padding-top: 80px; }
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.75 var(--sans); overflow-x: hidden; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 60; background: var(--bg); }
+::selection { background: rgba(53, 217, 255, .35); }
+a { color: var(--cyan); }
+code { font: .86em/1.4 var(--mono); background: rgba(53, 217, 255, .08); border: 1px solid var(--line); color: #bff3ff; padding: .1em .45em; border-radius: 5px; white-space: nowrap; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+.grain { position: fixed; inset: -50%; z-index: 1; pointer-events: none; opacity: .05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain 1s steps(6) infinite; }
+@keyframes grain { 0% { transform: translate(0, 0); } 33% { transform: translate(-3%, 2%); } 66% { transform: translate(2%, -3%); } 100% { transform: translate(-1%, 1%); } }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
 
-/* ---------- 導覽列 ---------- */
-.nav {
-  position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);
-}
-.nav .wrap { display: flex; align-items: center; gap: 16px; height: 56px; }
-.brand { font-weight: 800; text-decoration: none; color: var(--text); white-space: nowrap; }
-.nav-links { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; flex: 1; }
+/* ---------- 載入畫面 ---------- */
+.loader { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; pointer-events: none; }
+.loader .half { position: absolute; left: 0; right: 0; height: 50.5%; background: #020409; }
+.loader .half.top { top: 0; border-bottom: 1px solid rgba(53, 217, 255, .4); }
+.loader .half.bottom { bottom: 0; }
+.loader .count { position: relative; font: 700 clamp(48px, 10vw, 120px)/1 var(--display); color: transparent; -webkit-text-stroke: 1px var(--cyan); letter-spacing: -.02em; }
+.no-js .loader, .loaded .loader { display: none; }
+
+/* ---------- 游標與捲動進度 ---------- */
+.cursor, .cursor-ring { position: fixed; left: 0; top: 0; z-index: 80; pointer-events: none; border-radius: 50%; opacity: 0; transition: opacity .3s; }
+.cursor { width: 8px; height: 8px; margin: -4px; background: var(--cyan); box-shadow: 0 0 12px var(--cyan); }
+.cursor-ring { width: 40px; height: 40px; margin: -20px; border: 1px solid rgba(53, 217, 255, .6); transition: opacity .3s, width .3s var(--ease), height .3s var(--ease), margin .3s var(--ease), background .3s; }
+.has-cursor .cursor, .has-cursor .cursor-ring { opacity: 1; }
+.cursor-ring.hover { width: 72px; height: 72px; margin: -36px; background: rgba(53, 217, 255, .1); border-color: var(--cyan); }
+.progress { position: fixed; left: 0; top: env(safe-area-inset-top, 0px); height: 2px; width: 100%; z-index: 70; transform-origin: 0 50%; transform: scaleX(0);
+  background: linear-gradient(90deg, var(--violet), var(--cyan), var(--lime)); box-shadow: 0 0 12px var(--cyan); }
+
+/* ---------- 導覽 ---------- */
+.nav { position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0; z-index: 50; transition: background .3s, border-color .3s; border-bottom: 1px solid transparent; }
+.nav.solid { background: rgba(4, 7, 13, .78); backdrop-filter: blur(12px); border-color: var(--line); }
+.nav .wrap { display: flex; align-items: center; gap: 18px; height: 64px; }
+.brand { font: 700 18px var(--display); letter-spacing: .04em; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+.brand i { width: 26px; height: 26px; border-radius: 7px; background: conic-gradient(from 210deg, var(--violet), var(--cyan), var(--lime), var(--violet)); box-shadow: 0 0 18px rgba(53, 217, 255, .6); }
+.nav-links { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; flex: 1; justify-content: flex-end; }
 .nav-links::-webkit-scrollbar { display: none; }
-.nav-links a {
-  text-decoration: none; color: var(--text-2); padding: 6px 10px; border-radius: 8px; white-space: nowrap; font-size: 14px;
-}
-.nav-links a:hover { background: var(--surface-2); color: var(--text); }
-.theme {
-  border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
-  padding: 4px 10px; cursor: pointer; font-size: 16px;
-}
+.nav-links a { color: var(--text-2); text-decoration: none; padding: 6px 12px; border-radius: 999px; font-size: 14px; white-space: nowrap; transition: color .2s, background .2s; }
+.nav-links a:hover, .nav-links a.on { color: var(--text); background: rgba(53, 217, 255, .1); }
 
-/* ---------- 開頭 ---------- */
-.hero { padding: 72px 0 48px; display: grid; grid-template-columns: 1.3fr 1fr; gap: 40px; align-items: center; }
-.hero h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.15; margin: 0 0 16px; letter-spacing: -.01em; }
-.hero h1 .frog { color: var(--accent); }
-.hero p.lead { font-size: 18px; color: var(--text-2); margin: 0 0 24px; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
-  font-size: 14px; color: var(--text-2);
-}
-.chat {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px;
-  box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 12px;
-}
-.msg { display: flex; gap: 10px; align-items: flex-start; }
-.avatar {
-  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none;
-  background: var(--surface-2); font-size: 20px;
-}
-.bubble { background: var(--surface-2); border-radius: 12px; padding: 8px 12px; font-size: 15px; }
-.msg.bot .bubble { background: var(--accent-soft); }
-.who { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
-.fake-btn {
-  display: inline-block; margin-top: 8px; background: var(--accent); color: #fff; border-radius: 6px;
-  padding: 3px 10px; font-size: 13px;
-}
+/* ---------- 首頁大字 ---------- */
+.hero { position: relative; min-height: min(100svh, 980px); display: grid; align-items: center; overflow: hidden; padding-block: 120px 80px; }
+#field { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
+.hero::after { content: ""; position: absolute; inset: auto 0 0; height: 40%; background: linear-gradient(transparent, var(--bg)); z-index: 1; pointer-events: none; }
+.hero .wrap { position: relative; z-index: 2; width: 100%; }
+.eyebrow { font: 600 12px var(--mono); letter-spacing: .3em; text-transform: uppercase; color: var(--lime); display: inline-flex; gap: 10px; align-items: center; }
+.eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 10px var(--lime); animation: blink 1.4s steps(1) infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+.hero h1 { margin: 26px 0 0; font: 900 clamp(64px, 14vw, 200px)/1.02 var(--sans); letter-spacing: -.02em; filter: drop-shadow(0 0 30px rgba(53, 217, 255, .35)); }
+.hero h1 .glow, .hero h1 .char { background: linear-gradient(100deg, #fff 10%, var(--cyan) 40%, var(--violet) 70%, var(--lime) 95%); background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: sheen 6s linear infinite; }
+.hero h1 .char { display: inline-block; }
+.hero h1 .char:nth-child(2) { animation-delay: -1.5s; }
+@keyframes sheen { to { background-position: -200% 0; } }
+.hero .tag { font: 700 clamp(22px, 3.4vw, 40px)/1.25 var(--sans); margin: 20px 0 0; max-width: 22ch; text-wrap: balance; }
+.hero .tag, .hero .lead { text-shadow: 0 2px 18px var(--bg), 0 0 4px var(--bg); }
+.hero .lead { color: var(--text-2); max-width: 54ch; margin: 18px 0 0; font-size: 17px; }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
+.btn { display: inline-flex; align-items: center; gap: 10px; padding: 14px 24px; border-radius: 999px; font-weight: 700; text-decoration: none; border: 1px solid var(--line);
+  color: var(--text); background: rgba(53, 217, 255, .06); transition: background .3s, box-shadow .3s, border-color .3s; will-change: transform; }
+.btn:hover { border-color: var(--cyan); box-shadow: 0 0 30px -6px var(--cyan); }
+.btn.primary { background: linear-gradient(100deg, var(--cyan), var(--lime)); color: #021018; border: 0; box-shadow: 0 0 40px -10px var(--cyan); }
+.scroll-hint { position: absolute; left: 50%; bottom: 28px; z-index: 2; transform: translateX(-50%); font: 11px var(--mono); letter-spacing: .3em; color: var(--muted); display: grid; justify-items: center; gap: 8px; }
+.scroll-hint i { width: 1px; height: 44px; background: linear-gradient(var(--cyan), transparent); animation: drip 1.8s var(--ease) infinite; transform-origin: top; }
+@keyframes drip { 0% { transform: scaleY(0); } 60% { transform: scaleY(1); opacity: 1; } 100% { transform: scaleY(1); opacity: 0; } }
 
-/* ---------- 區塊 ---------- */
-section.block { padding: 48px 0; border-top: 1px solid var(--border); }
-.block h2 { font-size: 28px; margin: 0 0 8px; }
-.block > .wrap > p.sub { color: var(--text-2); margin: 0 0 28px; max-width: 720px; }
-.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: step; }
-.step {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; box-shadow: var(--shadow);
-}
-.step::before {
-  counter-increment: step; content: counter(step); display: grid; place-items: center; width: 30px; height: 30px;
-  border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; margin-bottom: 10px;
-}
-.step h3 { margin: 0 0 6px; font-size: 18px; }
-.step p { margin: 0; color: var(--text-2); }
+/* ---------- 跑馬燈 ---------- */
+.marquee { position: relative; z-index: 2; overflow: hidden; border-block: 1px solid var(--line); background: rgba(53, 217, 255, .03); padding-block: 18px; }
+.marquee .track { display: flex; width: max-content; will-change: transform; }
+.marquee span { font: 700 clamp(28px, 5vw, 60px)/1 var(--display); padding-inline: 28px; white-space: nowrap; color: transparent; -webkit-text-stroke: 1px rgba(227, 246, 255, .5); }
+.marquee span:nth-child(3n+1) { color: var(--text); -webkit-text-stroke: 0; }
+.marquee span::after { content: "✦"; color: var(--cyan); -webkit-text-stroke: 0; margin-left: 56px; font-size: .5em; vertical-align: middle; }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
-.card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
-  box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px;
-}
-.card h3 { margin: 0; font-size: 19px; display: flex; gap: 8px; align-items: center; }
-.card .emoji { font-size: 24px; }
+/* ---------- 段落共用 ---------- */
+section.block { position: relative; z-index: 2; padding-block: clamp(80px, 12vw, 150px); }
+.kicker { font: 600 12px var(--mono); letter-spacing: .3em; color: var(--cyan); text-transform: uppercase; }
+h2.title { margin: 10px 0 0; font: 900 clamp(36px, 6vw, 76px)/1.05 var(--sans); letter-spacing: -.02em; text-wrap: balance; }
+h2.title em { font-style: normal; background: linear-gradient(100deg, var(--cyan), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.sub { color: var(--text-2); max-width: 62ch; font-size: 17px; margin: 16px 0 0; }
+.split-line { display: block; overflow: hidden; }
+.card { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 24px; overflow: hidden; backdrop-filter: blur(8px);
+  transition: border-color .3s, box-shadow .3s; min-width: 0; }
+.card::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(380px circle at var(--mx, 50%) var(--my, 0%), rgba(53, 217, 255, .14), transparent 60%); }
+.card:hover { border-color: rgba(53, 217, 255, .45); box-shadow: 0 20px 60px -30px rgba(53, 217, 255, .6); }
+.card:hover::before { opacity: 1; }
+.card h3 { margin: 0 0 8px; font-size: 19px; display: flex; align-items: center; gap: 10px; }
 .card p { margin: 0; color: var(--text-2); }
-.cmds { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.cmds li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
-.cmds li span { color: var(--text-2); font-size: 15px; }
-.tag {
-  font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft);
-  color: var(--accent-ink); margin-left: auto;
+.emoji { font-size: 26px; line-height: 1; }
+.tag-ai { font: 600 11px var(--mono); color: var(--violet); border: 1px solid rgba(178, 107, 255, .5); border-radius: 999px; padding: 1px 8px; letter-spacing: .08em; }
+.cmds { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 6px; }
+.cmds li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 14px; color: var(--muted); }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); margin-top: 44px; }
+
+/* ---------- 開始使用 ---------- */
+.ways { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 44px; }
+.way { padding: 30px; }
+.way .icon { font: 700 13px var(--mono); color: var(--lime); letter-spacing: .1em; display: inline-block; border: 1px solid rgba(124, 255, 156, .4); border-radius: 999px; padding: 3px 12px; margin-bottom: 18px; }
+.way h3 { font-size: 24px; }
+
+/* ---------- 錢包數字 ---------- */
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 44px; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--line); }
+.stat { background: var(--bg-2); padding: 28px 24px; }
+.stat b { display: block; font: 700 clamp(30px, 4vw, 48px)/1.1 var(--display); color: var(--gold); text-shadow: 0 0 24px rgba(255, 200, 87, .35); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--text-2); font-size: 14px; }
+
+/* ---------- 遊戲：橫向展示 ---------- */
+.games-pin { position: relative; z-index: 2; overflow: hidden; }
+.games-head { padding-top: clamp(80px, 12vw, 150px); }
+.games-track { display: flex; gap: 24px; padding: 48px max(20px, calc((100vw - 1180px) / 2 + 20px)) clamp(80px, 10vw, 120px); width: max-content; will-change: transform; }
+.game { position: relative; width: min(78vw, 380px); min-height: 460px; border-radius: 24px; padding: 28px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden;
+  border: 1px solid var(--line); background: var(--g, linear-gradient(160deg, #10263a, #0a1220)); transform-style: preserve-3d; transition: transform .2s ease-out; flex: none; }
+.game::after { content: ""; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: color-dodge; opacity: .4;
+  background: linear-gradient(115deg, transparent 20%, rgba(255, 0, 180, .45) 36%, rgba(0, 220, 255, .45) 48%, rgba(255, 240, 0, .4) 60%, transparent 76%);
+  background-size: 250% 250%; background-position: var(--hx, 50%) var(--hy, 50%); transition: opacity .3s; }
+.game .big { position: absolute; top: 18px; right: 18px; font-size: 110px; line-height: 1; filter: drop-shadow(0 20px 30px rgba(0, 0, 0, .5)); transform: translateZ(60px); }
+.game .n { position: absolute; top: 26px; left: 28px; font: 600 12px var(--mono); color: rgba(255, 255, 255, .6); letter-spacing: .2em; }
+.game h3 { margin: 0; font: 900 34px/1.1 var(--sans); }
+.game p { color: rgba(227, 246, 255, .82); margin: 10px 0 0; }
+.game .cmds li { color: rgba(227, 246, 255, .6); }
+
+/* ---------- 股票 ---------- */
+.stock-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; margin-top: 44px; align-items: stretch; }
+.chart-card { padding: 0; display: flex; flex-direction: column; }
+.chart-card .quote { display: flex; align-items: baseline; gap: 14px; padding: 22px 24px 0; flex-wrap: wrap; }
+.chart-card .sym { font: 700 15px var(--mono); color: var(--text-2); }
+.chart-card .px { font: 700 40px var(--display); color: var(--rose); text-shadow: 0 0 24px rgba(255, 77, 109, .4); font-variant-numeric: tabular-nums; }
+.chart-card .chg { font: 600 15px var(--mono); color: var(--rose); }
+.chart-card svg { width: 100%; height: 240px; display: block; margin-top: auto; }
+.chart-card .line { stroke-dasharray: 1; }
+.tape { overflow: hidden; border-top: 1px solid var(--line); font: 13px/40px var(--mono); white-space: nowrap; color: var(--muted); }
+.tape div { display: inline-flex; gap: 34px; animation: tape 30s linear infinite; padding-left: 20px; }
+.tape b { color: var(--text); font-weight: 600; }
+.up { color: var(--rose); } .down { color: var(--lime); }
+@keyframes tape { to { transform: translateX(-50%); } }
+.rules { display: grid; gap: 14px; }
+.rules .card { padding: 20px 22px; }
+.rules strong { color: var(--text); }
+
+/* ---------- 待辦：卡片在三欄之間移動 ---------- */
+.kanban-pin { position: relative; }
+.kanban { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 44px; position: relative; }
+.col { border: 1px dashed var(--line); border-radius: 18px; padding: 16px; min-height: 330px; background: rgba(10, 20, 33, .4); }
+.col h4 { margin: 0 0 12px; font: 600 13px var(--mono); letter-spacing: .1em; color: var(--text-2); display: flex; justify-content: space-between; }
+.ghost { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; color: var(--muted); font-size: 14px; background: rgba(255, 255, 255, .02); }
+.task-card { position: absolute; top: 52px; left: 16px; width: calc((100% - 32px) / 3 - 32px); z-index: 3; border-radius: 14px; padding: 16px; background: linear-gradient(160deg, #13304a, #0b1a2b);
+  border: 1px solid var(--cyan); box-shadow: 0 20px 60px -20px rgba(53, 217, 255, .6); will-change: transform; }
+.task-card .t { font-weight: 700; display: flex; gap: 8px; align-items: center; }
+.task-card dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0; font-size: 13px; }
+.task-card dt { color: var(--muted); } .task-card dd { margin: 0; }
+.task-card .status { color: var(--gold); font-weight: 700; }
+.task-card .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.task-card .btns span { font-size: 12px; padding: 3px 10px; border-radius: 6px; background: rgba(255, 255, 255, .08); }
+.task-card .btns .go { background: rgba(124, 255, 156, .2); color: var(--lime); }
+.reward { position: absolute; z-index: 4; right: 24px; top: 20px; font: 700 15px var(--mono); color: var(--gold); opacity: 0; text-shadow: 0 0 20px var(--gold); }
+.task-notes { display: grid; gap: 10px; margin: 28px 0 0; padding: 0; list-style: none; color: var(--text-2); }
+.task-notes li::before { content: "▸ "; color: var(--cyan); }
+
+/* ---------- 3D 圓柱文字 ---------- */
+.cylinder { position: relative; z-index: 2; height: 260vh; }
+.cyl-stage { position: sticky; top: 0; height: 100vh; display: grid; place-items: center; overflow: hidden; perspective: 1100px; }
+.cyl { position: relative; transform-style: preserve-3d; width: 1px; height: 1px; }
+.cyl span { position: absolute; left: 50%; top: 50%; white-space: nowrap; font: 900 clamp(34px, 6.4vw, 92px)/1 var(--sans); backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  transform: translate(-50%, -50%) rotateX(var(--a)) translateZ(var(--r, 300px)); color: var(--text); }
+.cyl span:nth-child(odd) { color: transparent; -webkit-text-stroke: 1px var(--cyan); }
+.cyl-caption { position: absolute; bottom: 6vh; left: 0; right: 0; text-align: center; color: var(--text-2); font-size: 15px; padding-inline: 20px; display: grid; gap: 6px; justify-items: center; }
+.cyl-stage::before, .cyl-stage::after { content: ""; position: absolute; left: 0; right: 0; height: 22vh; z-index: 2; pointer-events: none; }
+.cyl-stage::before { top: 0; background: linear-gradient(var(--bg), transparent); }
+.cyl-stage::after { bottom: 0; background: linear-gradient(transparent, var(--bg)); }
+
+/* ---------- AI 聊天 ---------- */
+.ai-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; margin-top: 44px; align-items: start; }
+.chat { padding: 22px; display: grid; gap: 14px; min-height: 460px; align-content: start; }
+.msg { display: flex; gap: 12px; align-items: flex-start; }
+.av { width: 38px; height: 38px; border-radius: 50%; flex: none; display: grid; place-items: center; background: #1c2b3a; font-size: 18px; }
+.msg.bot .av { background: conic-gradient(from 210deg, var(--violet), var(--cyan), var(--lime), var(--violet)); }
+.who { font-weight: 700; font-size: 14px; } .who small { color: var(--muted); font-weight: 400; margin-left: 6px; font-size: 12px; }
+.who .botbadge { font: 600 10px var(--mono); background: #5865f2; color: #fff; padding: 1px 5px; border-radius: 4px; margin-left: 6px; }
+.bubble { color: var(--text-2); }
+.fake-btn { display: inline-block; margin-top: 8px; padding: 6px 14px; border-radius: 8px; background: #5865f2; color: #fff; font-size: 14px; font-weight: 500; }
+.typing { display: inline-flex; gap: 4px; } .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: dot 1s infinite; }
+.typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes dot { 0%, 60%, 100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-4px); opacity: 1; } }
+.says { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.says li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); transition: border-color .2s, transform .3s var(--ease); }
+.says li:hover { border-color: var(--cyan); transform: translateX(6px); }
+.says .q { color: var(--text); } .says .a { font: 12px var(--mono); color: var(--lime); text-align: right; }
+.personas { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.persona { font-size: 14px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--text-2); background: none; cursor: pointer; font-family: inherit; transition: all .25s; }
+.persona[aria-pressed="true"] { background: var(--cyan); color: #021018; border-color: transparent; box-shadow: 0 0 24px -6px var(--cyan); }
+.note { color: var(--muted); font-size: 14px; margin-top: 18px; }
+
+/* ---------- 管理後台預覽 ---------- */
+.admin-shot { margin-top: 44px; border-radius: 22px; border: 1px solid var(--line); overflow: hidden; background: #030609; box-shadow: 0 60px 120px -50px rgba(53, 217, 255, .5); transform-origin: 50% 0; }
+.admin-bar { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); }
+.admin-bar i { width: 10px; height: 10px; border-radius: 50%; background: #2a3946; }
+.admin-body { display: grid; grid-template-columns: 170px minmax(0, 1fr); min-height: 380px; }
+.admin-side { border-right: 1px solid var(--line); padding: 16px; display: grid; gap: 4px; align-content: start; font-size: 13px; color: var(--text-2); }
+.admin-side b { font: 600 10px var(--mono); letter-spacing: .2em; color: var(--muted); margin-top: 10px; }
+.admin-side span.on { color: #eafcff; box-shadow: inset 2px 0 0 var(--cyan); padding-left: 8px; background: rgba(53, 217, 255, .1); }
+.admin-main { padding: 18px; display: grid; gap: 14px; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-content: start; }
+.admin-main canvas { width: 100%; height: 220px; display: block; }
+.admin-kpis { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.admin-kpis div { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font: 10px var(--mono); color: var(--cyan); letter-spacing: .12em; }
+.admin-kpis b { display: block; font: 600 22px var(--mono); color: var(--cyan); letter-spacing: 0; text-shadow: 0 0 14px rgba(53, 217, 255, .6); }
+.admin-core { display: grid; place-items: center; }
+.admin-term { font: 11.5px/1.7 var(--mono); color: var(--text-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; align-self: stretch; overflow: hidden; }
+.admin-term .ok { color: var(--lime); } .admin-term .err { color: var(--rose); }
+.admin-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 12px 24px; margin: 36px 0 0; padding: 0; list-style: none; color: var(--text-2); }
+.admin-list b { color: var(--text); display: block; }
+
+/* ---------- 常見問題 ---------- */
+.faq details { border-bottom: 1px solid var(--line); padding: 20px 0; }
+.faq summary { cursor: pointer; font-size: 19px; font-weight: 700; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; color: var(--cyan); font: 400 26px/1 var(--display); transition: transform .3s var(--ease); }
+.faq details[open] summary::after { transform: rotate(45deg); }
+.faq details p { color: var(--text-2); margin: 12px 0 0; max-width: 70ch; }
+
+footer { position: relative; z-index: 2; border-top: 1px solid var(--line); padding-block: 60px calc(40px + env(safe-area-inset-bottom, 0px)); overflow: hidden; }
+.big-foot { font: 900 clamp(70px, 18vw, 260px)/.85 var(--display); letter-spacing: -.05em; color: transparent; -webkit-text-stroke: 1px rgba(53, 217, 255, .35); white-space: nowrap; margin: 0 0 30px; }
+footer p { color: var(--muted); margin: 0; }
+
+/* ---------- 窄螢幕 ---------- */
+@media (max-width: 900px) {
+  .ways, .stock-grid, .ai-grid { grid-template-columns: minmax(0, 1fr); }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nav-links { display: none; }
+  .games-track { flex-direction: column; width: auto; padding-inline: max(20px, env(safe-area-inset-left, 0px)) max(20px, env(safe-area-inset-right, 0px)); }
+  .game { width: 100%; min-height: 360px; }
+  .kanban { grid-template-columns: minmax(0, 1fr); }
+  .col { min-height: 0; }
+  .task-card { position: relative; top: 0; left: 0; width: 100%; margin-top: 16px; }
+  .admin-body { grid-template-columns: minmax(0, 1fr); }
+  .admin-side { display: none; }
+  .admin-main { grid-template-columns: minmax(0, 1fr); }
+  .admin-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cylinder { height: 200vh; }
 }
-.tag.ai { background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--gold); }
-
-.feature-wide {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 28px;
-  box-shadow: var(--shadow); display: grid; grid-template-columns: 1fr 1fr; gap: 28px;
-}
-.feature-wide h3 { margin: 0 0 10px; font-size: 20px; }
-.feature-wide ul { margin: 0; padding-left: 1.2em; color: var(--text-2); }
-.feature-wide li { margin-bottom: 6px; }
-.feature-wide li strong { color: var(--text); }
-
-.task-card {
-  border-left: 4px solid var(--accent); background: var(--surface-2); border-radius: 10px; padding: 14px 16px;
-  font-size: 15px;
-}
-.task-card .t { font-weight: 700; margin-bottom: 8px; }
-.task-card dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 0 0 10px; }
-.task-card dt { color: var(--muted); }
-.task-card dd { margin: 0; }
-.task-card .btns { display: flex; flex-wrap: wrap; gap: 6px; }
-.task-card .btns span {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 2px 9px; font-size: 13px;
-}
-.task-card .btns span.go { background: var(--accent); border-color: var(--accent); color: #fff; }
-
-.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 520px; }
-th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
-th { background: var(--surface-2); font-weight: 700; color: var(--text-2); font-size: 14px; }
-tr:last-child td { border-bottom: 0; }
-
-.faq details {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin-bottom: 10px;
-}
-.faq summary { cursor: pointer; font-weight: 700; }
-.faq details p { margin: 10px 0 0; color: var(--text-2); }
-
-footer { padding: 40px 0 56px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--border); }
-
-@media (max-width: 820px) {
-  .hero { grid-template-columns: 1fr; padding-top: 40px; }
-  .steps { grid-template-columns: 1fr; }
-  .feature-wide { grid-template-columns: 1fr; padding: 20px; }
-  .nav .wrap { gap: 10px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .grain, .cursor, .cursor-ring { display: none; }
+  .cylinder { height: auto; }
+  .cyl-stage { position: relative; height: auto; padding-block: 80px; perspective: none; }
+  .cyl { width: auto; height: auto; display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: center; padding-inline: 20px; }
+  .cyl span { position: static; transform: none; font-size: 32px; }
+  .cyl-caption { position: static; margin: 20px 0; }
+  .cyl-stage::before, .cyl-stage::after { display: none; }
 }
 </style>
 </head>
-<body>
+<body class="no-js">
+<div class="loader" aria-hidden="true"><div class="half top"></div><div class="half bottom"></div><div class="count">0</div></div>
+<div class="grain" aria-hidden="true"></div>
+<div class="cursor" aria-hidden="true"></div><div class="cursor-ring" aria-hidden="true"></div>
+<div class="progress" aria-hidden="true"></div>
 
 <nav class="nav" aria-label="主選單">
   <div class="wrap">
-    <a class="brand" href="#top">🐸 嘎哇</a>
+    <a class="brand" href="#top"><i aria-hidden="true"></i>嘎哇</a>
     <div class="nav-links">
-      <a href="#start">開始使用</a>
-      <a href="#wallet">錢包</a>
-      <a href="#games">遊戲</a>
-      <a href="#stocks">股票</a>
-      <a href="#tasks">待辦與專案</a>
-      <a href="#tools">生活工具</a>
-      <a href="#gawa">嘎哇聊天</a>
-      <a href="#admins">給管理員</a>
-      <a href="#faq">常見問題</a>
+      <a href="#start">開始使用</a><a href="#wallet">錢包</a><a href="#games">遊戲</a><a href="#stocks">股票</a>
+      <a href="#tasks">待辦</a><a href="#tools">生活工具</a><a href="#ai">AI 聊天</a><a href="#admins">給管理員</a><a href="#faq">問題</a>
     </div>
-    <button class="theme" id="theme" type="button" aria-label="切換深色／淺色">🌓</button>
   </div>
 </nav>
 
-<header class="wrap hero" id="top">
-  <div>
-    <h1>池塘裡最毒舌的<br><span class="frog">青蛙機器人</span></h1>
-    <p class="lead">嘎哇是一個全繁體中文的 Discord 機器人：新台幣錢包、六款遊戲、股票模擬、音樂、
-      待辦與專案管理、天氣和地震通知，還能直接 <strong>@嘎哇</strong> 用講的叫功能。</p>
-    <div class="chips">
-      <span class="chip">💰 新台幣錢包</span><span class="chip">🃏 6 款遊戲</span><span class="chip">📈 台股模擬</span>
-      <span class="chip">🎵 YouTube 音樂</span><span class="chip">📋 待辦與專案</span><span class="chip">🌦️ 天氣・地震</span>
-    </div>
+<header class="hero" id="top">
+  <canvas id="field" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <span class="eyebrow">Discord bot・繁體中文</span>
+    <h1 id="hero-title"><span class="glow">嘎哇</span></h1>
+    <p class="tag" id="hero-tag">會聊天、會記事、也會陪你玩的伺服器夥伴</p>
+    <p class="lead" id="hero-lead">新台幣錢包、六款遊戲、台股模擬、YouTube 音樂、待辦與專案管理、天氣和地震通知。
+      不想記指令？直接 @ 它說你想做什麼就好。</p>
+    <div class="cta"><a class="btn primary magnetic" href="#start">開始使用 →</a><a class="btn magnetic" href="#games">看看能玩什麼</a></div>
   </div>
-  <div class="chat" aria-label="對話範例">
-    <div class="msg"><div class="avatar">🙂</div><div><div class="who">小明</div>
-      <div class="bubble">@嘎哇 明天要帶傘嗎</div></div></div>
-    <div class="msg bot"><div class="avatar">🐸</div><div><div class="who">嘎哇</div>
-      <div class="bubble">要看天氣喔？下雨的話記得告訴我，本蛙最愛下雨天了，嘎！<br>
-        <span class="fake-btn">🌦️ 看明天的天氣</span></div></div></div>
-    <div class="msg"><div class="avatar">🙂</div><div><div class="who">小明</div>
-      <div class="bubble">@嘎哇 記一下週五前要交企劃書</div></div></div>
-    <div class="msg bot"><div class="avatar">🐸</div><div><div class="who">嘎哇</div>
-      <div class="bubble">交代的事要做完喔，本蛙會盯著你，嘎。<br>
-        <span class="fake-btn">📋 新增待辦：企劃書（11/20 截止）</span></div></div></div>
-  </div>
+  <div class="scroll-hint" aria-hidden="true">SCROLL<i></i></div>
 </header>
+
+<div class="marquee" aria-hidden="true"><div class="track" id="marquee">
+  <span>新台幣錢包</span><span>21 點</span><span>德州撲克</span><span>海龜湯</span><span>台股模擬</span><span>YouTube 音樂</span><span>待辦看板</span><span>颱風警報</span><span>AI 聊天</span>
+  <span>新台幣錢包</span><span>21 點</span><span>德州撲克</span><span>海龜湯</span><span>台股模擬</span><span>YouTube 音樂</span><span>待辦看板</span><span>颱風警報</span><span>AI 聊天</span>
+</div></div>
 
 <section class="block" id="start">
   <div class="wrap">
-    <h2>開始使用</h2>
-    <p class="sub">不用記指令，三種方式都可以：</p>
-    <div class="steps">
-      <div class="step"><h3>打開大廳</h3><p>輸入 <code>/menu</code>，所有功能都有按鈕，點了就能用。結果只有你自己看得到，不會洗頻道。</p></div>
-      <div class="step"><h3>斜線指令</h3><p>在聊天框輸入 <code>/</code> 會列出所有指令；<code>/help</code> 看說明，藍色的指令點了就能直接用。</p></div>
-      <div class="step"><h3>用講的</h3><p>直接 <code>@嘎哇</code> 說你想做什麼，例如「來玩 21 點」「台積電多少」，嘎哇會給你按鈕。</p></div>
+    <span class="kicker">Get started</span>
+    <h2 class="title reveal-title">不用背指令，<em>三種方式</em>都能用</h2>
+    <div class="ways stagger">
+      <article class="card way"><span class="icon">/menu</span><h3>打開大廳</h3>
+        <p>所有功能都有按鈕，點了就能用。結果只有你自己看得到，不會洗頻道。</p></article>
+      <article class="card way"><span class="icon">/</span><h3>斜線指令</h3>
+        <p>在聊天框輸入 <code>/</code> 會列出所有指令；<code>/help</code> 看說明，藍色的指令點了就能直接用。</p></article>
+      <article class="card way"><span class="icon">@嘎哇</span><h3>用講的</h3>
+        <p>「來玩 21 點」「台積電多少」「10 分鐘後提醒我關瓦斯」，它會回你一句話並附上按鈕，按下才執行。</p></article>
     </div>
   </div>
 </section>
 
 <section class="block" id="wallet">
   <div class="wrap">
-    <h2>💰 錢包與日常</h2>
-    <p class="sub">每個人都有一個新台幣錢包，玩遊戲、買股票、完成待辦都用同一個錢包。台灣時間 00:00 換日。</p>
-    <div class="grid">
-      <article class="card"><h3><span class="emoji">✨</span>每日簽到</h3>
-        <p>基礎 10,000 元，第一次簽到再送 50,000；連續簽到每天再多 2,000。</p>
-        <ul class="cmds"><li><code>/checkin</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">💼</span>打工</h3>
-        <p>隨機一份工作：便利商店大夜班、外送、家教、婚宴主持…薪水依台灣實際行情，每小時一次，偶爾老闆加碼雙倍。</p>
-        <ul class="cmds"><li><code>/work</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">🎯</span>每日任務</h3>
-        <p>每天 3 個任務，全部完成再加碼 20,000。在伺服器裡聊天也會慢慢累積存款（每天有上限）。</p>
-        <ul class="cmds"><li><code>/quests</code></li></ul></article>
+    <span class="kicker">Wallet</span>
+    <h2 class="title reveal-title">一個<em>新台幣錢包</em>，玩遊戲、買股票、做待辦都用它</h2>
+    <p class="sub">台灣時間 00:00 換日。錢只在伺服器裡流通，不能換成真的錢。</p>
+    <div class="stats">
+      <div class="stat"><b data-count="10000">10,000</b><span>每日簽到基本獎勵</span></div>
+      <div class="stat"><b data-count="50000">50,000</b><span>第一次簽到加碼</span></div>
+      <div class="stat"><b data-count="2000" data-prefix="+">+2,000</b><span>連續簽到每天再多</span></div>
+      <div class="stat"><b data-count="20000">20,000</b><span>每日 3 任務全完成</span></div>
+    </div>
+    <div class="grid stagger">
+      <article class="card"><h3><span class="emoji">✨</span>每日簽到</h3><p>連續簽到加成越來越多，斷掉就從頭開始。</p><ul class="cmds"><li><code>/checkin</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">💼</span>打工</h3><p>便利商店大夜班、外送、家教、婚宴主持…薪水依台灣實際行情，每小時一次，偶爾老闆加碼雙倍。</p><ul class="cmds"><li><code>/work</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🎯</span>每日任務</h3><p>每天 3 個任務；在伺服器裡聊天也會慢慢累積存款（每天有上限）。</p><ul class="cmds"><li><code>/quests</code></li></ul></article>
       <article class="card"><h3><span class="emoji">👤</span>個人資料與排行</h3>
-        <ul class="cmds">
-          <li><code>/profile [使用者]</code><span>錢包、排名、簽到紀錄、遊戲戰績</span></li>
-          <li><code>/leaderboard</code><span>財富與連續簽到排行榜</span></li>
-          <li><code>/give 對象 金額</code><span>轉帳給朋友</span></li>
-        </ul></article>
+        <ul class="cmds"><li><code>/profile [使用者]</code>錢包、排名、戰績</li><li><code>/leaderboard</code>財富與連續簽到排行</li><li><code>/give 對象 金額</code>轉帳給朋友</li></ul></article>
     </div>
   </div>
 </section>
 
-<section class="block" id="games">
-  <div class="wrap">
-    <h2>🎮 遊戲</h2>
-    <p class="sub">用錢包裡的錢下注，贏的錢直接進錢包；不想下注的遊戲也可以純練習。</p>
-    <div class="grid">
-      <article class="card"><h3><span class="emoji">🃏</span>21 點</h3>
-        <p>跟莊家比誰最接近 21 點，可以加倍，Blackjack 賠 3:2。</p>
-        <ul class="cmds"><li><code>/blackjack [賭注]</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">🎰</span>拉霸機</h3>
-        <p>三個一樣就中獎，最高 100 倍。</p>
-        <ul class="cmds"><li><code>/slots 賭注</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">🔢</span>猜數字</h3>
-        <p>全頻道一起猜，直接在頻道輸入數字，嘎哇用 ⬆️⬇️ 告訴你大了還是小了，猜中的人拿獎勵。</p>
-        <ul class="cmds"><li><code>/guess [範圍]</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">⭕</span>井字遊戲</h3>
-        <p>邀請朋友對戰，或挑戰三種難度的機器人。</p>
-        <ul class="cmds"><li><code>/tictactoe [對手] [難度]</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">♠️</span>德州撲克</h3>
-        <p>2–8 人一桌，可以加入四種個性的電腦對手；支援邊池、逾時自動行動、中途入座，私人手牌面板直接看牌下注。</p>
-        <ul class="cmds"><li><code>/poker [大盲注] [帶入籌碼] [電腦對手]</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">🐢</span>海龜湯 <span class="tag ai">AI</span></h3>
-        <p>AI 擔任湯主，大家輪流問是非題推理出真相。在頻道輸入「？」結尾的問題，湯主回答是、不是或無關；問到關鍵會標 🔑。</p>
-        <ul class="cmds"><li><code>/seatortoise [難度] [題目]</code></li></ul></article>
-    </div>
+<div class="games-pin" id="games">
+  <div class="wrap games-head">
+    <span class="kicker">Games</span>
+    <h2 class="title reveal-title">六款遊戲，<em>贏的錢</em>直接進錢包</h2>
+    <p class="sub">往下捲，遊戲會從右邊滑進來。滑鼠移到卡片上看看閃卡效果。</p>
   </div>
-</section>
+  <div class="games-track" id="games-track">
+    <article class="game" style="--g:linear-gradient(160deg,#173a2a,#0a1a14)"><span class="n">01 / 06</span><span class="big" aria-hidden="true">🃏</span>
+      <h3>21 點</h3><p>跟莊家比誰最接近 21 點，可以加倍，Blackjack 賠 3:2。</p><ul class="cmds"><li><code>/blackjack [賭注]</code></li></ul></article>
+    <article class="game" style="--g:linear-gradient(160deg,#3a2a0c,#1a1206)"><span class="n">02 / 06</span><span class="big" aria-hidden="true">🎰</span>
+      <h3>拉霸機</h3><p>三個一樣就中獎，最高 100 倍。</p><ul class="cmds"><li><code>/slots 賭注</code></li></ul></article>
+    <article class="game" style="--g:linear-gradient(160deg,#10284a,#081428)"><span class="n">03 / 06</span><span class="big" aria-hidden="true">🔢</span>
+      <h3>猜數字</h3><p>全頻道一起猜，直接在頻道輸入數字，機器人用 ⬆️⬇️ 告訴你大了還是小了，猜中的人拿獎勵。</p><ul class="cmds"><li><code>/guess [範圍]</code></li></ul></article>
+    <article class="game" style="--g:linear-gradient(160deg,#2c1640,#140a20)"><span class="n">04 / 06</span><span class="big" aria-hidden="true">⭕</span>
+      <h3>井字遊戲</h3><p>邀請朋友對戰，或挑戰三種難度的機器人。</p><ul class="cmds"><li><code>/tictactoe [對手] [難度]</code></li></ul></article>
+    <article class="game" style="--g:linear-gradient(160deg,#0d3a2c,#061a14)"><span class="n">05 / 06</span><span class="big" aria-hidden="true">♠️</span>
+      <h3>德州撲克</h3><p>2–8 人一桌，可以加入四種個性的電腦對手；支援邊池、逾時自動行動、中途入座。</p><ul class="cmds"><li><code>/poker [大盲注] [帶入籌碼] [電腦對手]</code></li></ul></article>
+    <article class="game" style="--g:linear-gradient(160deg,#0a3540,#04161c)"><span class="n">06 / 06</span><span class="big" aria-hidden="true">🐢</span>
+      <h3>海龜湯 <span class="tag-ai">AI</span></h3><p>AI 擔任湯主，大家輪流問是非題推理出真相；問到關鍵會標 🔑。</p><ul class="cmds"><li><code>/seatortoise [難度] [題目]</code></li></ul></article>
+  </div>
+</div>
 
 <section class="block" id="stocks">
   <div class="wrap">
-    <h2>📈 股票模擬</h2>
-    <p class="sub">用錢包裡的新台幣買賣台股（上市股票與 ETF），整股零股都可以，賣出的錢回到同一個錢包。</p>
-    <div class="feature-wide">
-      <div>
-        <h3>怎麼玩</h3>
-        <ul class="cmds">
-          <li><code>/stock quote 股票</code><span>股價、漲跌、走勢、本益比，按鈕直接買賣</span></li>
-          <li><code>/stock buy 股票 股數</code><span>買進</span></li>
-          <li><code>/stock sell 股票 股數</code><span>賣出</span></li>
-          <li><code>/stock account</code><span>持股與損益</span></li>
-          <li><code>/stock orders</code>・<code>/stock history</code><span>委託單、交易紀錄</span></li>
-          <li><code>/stock rank</code><span>伺服器股票損益排行</span></li>
-        </ul>
+    <span class="kicker">Stocks</span>
+    <h2 class="title reveal-title">用錢包的錢，<em>模擬買賣台股</em></h2>
+    <p class="sub">上市股票與 ETF、整股零股都可以，賣出的錢回到同一個錢包。台股習慣：紅色漲、綠色跌。</p>
+    <div class="stock-grid">
+      <div class="card chart-card">
+        <div class="quote"><span class="sym">2330 台積電</span><span class="px" id="px">1,085</span><span class="chg">▲ +25（+2.36%）</span></div>
+        <svg viewBox="0 0 600 240" preserveAspectRatio="none" aria-label="範例走勢圖">
+          <defs><linearGradient id="sf" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ff4d6d" stop-opacity=".35"/><stop offset="1" stop-color="#ff4d6d" stop-opacity="0"/></linearGradient></defs>
+          <path id="stock-area" fill="url(#sf)" d=""/>
+          <path id="stock-line" class="line" fill="none" stroke="#ff4d6d" stroke-width="2.5" vector-effect="non-scaling-stroke" pathLength="1" d=""/>
+        </svg>
+        <div class="tape" aria-hidden="true"><div>
+          <span><b>2330</b> <span class="up">▲2.36%</span></span><span><b>2317</b> <span class="down">▼0.61%</span></span><span><b>0050</b> <span class="up">▲1.12%</span></span><span><b>2454</b> <span class="up">▲3.05%</span></span><span><b>2603</b> <span class="down">▼1.40%</span></span><span><b>2882</b> <span class="up">▲0.48%</span></span>
+          <span><b>2330</b> <span class="up">▲2.36%</span></span><span><b>2317</b> <span class="down">▼0.61%</span></span><span><b>0050</b> <span class="up">▲1.12%</span></span><span><b>2454</b> <span class="up">▲3.05%</span></span><span><b>2603</b> <span class="down">▼1.40%</span></span><span><b>2882</b> <span class="up">▲0.48%</span></span>
+        </div></div>
       </div>
-      <div>
-        <h3>跟真的一樣</h3>
-        <ul>
-          <li><strong>即時行情</strong>：盤中用證交所即時報價（約 5 秒更新）。</li>
-          <li><strong>盤後下單</strong>：收盤後下的單，用下一個交易日的開盤價成交。</li>
-          <li><strong>手續費與交易稅</strong>：手續費 0.1425%（整股最低 20 元），賣出時股票收 0.3%、ETF 收 0.1% 交易稅。</li>
-        </ul>
+      <div class="rules stagger">
+        <div class="card"><strong>即時行情</strong>：盤中用證交所即時報價（約 5 秒更新）。</div>
+        <div class="card"><strong>盤後下單</strong>：收盤後下的單，用下一個交易日的開盤價成交。</div>
+        <div class="card"><strong>手續費與交易稅</strong>：手續費 0.1425%（整股最低 20 元），賣出時股票收 0.3%、ETF 收 0.1% 交易稅。</div>
+        <div class="card"><ul class="cmds" style="margin:0">
+          <li><code>/stock quote 股票</code>股價、走勢、本益比，按鈕直接買賣</li>
+          <li><code>/stock buy</code>・<code>/stock sell</code>買進、賣出</li>
+          <li><code>/stock account</code>・<code>/stock rank</code>持股損益、伺服器排行</li></ul></div>
       </div>
     </div>
   </div>
 </section>
 
-<section class="block" id="tasks">
+<section class="block kanban-pin" id="tasks">
   <div class="wrap">
-    <h2>📋 待辦與專案管理</h2>
-    <p class="sub">把要做的事變成頻道裡的任務卡片，指派負責人、設定截止日，嘎哇會在到期前提醒。適合朋友一起做 side project，或家裡分工。</p>
-
-    <div class="feature-wide">
-      <div>
-        <h3>任務卡片</h3>
-        <ul class="cmds">
-          <li><code>/task add 內容 [負責人] [截止] [優先度] [重複]</code></li>
-          <li><code>/task list [範圍]</code><span>全部、我的、指派給我的、沒人負責的</span></li>
-          <li><code>/task done 待辦</code><span>直接完成</span></li>
-        </ul>
-        <ul style="margin-top:14px">
-          <li><strong>截止時間</strong>可以寫 <code>明天</code>、<code>週五</code>、<code>下週一</code>、<code>11/20</code>、<code>明天 18:00</code>、<code>週五下午3點</code>、<code>3d</code>。</li>
-          <li><strong>提醒</strong>：截止前 24 小時提醒一次，逾期再通知一次，卡片變紅。</li>
-          <li><strong>週期任務</strong>：每天、平日、每週、每月，完成後自動建立下一次。</li>
-          <li><strong>完成獎勵</strong>：別人指派給你的待辦完成時，依優先度拿到 3,000／5,000／10,000 元（每天最多 5 次）。</li>
-          <li><strong>沒人負責</strong>的任務，任何人都可以按「🙋 我來做」認領。</li>
-        </ul>
+    <span class="kicker">Tasks &amp; projects</span>
+    <h2 class="title reveal-title">把要做的事變成<em>任務卡片</em></h2>
+    <p class="sub">指派負責人、設定截止日，到期前會提醒。往下捲，看卡片從「待辦」一路走到「完成」。</p>
+    <div class="kanban" id="kanban">
+      <div class="col"><h4>📝 待辦 <span>3</span></h4><div class="ghost">#13 買派對飲料</div><div class="ghost">#15 整理照片</div></div>
+      <div class="col"><h4>🔨 進行中 <span>2</span></h4><div class="ghost">#9 報名表</div></div>
+      <div class="col"><h4>✅ 完成 <span>8</span></h4><div class="ghost">#7 訂餐廳</div><div class="ghost">#8 發邀請</div></div>
+      <div class="task-card" id="task-card">
+        <div class="t">#12 首頁改版</div>
+        <dl><dt>狀態</dt><dd class="status" id="task-status">待辦</dd><dt>負責人</dt><dd>@小明</dd><dt>優先度</dt><dd>🔴 高</dd><dt>截止</dt><dd>11/20（五）18:00</dd></dl>
+        <div class="btns"><span class="go">✅ 完成</span><span>✏️ 編輯</span><span>👤 指派</span></div>
       </div>
-      <div>
-        <div class="task-card" aria-label="任務卡片範例">
-          <div class="t">🔨 #12 首頁改版</div>
-          <dl>
-            <dt>狀態</dt><dd>進行中</dd>
-            <dt>負責人</dt><dd>@小明</dd>
-            <dt>優先度</dt><dd>🔴 高</dd>
-            <dt>專案</dt><dd>📁 網站・🏁 第一版上線</dd>
-            <dt>截止</dt><dd>11/20（五）18:00（3 天後）</dd>
-          </dl>
-          <div class="btns"><span class="go">✅ 完成</span><span>✏️ 編輯</span><span>👤 指派</span><span>🗑️ 刪除</span></div>
-        </div>
-        <p style="color:var(--muted);font-size:14px;margin:8px 0 0">卡片上的按鈕直接更新進度，嘎哇重開也照樣能按。</p>
-      </div>
+      <div class="reward" id="reward">+10,000 元 獎勵！</div>
     </div>
-
-    <div class="grid" style="margin-top:16px">
-      <article class="card"><h3><span class="emoji">📁</span>專案與里程碑</h3>
-        <p>專案綁定一個頻道，在那個頻道新增的待辦自動歸到這個專案；里程碑會顯示完成百分比。</p>
-        <ul class="cmds">
-          <li><code>/project create 名稱 [頻道]</code></li>
-          <li><code>/project view 專案</code><span>進度、里程碑、未完成</span></li>
-          <li><code>/project milestone 專案 名稱 [目標日期]</code></li>
-          <li><code>/project list</code>・<code>/project archive 專案</code></li>
-        </ul></article>
-      <article class="card"><h3><span class="emoji">☀️</span>每日摘要與週報 <span class="tag ai">AI</span></h3>
-        <p>每天早上 9 點在專案頻道列出逾期、今天到期、進行中的待辦；每週五下午 5 點發週報，由 AI 寫一段本週總結。</p>
-        <ul class="cmds"><li><code>/project report 專案</code><span>隨時手動產生週報</span></li></ul></article>
-      <article class="card"><h3><span class="emoji">🐙</span>GitHub 整合</h3>
-        <p>綁定 repo 後，新的 issue、PR、合併、GitHub Actions 失敗會通知到專案頻道；commit 訊息寫 <code>task#12</code> 就自動完成待辦 #12。</p>
+    <ul class="task-notes">
+      <li><strong>截止時間</strong>可以寫 <code>明天</code>、<code>週五</code>、<code>下週一</code>、<code>11/20</code>、<code>明天 18:00</code>、<code>3d</code>。</li>
+      <li><strong>提醒</strong>：截止前 24 小時提醒一次，逾期再通知一次，卡片變紅。</li>
+      <li><strong>週期任務</strong>：每天、平日、每週、每月，完成後自動建立下一次。</li>
+      <li><strong>完成獎勵</strong>：別人指派給你的待辦完成時，依優先度拿到 3,000／5,000／10,000 元。</li>
+    </ul>
+    <div class="grid stagger">
+      <article class="card"><h3><span class="emoji">📁</span>專案與里程碑</h3><p>專案綁定一個頻道，在那裡新增的待辦自動歸到這個專案；里程碑會顯示完成百分比。</p>
+        <ul class="cmds"><li><code>/project create 名稱 [頻道]</code></li><li><code>/project milestone 專案 名稱</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">☀️</span>每日摘要與週報 <span class="tag-ai">AI</span></h3><p>每天早上 9 點列出逾期與今天到期的待辦；每週五下午 5 點由 AI 寫一段本週總結。</p>
+        <ul class="cmds"><li><code>/project report 專案</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🐙</span>GitHub 整合</h3><p>issue、PR、Actions 失敗通知到專案頻道；commit 訊息寫 <code>task#12</code> 就完成待辦 #12。</p>
         <ul class="cmds"><li><code>/project github 專案 owner/repo</code></li></ul></article>
     </div>
   </div>
 </section>
 
+<div class="cylinder" id="tools-cyl" aria-label="生活工具一覽：天氣、颱風警報、停班停課、地震報告、提醒、投票、音樂、我錯過了什麼、更新日誌">
+  <div class="cyl-stage">
+    <div class="cyl" id="cyl" aria-hidden="true">
+      <span>天氣預報</span><span>颱風警報</span><span>停班停課</span><span>地震報告</span><span>提醒</span><span>投票</span>
+      <span>YouTube 音樂</span><span>我錯過了什麼</span><span>更新日誌</span><span>伺服器設定</span>
+    </div>
+    <p class="cyl-caption"><span class="kicker">Daily tools</span>台灣在地的生活小幫手，往下捲轉一圈</p>
+  </div>
+</div>
+
 <section class="block" id="tools">
   <div class="wrap">
-    <h2>🧰 生活工具</h2>
-    <p class="sub">台灣在地的小幫手。</p>
-    <div class="grid">
-      <article class="card"><h3><span class="emoji">🎵</span>音樂</h3>
-        <p>在你所在的語音頻道播 YouTube 的歌，有播放清單和上一首、暫停、下一首按鈕；也可以說「@嘎哇 放周杰倫的晴天」。</p>
-        <ul class="cmds"><li><code>/play 歌曲</code></li><li><code>/music</code><span>控制面板</span></li></ul></article>
-      <article class="card"><h3><span class="emoji">⏰</span>提醒</h3>
-        <p>時間到在頻道提醒你，bot 重開也不會忘。支援 <code>10m</code>、<code>1h30m</code>、<code>18:30</code>、<code>明天 9:00</code>。</p>
-        <ul class="cmds"><li><code>/remind 時間 內容</code></li><li><code>/reminders</code><span>查看或取消</span></li></ul></article>
-      <article class="card"><h3><span class="emoji">📊</span>投票</h3>
-        <p>按鈕投票，即時顯示票數，可以設定自動截止；再按一次同一個選項就是取消。</p>
-        <ul class="cmds"><li><code>/poll [時長]</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">🌦️</span>天氣</h3>
-        <p>全台 368 個鄉鎮都能查今天或明天的天氣、降雨機率與穿衣建議；管理員可以設定伺服器的地點（最多 3 個）和每天自動傳送的頻道、時間。</p>
-        <ul class="cmds"><li><code>/weather [日期] [地點]</code></li><li><code>/settings weather</code><span>管理員</span></li></ul></article>
-      <article class="card"><h3><span class="emoji">🌀</span>颱風豪雨與停班停課</h3>
-        <p>颱風警報、豪雨大雨特報、停班停課公告自動通知到頻道，只通知你們地點所在的縣市；隨時也能查現況。</p>
-        <ul class="cmds"><li><code>/alert</code></li><li><code>/settings alerts</code><span>管理員</span></li></ul></article>
-      <article class="card"><h3><span class="emoji">🧾</span>我錯過了什麼 <span class="tag ai">AI</span></h3>
-        <p>離開一下回來訊息太多？AI 幫你整理這個頻道沒看到的重點，有人提到你也會附連結，只有你看得到。</p>
-        <ul class="cmds"><li><code>/catchup [小時]</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">📰</span>更新日誌</h3>
-        <p>機器人最近更新了什麼？每一次更新的內容都列在這裡，最新的在最前面，用按鈕翻上一頁、下一頁。</p>
-        <ul class="cmds"><li><code>/changelog [頁數]</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">⚙️</span>伺服器設定</h3>
-        <p>管理員可以自己勾選這個伺服器要開哪些功能，不想要遊戲或股票就關掉。</p>
-        <ul class="cmds"><li><code>/settings features</code></li><li><code>/settings show</code></li></ul></article>
-      <article class="card"><h3><span class="emoji">🌏</span>地震報告</h3>
-        <p>資料來自中央氣象署；台北震度 4 級以上會自動通報到頻道。</p>
-        <ul class="cmds"><li><code>/earthquake</code></li></ul></article>
+    <span class="kicker">Tools</span>
+    <h2 class="title reveal-title">台灣在地的<em>生活工具</em></h2>
+    <div class="grid stagger-3d">
+      <article class="card"><h3><span class="emoji">🎵</span>音樂</h3><p>在你所在的語音頻道播 YouTube，有播放清單和上一首、暫停、下一首按鈕；也可以說「@嘎哇 放周杰倫的晴天」。</p><ul class="cmds"><li><code>/play 歌曲</code></li><li><code>/music</code>控制面板</li></ul></article>
+      <article class="card"><h3><span class="emoji">🌦️</span>天氣</h3><p>全台 368 個鄉鎮的今天、明天天氣、降雨機率與穿衣建議；每天早上可以自動傳到頻道。</p><ul class="cmds"><li><code>/weather [日期] [地點]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🌀</span>颱風豪雨與停班停課</h3><p>颱風警報、豪雨特報、停班停課自動通知，只通知你們地點所在的縣市。</p><ul class="cmds"><li><code>/alert</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🌏</span>地震報告</h3><p>資料來自中央氣象署；台北震度 4 級以上會自動通報到頻道。</p><ul class="cmds"><li><code>/earthquake</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">⏰</span>提醒</h3><p>支援 <code>10m</code>、<code>1h30m</code>、<code>18:30</code>、<code>明天 9:00</code>，bot 重開也不會忘。</p><ul class="cmds"><li><code>/remind 時間 內容</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">📊</span>投票</h3><p>按鈕投票，即時顯示票數，可以設定自動截止。</p><ul class="cmds"><li><code>/poll [時長]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">🧾</span>我錯過了什麼 <span class="tag-ai">AI</span></h3><p>AI 幫你整理這個頻道沒看到的重點，有人提到你也會附連結，只有你看得到。</p><ul class="cmds"><li><code>/catchup [小時]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">📰</span>更新日誌</h3><p>機器人最近更新了什麼，最新的在最前面，用按鈕翻頁。</p><ul class="cmds"><li><code>/changelog [頁數]</code></li></ul></article>
+      <article class="card"><h3><span class="emoji">⚙️</span>伺服器設定</h3><p>管理員可以自己開關功能、設定天氣地點與通知頻道。</p><ul class="cmds"><li><code>/settings</code></li></ul></article>
     </div>
   </div>
 </section>
 
-<section class="block" id="gawa">
+<section class="block" id="ai">
   <div class="wrap">
-    <h2>🐸 嘎哇聊天 <span class="tag ai" style="font-size:14px;vertical-align:middle">AI</span></h2>
-    <p class="sub">嘎哇是一隻住在伺服器池塘裡、嘴巴很毒但心很軟的青蛙。@嘎哇 就能聊天，或用講的叫功能。</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>你可以這樣說</th><th>嘎哇會給你</th></tr></thead>
-        <tbody>
-          <tr><td>明天要帶傘嗎？那後天呢</td><td>天氣按鈕（會接話）</td></tr>
-          <tr><td>幫我簽到、我想打工</td><td>簽到、打工按鈕</td></tr>
-          <tr><td>好無聊想玩遊戲、來一局德州撲克</td><td>遊戲按鈕</td></tr>
-          <tr><td>台積電現在多少？那鴻海呢</td><td>股價按鈕</td></tr>
-          <tr><td>10 分鐘後提醒我關瓦斯</td><td>設定提醒按鈕</td></tr>
-          <tr><td>記一下週五前要交企劃書、把簡報交給 @小明</td><td>新增待辦按鈕</td></tr>
-          <tr><td>放周杰倫的晴天</td><td>直接開始播放</td></tr>
-          <tr><td>最近更新了什麼？有什麼新功能</td><td>更新日誌按鈕</td></tr>
-          <tr><td>今天好累喔</td><td>毒舌但溫暖的安慰</td></tr>
-        </tbody>
-      </table>
+    <span class="kicker">AI chat</span>
+    <h2 class="title reveal-title">直接 @ 它，<em>用講的</em>就好</h2>
+    <p class="sub">AI 判斷你想用哪個功能，回一句話並附上按鈕，本人按下才執行。個性可以由管理員設定：毒舌傲嬌、溫柔助理、正經客服、中二……點下面試試。</p>
+    <div class="personas" role="group" aria-label="切換個性範例">
+      <button class="persona" type="button" aria-pressed="true" data-p="tsun">毒舌傲嬌</button>
+      <button class="persona" type="button" aria-pressed="false" data-p="kind">溫柔助理</button>
+      <button class="persona" type="button" aria-pressed="false" data-p="pro">正經客服</button>
+      <button class="persona" type="button" aria-pressed="false" data-p="chuuni">中二</button>
     </div>
-    <p class="sub" style="margin-top:16px">按鈕只有說話的人能按，按下才會執行。轉帳、加錢、買賣股票這類會動到錢的事，嘎哇一律不幫忙，請用斜線指令。</p>
+    <div class="ai-grid">
+      <div class="card chat" id="chat" aria-live="polite">
+        <div class="msg"><div class="av">🙂</div><div><div class="who">小明 <small>今天 21:03</small></div><div class="bubble">@嘎哇 明天要帶傘嗎</div></div></div>
+        <div class="msg bot"><div class="av" aria-hidden="true"></div><div><div class="who">嘎哇<span class="botbadge">BOT</span></div>
+          <div class="bubble"><span class="reply">要看天氣喔？自己按啦，我又不是氣象主播……好啦給你按鈕。</span><br><span class="fake-btn">🌦️ 看明天的天氣</span></div></div></div>
+        <div class="msg"><div class="av">🙂</div><div><div class="who">小明 <small>今天 21:04</small></div><div class="bubble">@嘎哇 記一下週五前要交企劃書</div></div></div>
+        <div class="msg bot"><div class="av" aria-hidden="true"></div><div><div class="who">嘎哇<span class="botbadge">BOT</span></div>
+          <div class="bubble"><span class="reply">又要我幫你記事？好啦，按一下。</span><br><span class="fake-btn">📋 新增待辦：企劃書（11/20 截止）</span></div></div></div>
+      </div>
+      <div>
+        <ul class="says stagger">
+          <li><span class="q">明天要帶傘嗎？那後天呢</span><span class="a">天氣按鈕・會接話</span></li>
+          <li><span class="q">幫我簽到、我想打工</span><span class="a">簽到、打工按鈕</span></li>
+          <li><span class="q">好無聊、來一局德州撲克</span><span class="a">遊戲按鈕</span></li>
+          <li><span class="q">台積電現在多少？那鴻海呢</span><span class="a">股價按鈕</span></li>
+          <li><span class="q">10 分鐘後提醒我關瓦斯</span><span class="a">設定提醒按鈕</span></li>
+          <li><span class="q">把簡報交給 @小明 下週一前</span><span class="a">新增待辦按鈕</span></li>
+          <li><span class="q">放周杰倫的晴天</span><span class="a">直接開始播放</span></li>
+          <li><span class="q">最近更新了什麼？</span><span class="a">更新日誌按鈕</span></li>
+          <li><span class="q">今天好累喔</span><span class="a">照個性回話</span></li>
+        </ul>
+        <p class="note">轉帳、加錢、買賣股票這類會動到錢的事，AI 一律不幫忙，請用斜線指令。AI 跑在主人自己的電腦上，對話不會傳到雲端。</p>
+      </div>
+    </div>
   </div>
 </section>
 
 <section class="block" id="admins">
   <div class="wrap">
-    <h2>🛠️ 給伺服器管理員</h2>
-    <div class="grid">
-      <article class="card"><h3><span class="emoji">🎛️</span>功能開關</h3>
-        <p>不需要的功能可以關掉，例如只想要待辦和天氣、不要遊戲。關掉後指令會回覆「已關閉」、說明和大廳不再列出、自動通知也會停止。
-          可以只關某個伺服器，也可以全部一起關。</p></article>
-      <article class="card"><h3><span class="emoji">📌</span>公開大廳</h3>
-        <p>有「管理訊息」權限的人可以用 <code>/menu 公開:True</code> 把大廳發在頻道裡，大家都能直接按。</p></article>
-      <article class="card"><h3><span class="emoji">🧹</span>清除訊息</h3>
-        <p><code>/clear 數量</code> 一次清除頻道裡的訊息（需要管理訊息權限）。</p></article>
+    <span class="kicker">For admins</span>
+    <h2 class="title reveal-title">給管理員的<em>控制中心</em></h2>
+    <p class="sub">伺服器管理員可以在 Discord 用 <code>/settings</code> 調整；架 bot 的人還有一個網頁管理後台。</p>
+    <div class="admin-shot" id="admin-shot" aria-label="管理後台畫面示意">
+      <div class="admin-bar"><i></i><i></i><i></i><span>CONTROL CENTER・總覽</span></div>
+      <div class="admin-body">
+        <div class="admin-side"><b>首頁</b><span class="on">總覽</span><b>經濟</b><span>使用者</span><span>股票</span><b>功能</b><span>功能開關</span><span>伺服器設定</span><span>音樂</span><b>AI</b><span>AI 與個性</span></div>
+        <div class="admin-main">
+          <div class="admin-kpis"><div>USERS<b data-count="1284">1,284</b></div><div>CMDS<b data-count="5321">5,321</b></div><div>SERVERS<b data-count="12">12</b></div><div>ERRORS<b>0</b></div></div>
+          <div class="admin-core"><canvas id="core" aria-hidden="true"></canvas></div>
+          <div class="admin-term" id="admin-term">
+            <div><span class="ok">INFO</span> 讀書會 開始播放 晴天</div><div><span class="ok">INFO</span> 小美 簽到，連續 18 天</div>
+            <div><span class="ok">INFO</span> 判斷意圖 weather（1.6 秒）</div><div><span class="ok">INFO</span> 新增待辦 #52</div>
+            <div><span class="ok">INFO</span> 遊戲群 德州撲克開局</div><div><span class="ok">INFO</span> CI 通過，自動更新</div>
+          </div>
+        </div>
+      </div>
     </div>
+    <ul class="admin-list stagger">
+      <li><b>🎛️ 功能開關</b>不需要的功能可以關掉，可以只關某個伺服器，也可以全部一起關。</li>
+      <li><b>🤖 AI 與個性</b>改機器人的稱呼、個性、台詞，先試聊再儲存，每次儲存都能還原。</li>
+      <li><b>🌦️ 伺服器設定</b>天氣地點、每日預報、颱風與停班停課通知頻道。</li>
+      <li><b>📈 股票、🎵 音樂、⛏️ Minecraft</b>看排行、取消委託、控制播放、開關遊戲伺服器。</li>
+      <li><b>📌 公開大廳</b><code>/menu 公開:True</code> 把大廳發在頻道裡，大家都能直接按。</li>
+      <li><b>🧹 清除訊息</b><code>/clear 數量</code> 一次清除頻道訊息。</li>
+    </ul>
   </div>
 </section>
 
 <section class="block faq" id="faq">
   <div class="wrap">
-    <h2>常見問題</h2>
-    <details><summary>錢可以換成真的新台幣嗎？</summary>
-      <p>不行，錢包裡的新台幣只是遊戲用的虛擬貨幣，不能兌換、也不能買賣。</p></details>
-    <details><summary>嘎哇說「大腦在睡覺」是什麼意思？</summary>
-      <p>嘎哇聊天、海龜湯和週報的 AI 跑在主人的電腦上，那台電腦關機時 AI 就暫時不能用。斜線指令和其他功能都照常可以用。</p></details>
-    <details><summary>我的對話會被傳到雲端嗎？</summary>
-      <p>不會。AI 用的是自己架的 Ollama，對話只在主人的電腦上處理；聊天記錄只存在記憶體，bot 重開就忘。</p></details>
-    <details><summary>為什麼有些指令說「已經關閉」？</summary>
-      <p>這個伺服器的管理員把那個功能關掉了，可以請管理員打開。</p></details>
-    <details><summary>中文介面看到的指令名稱不一樣？</summary>
-      <p>Discord 語言設定成中文時，指令會顯示中文名稱，例如 <code>/task add</code> 顯示成 <code>/待辦 新增</code>，功能完全一樣。</p></details>
+    <span class="kicker">FAQ</span>
+    <h2 class="title reveal-title">常見問題</h2>
+    <div style="margin-top:36px">
+      <details><summary>錢可以換成真的新台幣嗎？</summary><p>不行，錢包裡的新台幣只是遊戲用的虛擬貨幣，不能兌換、也不能買賣。</p></details>
+      <details><summary>機器人說「大腦在睡覺」是什麼意思？</summary><p>AI 聊天、海龜湯和週報的 AI 跑在主人的電腦上，那台電腦關機時 AI 就暫時不能用。斜線指令和其他功能都照常可以用。</p></details>
+      <details><summary>我的對話會被傳到雲端嗎？</summary><p>不會。AI 用的是自己架的 Ollama，對話只在主人的電腦上處理；聊天記錄只存在記憶體，bot 重開就忘。</p></details>
+      <details><summary>為什麼有些指令說「已經關閉」？</summary><p>這個伺服器的管理員把那個功能關掉了，可以請管理員打開。</p></details>
+      <details><summary>中文介面看到的指令名稱不一樣？</summary><p>Discord 語言設定成中文時，指令會顯示中文名稱，例如 <code>/task add</code> 顯示成 <code>/待辦 新增</code>，功能完全一樣。</p></details>
+    </div>
   </div>
 </section>
 
 <footer>
-  <div class="wrap">🐸 嘎哇 Bot・在 Discord 輸入 <code>/help</code> 看指令說明，或 <code>/menu</code> 打開大廳。</div>
+  <div class="big-foot" aria-hidden="true">/help /menu</div>
+  <div class="wrap"><p>嘎哇 Bot・在 Discord 輸入 <code>/help</code> 看指令說明，或 <code>/menu</code> 打開大廳。</p></div>
 </footer>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
 <script>
 (function () {
-  var root = document.documentElement;
-  try { var saved = localStorage.getItem("theme"); if (saved) root.setAttribute("data-theme", saved); } catch (e) {}
-  document.getElementById("theme").addEventListener("click", function () {
-    var dark = root.getAttribute("data-theme") ? root.getAttribute("data-theme") === "dark"
-      : matchMedia("(prefers-color-scheme: dark)").matches;
-    var next = dark ? "light" : "dark";
-    root.setAttribute("data-theme", next);
-    try { localStorage.setItem("theme", next); } catch (e) {}
+  "use strict";
+  var body = document.body;
+  body.classList.remove("no-js");
+  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var fine = matchMedia("(pointer: fine)").matches;
+  var desktop = matchMedia("(min-width: 901px)").matches;
+  var hasGsap = typeof gsap !== "undefined" && typeof ScrollTrigger !== "undefined";
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var fmt = function (n) { return Math.round(n).toLocaleString("en-US"); };
+
+  // ------------------------------------------------ 卡片聚光燈（不需要 GSAP）
+  $$(".card").forEach(function (c) {
+    c.addEventListener("pointermove", function (e) {
+      var r = c.getBoundingClientRect();
+      c.style.setProperty("--mx", (e.clientX - r.left) + "px"); c.style.setProperty("--my", (e.clientY - r.top) + "px");
+    });
   });
+
+  // ------------------------------------------------ 遊戲卡：3D 傾斜＋全像閃卡
+  $$(".game").forEach(function (g) {
+    g.addEventListener("pointermove", function (e) {
+      if (reduce) return;
+      var r = g.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+      g.style.transform = "perspective(900px) rotateY(" + ((x - .5) * 14) + "deg) rotateX(" + ((.5 - y) * 10) + "deg)";
+      g.style.setProperty("--hx", x * 100 + "%"); g.style.setProperty("--hy", y * 100 + "%");
+    });
+    g.addEventListener("pointerleave", function () { g.style.transform = ""; });
+  });
+
+  // ------------------------------------------------ 個性切換（範例對話換語氣）
+  var LINES = {
+    tsun: ["要看天氣喔？自己按啦，我又不是氣象主播……好啦給你按鈕。", "又要我幫你記事？好啦，按一下。"],
+    kind: ["幫你看看明天的天氣，出門前記得確認喔 ☀️", "好的，我幫你記下來了，按一下確認就可以～"],
+    pro: ["以下為明天的天氣查詢。", "已為您建立待辦草稿，請確認後送出。"],
+    chuuni: ["哼……天穹之兆就讓吾為你揭曉！", "吾已將此契約刻入記憶之石，凡人，按下吧！"]
+  };
+  $$(".persona").forEach(function (b) {
+    b.addEventListener("click", function () {
+      $$(".persona").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+      var lines = LINES[b.dataset.p];
+      $$("#chat .reply").forEach(function (el, i) { typeInto(el, lines[i], i * 500); });
+    });
+  });
+  function typeInto(el, text, delay) {
+    if (reduce) { el.textContent = text; return; }
+    el.textContent = "";
+    var dots = document.createElement("span"); dots.className = "typing"; dots.innerHTML = "<i></i><i></i><i></i>";
+    setTimeout(function () {
+      el.append(dots);
+      setTimeout(function () {
+        dots.remove(); var i = 0;
+        (function tick() { el.textContent = text.slice(0, ++i); if (i < text.length) setTimeout(tick, 24); })();
+      }, 600);
+    }, delay);
+  }
+
+  // ------------------------------------------------ 首頁：漂浮的指令與光點（Canvas）
+  var field = $("#field");
+  (function () {
+    var c = field.getContext("2d"), w, h, d = Math.min(devicePixelRatio || 1, 2), mouse = { x: 0, y: 0 }, t0 = performance.now();
+    var WORDS = ["/checkin", "/work", "/poker", "/blackjack", "/slots", "/weather", "/stock", "/play", "/task add", "/remind", "/poll", "/catchup", "/menu", "/help", "/alert", "@嘎哇", "💰", "🃏", "♠️", "🎵", "📈", "🌦️", "📋", "🐢"];
+    var items = [];
+    function size() { var r = field.getBoundingClientRect(); w = r.width; h = r.height; field.width = w * d; field.height = h * d; c.setTransform(d, 0, 0, d, 0, 0); }
+    size(); addEventListener("resize", size);
+    for (var i = 0; i < 46; i++) items.push({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random(), s: WORDS[i % WORDS.length], v: .0006 + Math.random() * .0012 });
+    var stars = []; for (var k = 0; k < 140; k++) stars.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.3, p: Math.random() * 6 });
+    addEventListener("pointermove", function (e) { mouse.x = e.clientX / innerWidth - .5; mouse.y = e.clientY / innerHeight - .5; });
+    function draw(now) {
+      var t = (now - t0) / 1000;
+      c.clearRect(0, 0, w, h);
+      var g = c.createRadialGradient(w * .7, h * .35, 0, w * .7, h * .35, Math.max(w, h) * .7);
+      g.addColorStop(0, "rgba(53,217,255,.16)"); g.addColorStop(.4, "rgba(178,107,255,.09)"); g.addColorStop(1, "rgba(4,7,13,0)");
+      c.fillStyle = g; c.fillRect(0, 0, w, h);
+      stars.forEach(function (s) { c.fillStyle = "rgba(200,240,255," + (.25 + .25 * Math.sin(t * 2 + s.p)) + ")"; c.beginPath(); c.arc(s.x * w, s.y * h, s.r, 0, 6.3); c.fill(); });
+      items.forEach(function (it) {
+        if (!reduce) { it.z -= it.v; if (it.z <= .02) { it.z = 1; it.x = Math.random() * 2 - 1; it.y = Math.random() * 2 - 1; } }
+        var scale = 1 / it.z, px = w / 2 + (it.x * w * .5 - mouse.x * 120 * (1 - it.z)) * scale * .35, py = h / 2 + (it.y * h * .5 - mouse.y * 90 * (1 - it.z)) * scale * .35;
+        var alpha = Math.min(1, (1 - it.z) * 1.6) * (it.z < .12 ? it.z / .12 : 1) * (w < 700 ? .35 : 1);
+        var size = Math.max(9, 13 * scale * .55);
+        if (size > 90) return;
+        c.font = (it.s.charAt(0) === "/" || it.s.charAt(0) === "@" ? "600 " + size + "px JetBrains Mono, monospace" : size * 1.4 + "px serif");
+        c.fillStyle = it.s.charAt(0) === "/" ? "rgba(53,217,255," + alpha * .85 + ")" : it.s.charAt(0) === "@" ? "rgba(124,255,156," + alpha + ")" : "rgba(255,255,255," + alpha + ")";
+        c.globalAlpha = it.s.charAt(0) === "/" || it.s.charAt(0) === "@" ? 1 : alpha;
+        c.fillText(it.s, px, py);
+        c.globalAlpha = 1;
+      });
+      if (!reduce) requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  })();
+
+  // ------------------------------------------------ 管理後台示意：小核心全像
+  (function () {
+    var cv = $("#core"); if (!cv) return;
+    var c = cv.getContext("2d"), d = Math.min(devicePixelRatio || 1, 2), w, h, t0 = performance.now(), packets = [];
+    function size() { var r = cv.getBoundingClientRect(); w = r.width; h = r.height; cv.width = w * d; cv.height = h * d; c.setTransform(d, 0, 0, d, 0, 0); }
+    size(); addEventListener("resize", size);
+    setInterval(function () { if (!reduce) packets.push({ n: Math.floor(Math.random() * 8), p: 0 }); }, 700);
+    function draw(now) {
+      var t = (now - t0) / 1000; c.clearRect(0, 0, w, h);
+      var cx = w / 2, cy = h / 2, R = Math.min(w, h) * .28, rot = t * .5, tilt = .4;
+      function proj(x, y, z) { var x1 = x * Math.cos(rot) - z * Math.sin(rot), z1 = x * Math.sin(rot) + z * Math.cos(rot); var y2 = y * Math.cos(tilt) - z1 * Math.sin(tilt), z2 = y * Math.sin(tilt) + z1 * Math.cos(tilt); return [cx + x1, cy + y2, z2]; }
+      c.lineWidth = 1;
+      for (var lat = -60; lat <= 60; lat += 30) { var a = lat * Math.PI / 180, prev = null; for (var k = 0; k <= 40; k++) { var b = k / 40 * Math.PI * 2, p = proj(R * Math.cos(a) * Math.cos(b), R * Math.sin(a), R * Math.cos(a) * Math.sin(b)); if (prev) { c.strokeStyle = "rgba(53,217,255," + (prev[2] < 0 ? .6 : .14) + ")"; c.beginPath(); c.moveTo(prev[0], prev[1]); c.lineTo(p[0], p[1]); c.stroke(); } prev = p; } }
+      for (var lon = 0; lon < 180; lon += 30) { var bb = lon * Math.PI / 180, pv = null; for (var j = 0; j <= 40; j++) { var aa = j / 40 * Math.PI * 2, q = proj(R * Math.cos(aa) * Math.cos(bb), R * Math.sin(aa), R * Math.cos(aa) * Math.sin(bb)); if (pv) { c.strokeStyle = "rgba(53,217,255," + (pv[2] < 0 ? .6 : .14) + ")"; c.beginPath(); c.moveTo(pv[0], pv[1]); c.lineTo(q[0], q[1]); c.stroke(); } pv = q; } }
+      var gl = c.createRadialGradient(cx, cy, 0, cx, cy, R); gl.addColorStop(0, "rgba(220,255,255,.85)"); gl.addColorStop(.3, "rgba(53,217,255,.4)"); gl.addColorStop(1, "rgba(53,217,255,0)");
+      c.fillStyle = gl; c.beginPath(); c.arc(cx, cy, R * 1.2, 0, 6.3); c.fill();
+      var nodes = []; for (var n = 0; n < 8; n++) { var an = n / 8 * Math.PI * 2 + t * .2; nodes.push([cx + Math.cos(an) * R * 1.7, cy + Math.sin(an) * R * .5, Math.sin(an)]); }
+      c.strokeStyle = "rgba(53,217,255,.3)"; c.beginPath(); c.ellipse(cx, cy, R * 1.7, R * .5, 0, 0, 6.3); c.stroke();
+      nodes.forEach(function (nd) { c.fillStyle = nd[2] > 0 ? "#7cff9c" : "rgba(124,255,156,.4)"; c.beginPath(); c.arc(nd[0], nd[1], nd[2] > 0 ? 3.4 : 2.2, 0, 6.3); c.fill(); });
+      packets = packets.filter(function (p) { return p.p < 1; });
+      packets.forEach(function (p) { p.p += .02; var s = nodes[p.n], kx = (s[0] + cx) / 2, ky = Math.min(s[1], cy) - R;
+        for (var z = 0; z < 8; z++) { var u = Math.max(0, p.p - z * .03), x = (1 - u) * (1 - u) * s[0] + 2 * (1 - u) * u * kx + u * u * cx, y = (1 - u) * (1 - u) * s[1] + 2 * (1 - u) * u * ky + u * u * cy;
+          c.fillStyle = "rgba(200,255,255," + (.9 - z * .11) + ")"; c.beginPath(); c.arc(x, y, 2.4 - z * .2, 0, 6.3); c.fill(); } });
+      if (!reduce) requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  })();
+
+  // ------------------------------------------------ 股票走勢
+  var stockPts = (function () { var v = 1000, out = []; for (var i = 0; i < 60; i++) { v += (Math.sin(i / 4) * 6 + (Math.random() - .35) * 14); out.push(v); } return out; })();
+  (function () {
+    var mn = Math.min.apply(null, stockPts), mx = Math.max.apply(null, stockPts);
+    var pts = stockPts.map(function (v, i) { return [(i / (stockPts.length - 1) * 600).toFixed(1), (220 - (v - mn) / (mx - mn) * 190).toFixed(1)]; });
+    var d = "M" + pts.map(function (p) { return p.join(","); }).join(" L");
+    $("#stock-line").setAttribute("d", d);
+    $("#stock-area").setAttribute("d", d + " L600,240 L0,240 Z");
+  })();
+
+  // ------------------------------------------------ 自訂游標
+  if (fine && !reduce) {
+    var dot = $(".cursor"), ring = $(".cursor-ring"), pos = { x: -100, y: -100 }, rp = { x: -100, y: -100 };
+    addEventListener("pointermove", function (e) { pos.x = e.clientX; pos.y = e.clientY; body.classList.add("has-cursor"); });
+    document.addEventListener("pointerleave", function () { body.classList.remove("has-cursor"); });
+    (function loop() { rp.x += (pos.x - rp.x) * .18; rp.y += (pos.y - rp.y) * .18;
+      dot.style.transform = "translate(" + pos.x + "px," + pos.y + "px)"; ring.style.transform = "translate(" + rp.x + "px," + rp.y + "px)"; requestAnimationFrame(loop); })();
+    $$("a, button, .card, .game, details summary").forEach(function (el) {
+      el.addEventListener("pointerenter", function () { ring.classList.add("hover"); });
+      el.addEventListener("pointerleave", function () { ring.classList.remove("hover"); });
+    });
+    // 磁吸按鈕
+    $$(".magnetic").forEach(function (b) {
+      b.addEventListener("pointermove", function (e) { var r = b.getBoundingClientRect();
+        b.style.transform = "translate(" + ((e.clientX - r.left - r.width / 2) * .3) + "px," + ((e.clientY - r.top - r.height / 2) * .4) + "px)"; });
+      b.addEventListener("pointerleave", function () { b.style.transform = ""; });
+    });
+  }
+
+  // ------------------------------------------------ 3D 圓柱文字：先擺好位置（沒有 GSAP 也是一圈靜態文字）
+  var cyl = $("#cyl"), cylItems = $$("#cyl span");
+  function placeCylinder() {
+    var r = Math.min(innerHeight * .3, 300);
+    cylItems.forEach(function (s, i) { s.style.setProperty("--a", (i * 360 / cylItems.length) + "deg"); s.style.setProperty("--r", r + "px"); });
+  }
+  placeCylinder(); addEventListener("resize", placeCylinder);
+
+  if (!hasGsap || reduce) { body.classList.add("loaded"); return; }
+
+  // ================================================ 以下需要 GSAP
+  gsap.registerPlugin(ScrollTrigger);
+  var lenis = null;
+  if (typeof Lenis !== "undefined" && fine) {
+    lenis = new Lenis({ lerp: .1 });
+    lenis.on("scroll", ScrollTrigger.update);
+    gsap.ticker.add(function (time) { lenis.raf(time * 1000); });
+    gsap.ticker.lagSmoothing(0);
+    $$('a[href^="#"]').forEach(function (a) { a.addEventListener("click", function (e) { var t = $(a.getAttribute("href")); if (t) { e.preventDefault(); lenis.scrollTo(t, { offset: -70 }); } }); });
+  }
+
+  // 載入畫面：數字跑到 100，上下兩片打開
+  var counter = { v: 0 };
+  gsap.timeline({ onComplete: function () { body.classList.add("loaded"); } })
+    .to(counter, { v: 100, duration: 1, ease: "power2.inOut", onUpdate: function () { $(".loader .count").textContent = Math.round(counter.v); } })
+    .to(".loader .count", { opacity: 0, scale: .8, duration: .25 })
+    .to(".loader .top", { yPercent: -100, duration: .8, ease: "expo.inOut" }, "<")
+    .to(".loader .bottom", { yPercent: 100, duration: .8, ease: "expo.inOut" }, "<");
+
+  // 首頁大字：逐字從模糊、3D 翻轉出場
+  var title = $("#hero-title"), text = title.textContent.trim(); title.textContent = "";
+  text.split("").forEach(function (ch) { var s = document.createElement("span"); s.className = "char"; s.textContent = ch; title.append(s); });
+  gsap.timeline({ delay: 1.15 })
+    .from("#hero-title .char", { yPercent: 110, rotateX: -90, opacity: 0, filter: "blur(18px)", duration: 1.2, stagger: .12, ease: "expo.out", transformOrigin: "50% 100%" })
+    .from(".hero .eyebrow, #hero-tag, #hero-lead, .hero .cta", { y: 30, opacity: 0, filter: "blur(8px)", duration: .9, stagger: .1, ease: "power3.out" }, "-=.8");
+  gsap.to(".hero .wrap", { yPercent: 30, opacity: .2, ease: "none", scrollTrigger: { trigger: ".hero", start: "top top", end: "bottom top", scrub: true } });
+
+  // 捲動進度條、導覽列
+  gsap.to(".progress", { scaleX: 1, ease: "none", scrollTrigger: { start: 0, end: "max", scrub: .3 } });
+  ScrollTrigger.create({ start: 80, onToggle: function (self) { $(".nav").classList.toggle("solid", self.isActive); } });
+  $$("section[id], div[id='games'], div[id='tools-cyl']").forEach(function (sec) {
+    var key = sec.id === "tools-cyl" ? "tools" : sec.id;
+    ScrollTrigger.create({ trigger: sec, start: "top 40%", end: "bottom 40%", onToggle: function (self) {
+      if (!self.isActive) return;
+      $$(".nav-links a").forEach(function (a) { a.classList.toggle("on", a.getAttribute("href") === "#" + key); }); } });
+  });
+
+  // 跑馬燈：持續往左，捲得越快跑越快、字會傾斜
+  var track = $("#marquee"), x = 0, speed = 1, skew = gsap.quickTo(track, "skewX", { duration: .4, ease: "power3" });
+  gsap.ticker.add(function () { x -= speed; var half = track.scrollWidth / 2; if (-x >= half) x += half; gsap.set(track, { x: x }); speed += (1 - speed) * .05; });
+  ScrollTrigger.create({ onUpdate: function (self) { var v = self.getVelocity(); speed = 1 + Math.min(12, Math.abs(v) / 120); skew(gsap.utils.clamp(-12, 12, v / -200)); } });
+
+  // 段落標題：逐行由下往上、從模糊變清楚
+  $$(".reveal-title").forEach(function (t) {
+    gsap.from(t, { y: 60, opacity: 0, filter: "blur(14px)", duration: 1.1, ease: "expo.out", scrollTrigger: { trigger: t, start: "top 85%" } });
+  });
+  $$(".sub, .kicker").forEach(function (t) { gsap.from(t, { y: 24, opacity: 0, duration: .8, ease: "power3.out", scrollTrigger: { trigger: t, start: "top 90%" } }); });
+  $$(".stagger").forEach(function (g) {
+    gsap.from(g.children, { y: 50, opacity: 0, duration: .9, stagger: .08, ease: "expo.out", scrollTrigger: { trigger: g, start: "top 85%" } });
+  });
+  // 生活工具：3D 交錯網格（卡片翻轉落下）
+  $$(".stagger-3d").forEach(function (g) {
+    gsap.from(g.children, { rotateX: -70, y: 80, z: -200, opacity: 0, transformPerspective: 900, transformOrigin: "50% 0%", duration: 1.1,
+      stagger: { each: .07, grid: "auto", from: "start" }, ease: "expo.out", scrollTrigger: { trigger: g, start: "top 85%" } });
+  });
+
+  // 錢包數字往上跳
+  $$("[data-count]").forEach(function (el) {
+    var target = +el.dataset.count, prefix = el.dataset.prefix || "", o = { v: 0 };
+    gsap.to(o, { v: target, duration: 1.6, ease: "power2.out", scrollTrigger: { trigger: el, start: "top 90%" },
+      onUpdate: function () { el.textContent = prefix + fmt(o.v); } });
+  });
+
+  // 遊戲：捲動時固定畫面，卡片往左橫移
+  if (desktop) {
+    var gt = $("#games-track");
+    var dist = function () { return gt.scrollWidth - innerWidth; };
+    gsap.to(gt, { x: function () { return -dist(); }, ease: "none",
+      scrollTrigger: { trigger: "#games", start: "top top", end: function () { return "+=" + dist(); }, pin: true, scrub: 1, invalidateOnRefresh: true } });
+  } else {
+    $$(".game").forEach(function (g) { gsap.from(g, { y: 60, opacity: 0, duration: .9, ease: "expo.out", scrollTrigger: { trigger: g, start: "top 90%" } }); });
+  }
+
+  // 股票：線條沿路徑畫出、價格跳動
+  gsap.from("#stock-line", { strokeDashoffset: 1, duration: 2, ease: "power2.inOut", scrollTrigger: { trigger: "#stocks .chart-card", start: "top 75%" } });
+  gsap.from("#stock-area", { opacity: 0, duration: 1.4, delay: .6, scrollTrigger: { trigger: "#stocks .chart-card", start: "top 75%" } });
+  var px = { v: 1040 };
+  gsap.to(px, { v: 1085, duration: 2, ease: "power2.out", scrollTrigger: { trigger: "#stocks .chart-card", start: "top 75%" }, onUpdate: function () { $("#px").textContent = fmt(px.v); } });
+
+  // 待辦：固定畫面，卡片從待辦 → 進行中 → 完成，最後跳出獎勵
+  if (desktop) {
+    var card = $("#task-card"), cols = $$("#kanban .col"), status = $("#task-status");
+    var step = function () { return cols[1].offsetLeft - cols[0].offsetLeft; };
+    var tl = gsap.timeline({ scrollTrigger: { trigger: "#kanban", start: "top 20%", end: "+=1300", pin: "#tasks", scrub: 1, invalidateOnRefresh: true,
+      onUpdate: function (self) { var p = self.progress; status.textContent = p < .33 ? "待辦" : p < .7 ? "進行中" : "已完成 ✅"; status.style.color = p < .33 ? "" : p < .7 ? "#35d9ff" : "#7cff9c"; } } });
+    tl.to(card, { x: function () { return step(); }, rotate: 3, duration: 1, ease: "power2.inOut" })
+      .to(card, { rotate: 0, duration: .3 })
+      .to(card, { x: function () { return step() * 2; }, rotate: -3, duration: 1, ease: "power2.inOut" })
+      .to(card, { rotate: 0, borderColor: "#7cff9c", boxShadow: "0 20px 60px -20px rgba(124,255,156,.8)", duration: .3 })
+      .fromTo("#reward", { opacity: 0, y: 20, scale: .6 }, { opacity: 1, y: -10, scale: 1.1, duration: .6, ease: "back.out(3)" });
+  }
+
+  // 3D 圓柱文字：捲動帶著圓柱轉一圈
+  gsap.fromTo(cyl, { rotateX: -30 }, { rotateX: 330, ease: "none", scrollTrigger: { trigger: "#tools-cyl", start: "top top", end: "bottom bottom", scrub: 1 } });
+  gsap.from(".cyl-caption", { opacity: 0, y: 30, scrollTrigger: { trigger: "#tools-cyl", start: "top 60%" } });
+
+  // AI 聊天：捲到時依序出現訊息、機器人打字
+  var msgs = $$("#chat .msg");
+  gsap.set(msgs, { opacity: 0, y: 24 });
+  ScrollTrigger.create({ trigger: "#chat", start: "top 75%", once: true, onEnter: function () {
+    msgs.forEach(function (m, i) {
+      gsap.to(m, { opacity: 1, y: 0, duration: .6, delay: i * 1.1, ease: "expo.out" });
+      var reply = m.querySelector(".reply");
+      if (reply) typeInto(reply, reply.textContent, i * 1100);
+    });
+  } });
+
+  // 管理後台：畫面從傾斜 3D 轉正、數字跳、紀錄捲動
+  gsap.from("#admin-shot", { rotateX: 32, scale: .86, y: 80, opacity: .3, transformPerspective: 1400, ease: "none",
+    scrollTrigger: { trigger: "#admin-shot", start: "top 95%", end: "top 30%", scrub: 1 } });
+  var term = $("#admin-term"), logs = ["遊戲群 德州撲克開局", "Kiki 打工：外送 1,200 元", "颱風警報已通知 3 個伺服器", "阿傑 拉霸 100 倍大獎", "判斷意圖 music（1.2 秒）", "週報已發送：網站專案"];
+  setInterval(function () { var div = document.createElement("div"); div.innerHTML = '<span class="ok">INFO</span> '; div.append(logs[Math.floor(Math.random() * logs.length)]);
+    term.append(div); gsap.from(div, { x: -12, opacity: 0, duration: .4 }); while (term.children.length > 7) term.firstElementChild.remove(); }, 1800);
+
+  // 頁尾大字：橫向跟著捲動
+  gsap.fromTo(".big-foot", { xPercent: 10 }, { xPercent: -25, ease: "none", scrollTrigger: { trigger: "footer", start: "top bottom", end: "bottom bottom", scrub: true } });
+
+  // FAQ 展開時內容滑入
+  $$(".faq details").forEach(function (d) { d.addEventListener("toggle", function () { if (d.open) gsap.from(d.querySelector("p"), { y: -10, opacity: 0, duration: .4 }); }); });
+
+  addEventListener("load", function () { ScrollTrigger.refresh(); });
 })();
 </script>
 </body>
