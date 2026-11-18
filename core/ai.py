@@ -2,7 +2,8 @@
 
 提供的介面：text()、json()、check()。
 - configured：有沒有設定（決定每日任務會不會出現海龜湯任務，所以一天內不能變動）
-- available：設定好而且最近一次實測可以用（決定海龜湯能不能開局）
+- available：設定好而且最近一次實測可以用（決定海龜湯能不能開局）；
+  離線超過 RETRY_AFTER 秒會再給一次機會，主電腦重開後不用重啟機器人就會恢復
 """
 import asyncio
 import json
@@ -13,6 +14,8 @@ from typing import Any, Dict, Optional
 import aiohttp
 
 log = logging.getLogger(__name__)
+
+RETRY_AFTER = 60   # 標成離線後，過多久允許再試著連一次
 
 
 class AIError(Exception):
@@ -34,7 +37,12 @@ class AIClient:
 
     @property
     def available(self) -> bool:
-        return self.configured and self.healthy is not False
+        if not self.configured:
+            return False
+        if self.healthy is not False:
+            return True
+        # 離線一陣子後再給一次機會；真的呼叫成功就會標回正常
+        return self.checked_at is None or time.time() - self.checked_at >= RETRY_AFTER
 
     def _mark(self, healthy: bool, status: str) -> None:
         if healthy != self.healthy:
@@ -133,6 +141,8 @@ class OllamaClient(AIClient):
             except Exception as e:
                 self._mark(False, f"Ollama 呼叫失敗：{type(e).__name__}")
                 raise AIError("湯主暫時無法回應，請稍後再試。") from e
+        if self.healthy is not True:
+            self._mark(True, "正常")   # 之前離線、這次連上了
         text = ((data or {}).get("message") or {}).get("content", "").strip()
         if not text:
             raise AIError("AI 沒有產生內容，請再試一次。")
