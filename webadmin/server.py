@@ -24,7 +24,7 @@ from aiohttp import web
 
 from core import persona as ps
 from core.features import CATEGORIES, FEATURES, FEATURES_BY_KEY, GLOBAL
-from core.quests import daily_quests
+from core.quests import quests_for
 from core.timeutil import today_tw
 
 log = logging.getLogger(__name__)
@@ -309,7 +309,7 @@ class AdminServer:
         progress = await self.db.quest_progress(user_id, today)
         quests = [{"title": q.title, "target": q.target, "reward": q.reward,
                    "progress": progress.get(q.key, (0, False))[0], "done": progress.get(q.key, (0, False))[1]}
-                  for q in daily_quests(user_id, today, self.bot.ai.configured)]
+                  for q in quests_for(self.bot, user_id, today)]
         holds = [{"id": h["id"], "amount": h["amount"], "reason": h["reason"], "created_at": h["created_at"]}
                  for h in await self.db.list_holds() if h["user_id"] == user_id]
         stats = [{"game": s["game"], "name": GAME_NAMES.get(s["game"], s["game"]), "played": s["played"],

@@ -296,6 +296,9 @@ class EnvDiagnosticsTest(unittest.TestCase):
                 with open(os.path.join(folder, name), "wb") as f:
                     f.write(content)
             with patch.dict(os.environ, {}, clear=False):
+                # import core.config 時已經讀過專案真正的 .env；先拿掉，才測得到暫存的 .env
+                for key in ("CWA_API_KEY", "WEATHER_WEBHOOK_URL"):
+                    os.environ.pop(key, None)
                 status = load_dotenv(os.path.join(folder, ".env"))
                 values = {k: os.environ.get(k) for k in ("CWA_API_KEY", "WEATHER_WEBHOOK_URL")}
         return status, values

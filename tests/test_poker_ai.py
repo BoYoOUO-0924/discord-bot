@@ -117,7 +117,23 @@ class QuestTest(unittest.TestCase):
         self.assertFalse(quests["win2"].matches("game", {"game": "slots", "won": False}))
         self.assertTrue(quests["poker5"].matches("game", {"game": "poker", "won": False}))
         self.assertFalse(quests["poker5"].matches("game", {"game": "slots", "won": True}))
-        self.assertTrue(quests["chat20"].matches("chat", {}))
+        self.assertTrue(quests["work2"].matches("work", {}))
+        self.assertTrue(quests["guess_win"].matches("game", {"game": "guess", "won": True}))
+        self.assertFalse(quests["guess_win"].matches("guess", {}))   # 亂猜不算，要猜中
+        self.assertTrue(quests["soup_solve"].matches("game", {"game": "seatortoise", "won": True}))
+        self.assertFalse(quests["poker_win3"].matches("game", {"game": "poker", "won": False}))
+        self.assertTrue(quests["blackjack_win"].matches("game", {"game": "blackjack", "won": True}))
+
+    def test_disabled_feature_quests_hidden(self):
+        for uid in range(200):
+            quests = daily_quests(uid, date(2026, 10, 12), disabled={"poker", "slots"})
+            self.assertEqual(len(quests), 3)
+            self.assertTrue(all(q.feature not in ("poker", "slots") for q in quests))
+
+    def test_every_quest_feature_exists(self):
+        from core.features import FEATURES_BY_KEY
+        for q in QUEST_POOL:
+            self.assertTrue(q.feature is None or q.feature in FEATURES_BY_KEY, q.key)
 
 
 if __name__ == "__main__":

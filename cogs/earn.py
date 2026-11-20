@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from core.quests import ALL_DONE_BONUS, ALL_DONE_KEY, daily_quests
+from core.quests import ALL_DONE_BONUS, ALL_DONE_KEY, quests_for
 from core.timeutil import next_midnight_tw, today_tw, ts
 from core.features import enabled
 from core.ui import Color, defer, fmt_points, make_embed, progress_bar, respond
@@ -20,7 +20,6 @@ WORK_COOLDOWN = 3600
 WORK_CRIT_CHANCE = 0.1
 CHAT_REWARD = 500
 CHAT_COOLDOWN = 60        # 聊天獎勵：每分鐘最多一次
-CHAT_QUEST_COOLDOWN = 10  # 聊天任務：10 秒內的訊息只算一則，避免洗版刷任務
 CHAT_DAILY_CAP = 20_000
 CHAT_MIN_LENGTH = 5
 
@@ -51,7 +50,6 @@ class Earn(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.chat_reward_at: Dict[int, float] = {}
-        self.chat_quest_at: Dict[int, float] = {}
 
     @property
     def db(self):
@@ -88,7 +86,7 @@ class Earn(commands.Cog):
     # ------------------------------------------------------------------ 每日任務
     async def build_quests(self, user: discord.abc.User) -> discord.Embed:
         today = today_tw()
-        quests = daily_quests(user.id, today, self.bot.ai.configured)
+        quests = quests_for(self.bot, user.id, today)
         progress = await self.db.quest_progress(user.id, today)
         lines, done_count = [], 0
         for quest in quests:
@@ -118,7 +116,7 @@ class Earn(commands.Cog):
         if user_id <= 0:   # 撲克電腦玩家
             return
         today = today_tw()
-        quests = daily_quests(user_id, today, self.bot.ai.configured)
+        quests = quests_for(self.bot, user_id, today)
         finished = []
         for quest in quests:
             if quest.matches(kind, meta):
@@ -154,9 +152,6 @@ class Earn(commands.Cog):
             await self.db.add_chat_reward(user_id, today_tw(), CHAT_REWARD, CHAT_DAILY_CAP)
             await self.db.touch_member(message.guild.id, user_id)
             await self.db.remember_user(user_id, message.author.display_name, message.author.display_avatar.url)
-        if now - self.chat_quest_at.get(user_id, 0) >= CHAT_QUEST_COOLDOWN:
-            self.chat_quest_at[user_id] = now
-            self.bot.dispatch("activity", user_id, "chat", message.channel.id, {})
 
 
 async def setup(bot):
