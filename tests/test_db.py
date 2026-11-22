@@ -105,6 +105,38 @@ class DatabaseTest(unittest.IsolatedAsyncioTestCase):
         ok, _, balance = await self.db.try_work(1, 4600.0, 3600, 100, "打工")
         self.assertEqual((ok, balance), (True, 250))
 
+    async def test_work_hours_cooldown_and_daily_cap(self):
+        day, h = date(2026, 11, 1), 3600
+        ok, next_at, _ = await self.db.try_work(1, 0.0, 8 * h, 1000, "打工", day=day, hours=8, daily_cap=12)
+        self.assertEqual((ok, next_at), (True, 8.0 * h))                 # 選 8 小時就冷卻 8 小時
+        ok, next_at, _ = await self.db.try_work(1, 7.0 * h, h, 1000, "打工", day=day, hours=1, daily_cap=12)
+        self.assertEqual((ok, next_at), (False, 8.0 * h))
+        ok, next_at, _ = await self.db.try_work(1, 8.0 * h, 5 * h, 1000, "打工", day=day, hours=5, daily_cap=12)
+        self.assertEqual((ok, next_at), (False, None))                   # 8 + 5 超過每天 12 小時
+        ok, _, balance = await self.db.try_work(1, 8.0 * h, 4 * h, 1000, "打工", day=day, hours=4, daily_cap=12)
+        self.assertEqual((ok, balance), (True, 2000))
+        self.assertEqual(await self.db.income_status(1, day), (12.0 * h, 12, 0))
+        tomorrow = day + timedelta(days=1)
+        self.assertEqual((await self.db.income_status(1, tomorrow))[1], 0)   # 隔天時數歸零
+        ok, _, _ = await self.db.try_work(1, 12.0 * h, h, 1000, "打工", day=tomorrow, hours=1, daily_cap=12)
+        self.assertTrue(ok)
+        await self.db.admin_reset_work(1)
+        self.assertEqual(await self.db.income_status(1, tomorrow), (None, 0, 0))
+
+    async def test_old_income_table_migrates_cooldown(self):
+        import sqlite3
+        await self.db.close()
+        path = os.path.join(self.tmp.name, "old.db")
+        conn = sqlite3.connect(path)
+        conn.execute("CREATE TABLE income (user_id INTEGER PRIMARY KEY, last_work REAL, "
+                     "work_count INTEGER NOT NULL DEFAULT 0, chat_day TEXT, chat_earned INTEGER NOT NULL DEFAULT 0)")
+        conn.execute("INSERT INTO income (user_id, last_work, work_count) VALUES (1, 1000.0, 3)")
+        conn.commit()
+        conn.close()
+        self.db = Database(path)
+        await self.db.connect()
+        self.assertEqual(await self.db.income_status(1, date(2026, 11, 1)), (4600.0, 0, 0))  # 舊資料照 1 小時冷卻
+
     async def test_chat_reward_daily_cap(self):
         day = date(2026, 10, 1)
         granted = [await self.db.add_chat_reward(1, day, 30, 100) for _ in range(5)]

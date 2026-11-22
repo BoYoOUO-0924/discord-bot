@@ -305,7 +305,8 @@ class AdminServer:
         today = today_tw()
         profile = await self.db.get_profile(user_id, today)
         name, avatar = await self.display_name(user_id, row["name"], row["avatar_url"])
-        last_work, chat_today = await self.db.income_status(user_id, today)
+        from cogs.earn import CHAT_DAILY_CAP, WORK_DAILY_HOURS
+        work_until, work_hours, chat_today = await self.db.income_status(user_id, today)
         progress = await self.db.quest_progress(user_id, today)
         quests = [{"title": q.title, "target": q.target, "reward": q.reward,
                    "progress": progress.get(q.key, (0, False))[0], "done": progress.get(q.key, (0, False))[1]}
@@ -318,7 +319,8 @@ class AdminServer:
         return web.json_response({
             "id": str(user_id), "name": name, "avatar": avatar, "points": row["points"],
             "streak": profile.streak, "last_checkin": row["last_checkin"], "checkins": row["total_checkins"],
-            "last_work": last_work, "chat_today": chat_today, "quests": quests, "holds": holds,
+            "work_until": work_until, "work_hours": work_hours, "work_daily_hours": WORK_DAILY_HOURS,
+            "chat_today": chat_today, "chat_cap": CHAT_DAILY_CAP, "quests": quests, "holds": holds,
             "games": stats, "reminders": reminders,
         })
 
@@ -457,7 +459,7 @@ class AdminServer:
     async def reset_work(self, request: web.Request):
         user_id = int(request.match_info["user_id"])
         await self.db.admin_reset_work(user_id)
-        await self.record(request, "reset_work", user_id, "重設打工冷卻")
+        await self.record(request, "reset_work", user_id, "重設打工冷卻與今天的打工時數")
         return web.json_response({"ok": True})
 
     # ================================================================== 遊戲與保管中的賭注

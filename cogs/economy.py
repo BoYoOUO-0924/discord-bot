@@ -6,7 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from cogs.earn import CHAT_DAILY_CAP, WORK_COOLDOWN
+from cogs.earn import CHAT_DAILY_CAP, WORK_DAILY_HOURS
 from core.catalog import GAMES_BY_KEY
 from core.db import checkin_reward
 from core.timeutil import next_midnight_tw, today_tw, ts
@@ -77,11 +77,13 @@ class Economy(commands.Cog):
         embed.add_field(name="📅 今日簽到", value="✅ 已簽到" if checked_today else "❗ 尚未簽到")
         embed.add_field(name="🔥 連續簽到", value=f"{profile.streak} 天")
         embed.add_field(name="🗓️ 累計簽到", value=f"{profile.total_checkins} 天")
-        last_work, chat_earned = await self.db.income_status(member.id, today)
-        if last_work and time.time() - last_work < WORK_COOLDOWN:
-            work_text = f"{ts(last_work + WORK_COOLDOWN, 'R')}可打工"
+        work_until, work_hours, chat_earned = await self.db.income_status(member.id, today)
+        if work_hours >= WORK_DAILY_HOURS:
+            work_text = f"今天打工 {work_hours}/{WORK_DAILY_HOURS} 小時，明天再來"
+        elif work_until and time.time() < work_until:
+            work_text = f"{ts(work_until, 'R')}可打工（今天 {work_hours}/{WORK_DAILY_HOURS} 小時）"
         else:
-            work_text = "現在可以打工"
+            work_text = f"現在可以打工（今天 {work_hours}/{WORK_DAILY_HOURS} 小時）"
         embed.add_field(name="💼 今日收入", value=f"{work_text}\n聊天獎勵 {chat_earned:,}/{CHAT_DAILY_CAP:,} 元")
 
         stats = await self.db.game_stats(member.id)

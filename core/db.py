@@ -90,6 +90,9 @@ CREATE TABLE IF NOT EXISTS income (
     user_id     INTEGER PRIMARY KEY,
     last_work   REAL,
     work_count  INTEGER NOT NULL DEFAULT 0,
+    work_until  REAL,                      -- 這次打工結束、可以再打工的時間
+    work_day    TEXT,                      -- work_hours 是哪一天（台灣時間）累計的
+    work_hours  INTEGER NOT NULL DEFAULT 0,
     chat_day    TEXT,
     chat_earned INTEGER NOT NULL DEFAULT 0
 );
@@ -324,6 +327,7 @@ class Database:
         await self._conn.commit()
         await self._migrate_to_twd()
         await self._migrate_task_columns()
+        await self._migrate_income_columns()
 
     async def _migrate_to_twd(self) -> None:
         """積分改成新台幣：1 分 = 100 元。舊資料的金額全部乘以 100，只執行一次。"""
@@ -353,6 +357,18 @@ class Database:
             if column not in project_columns:
                 await self.conn.execute(f"ALTER TABLE projects ADD COLUMN {column} TEXT")
         await self.conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project_id, status)")
+        await self.conn.commit()
+
+    async def _migrate_income_columns(self) -> None:
+        """打工可以選時數：income 加上「下次可打工時間」與「今天打工時數」。舊資料照原本的 1 小時冷卻換算。"""
+        async with self.conn.execute("PRAGMA table_info(income)") as cur:
+            columns = {row["name"] for row in await cur.fetchall()}
+        if "work_until" not in columns:
+            await self.conn.execute("ALTER TABLE income ADD COLUMN work_until REAL")
+            await self.conn.execute("UPDATE income SET work_until = last_work + 3600 WHERE last_work IS NOT NULL")
+        for column, kind in (("work_day", "TEXT"), ("work_hours", "INTEGER NOT NULL DEFAULT 0")):
+            if column not in columns:
+                await self.conn.execute(f"ALTER TABLE income ADD COLUMN {column} {kind}")
         await self.conn.commit()
 
     async def get_meta(self, key: str) -> Optional[str]:
@@ -652,18 +668,29 @@ class Database:
         return row["rank"] if mine and mine["points"] > 0 else None
 
     # ------------------------------------------------------------------ 打工 / 聊天獎勵
-    async def try_work(self, user_id: int, now: float, cooldown: float, reward: int,
-                       reason: str) -> Tuple[bool, float, int]:
-        """冷卻結束才發薪。回傳 (是否成功, 下次可打工的時間, 餘額)。"""
+    async def try_work(self, user_id: int, now: float, cooldown: float, reward: int, reason: str,
+                       day: Optional[date] = None, hours: int = 1,
+                       daily_cap: Optional[int] = None) -> Tuple[bool, Optional[float], int]:
+        """冷卻結束、今天時數也還沒滿才發薪（開始打工就發）。
+
+        回傳 (是否成功, 下次可打工的時間, 餘額)；因為今天時數滿了而失敗時，時間是 None。
+        """
+        day_key = (day or date.today()).isoformat()
         async with self._lock:
             await self._ensure_user(user_id)
             await self.conn.execute("INSERT OR IGNORE INTO income (user_id) VALUES (?)", (user_id,))
-            async with self.conn.execute("SELECT last_work FROM income WHERE user_id = ?", (user_id,)) as cur:
-                last = (await cur.fetchone())["last_work"]
-            if last and now - last < cooldown:
-                return False, last + cooldown, await self._balance(user_id)
+            async with self.conn.execute("SELECT work_until, work_day, work_hours FROM income WHERE user_id = ?",
+                                         (user_id,)) as cur:
+                row = await cur.fetchone()
+            if row["work_until"] and now < row["work_until"]:
+                return False, row["work_until"], await self._balance(user_id)
+            used = row["work_hours"] if row["work_day"] == day_key else 0
+            if daily_cap is not None and used + hours > daily_cap:
+                return False, None, await self._balance(user_id)
             await self.conn.execute(
-                "UPDATE income SET last_work = ?, work_count = work_count + 1 WHERE user_id = ?", (now, user_id))
+                "UPDATE income SET last_work = ?, work_until = ?, work_day = ?, work_hours = ?, "
+                "work_count = work_count + 1 WHERE user_id = ?",
+                (now, now + cooldown, day_key, used + hours, user_id))
             await self.conn.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (reward, user_id))
             await self._log(user_id, reward, reason)
             await self.conn.commit()
@@ -691,15 +718,18 @@ class Database:
                 await self.conn.commit()
             return granted
 
-    async def income_status(self, user_id: int, day: date) -> Tuple[Optional[float], int]:
-        """回傳 (上次打工時間, 今天已領的聊天獎勵)。"""
+    async def income_status(self, user_id: int, day: date) -> Tuple[Optional[float], int, int]:
+        """回傳 (下次可打工的時間, 今天打工時數, 今天已領的聊天獎勵)。"""
         async with self._lock:
-            async with self.conn.execute("SELECT last_work, chat_day, chat_earned FROM income WHERE user_id = ?",
-                                         (user_id,)) as cur:
+            async with self.conn.execute(
+                    "SELECT work_until, work_day, work_hours, chat_day, chat_earned FROM income WHERE user_id = ?",
+                    (user_id,)) as cur:
                 row = await cur.fetchone()
         if not row:
-            return None, 0
-        return row["last_work"], row["chat_earned"] if row["chat_day"] == day.isoformat() else 0
+            return None, 0, 0
+        today = day.isoformat()
+        return (row["work_until"], row["work_hours"] if row["work_day"] == today else 0,
+                row["chat_earned"] if row["chat_day"] == today else 0)
 
     # ------------------------------------------------------------------ 每日任務
     async def quest_progress(self, user_id: int, day: date) -> Dict[str, Tuple[int, bool]]:
@@ -1011,7 +1041,8 @@ class Database:
 
     async def admin_reset_work(self, user_id: int) -> None:
         async with self._lock:
-            await self.conn.execute("UPDATE income SET last_work = NULL WHERE user_id = ?", (user_id,))
+            await self.conn.execute("UPDATE income SET last_work = NULL, work_until = NULL, work_hours = 0 "
+                                    "WHERE user_id = ?", (user_id,))
             await self.conn.commit()
 
     async def hold_info(self, hold_id: int) -> Optional[aiosqlite.Row]:

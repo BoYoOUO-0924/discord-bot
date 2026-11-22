@@ -157,8 +157,8 @@ class AdminApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp.status, 200)
         resp = await self.client.post("/api/users/5/reset-work", headers=HEADERS)
         self.assertEqual(resp.status, 200)
-        last_work, _ = await self.db.income_status(5, __import__("datetime").date.today())
-        self.assertIsNone(last_work)
+        work_until, work_hours, _ = await self.db.income_status(5, __import__("datetime").date.today())
+        self.assertEqual((work_until, work_hours), (None, 0))
 
     async def test_refund_only_orphan_holds(self):
         await self.login()

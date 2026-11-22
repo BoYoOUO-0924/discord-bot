@@ -27,7 +27,7 @@ GAMES_BY_KEY: Dict[str, GameInfo] = {g.key: g for g in GAMES}
 HELP_SECTIONS: List[Tuple[str, List[Tuple[str, str, str]]]] = [
     ("💰 賺錢與日常", [
         ("checkin", "", "每日簽到領錢，連續簽到加成越來越多"),
-        ("work", "", "隨機一份工作（便利商店、外送、家教…），薪水依真實行情，每小時一次"),
+        ("work", "[小時]", "打工 1～8 小時（不填 1 小時），隨機一份工作與時薪，做完才能再打工，每天最多 12 小時"),
         ("quests", "", "每日 3 個任務，全部完成再加碼；在伺服器聊天也會慢慢累積存款"),
         ("profile", "[使用者]", "錢包、排名、簽到紀錄與遊戲戰績"),
         ("leaderboard", "", "伺服器財富與連續簽到排行榜"),

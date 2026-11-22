@@ -666,7 +666,7 @@ async function renderUsers(view) {
 async function renderUser(view, id) {
   const u = await api(`/api/users/${id}`);
   const name = u.name || `使用者 ${u.id}`;
-  const workReady = !u.last_work || Date.now() / 1000 - u.last_work >= 3600;
+  const workLeft = u.work_until ? u.work_until - Date.now() / 1000 : 0;
 
   // 調整存款
   let mode = "add";
@@ -707,7 +707,7 @@ async function renderUser(view, id) {
       render();
     } catch (e) { toast(e.message, true); }
   });
-  const resetWork = h("button", { class: "btn", type: "button", text: "重設打工冷卻", disabled: workReady,
+  const resetWork = h("button", { class: "btn", type: "button", text: "重設打工冷卻與時數", disabled: workLeft <= 0 && !u.work_hours,
     onclick: async () => {
       try { await api(`/api/users/${id}/reset-work`, { method: "POST" }); toast("已重設，現在可以打工了"); render(); }
       catch (e) { toast(e.message, true); }
@@ -743,8 +743,10 @@ async function renderUser(view, id) {
       h("div", { class: "facts" },
         h("span", { text: `🔥 連續簽到 ${u.streak} 天` }), h("span", { text: `🗓️ 累計簽到 ${fmt(u.checkins)} 天` }),
         h("span", { text: `📅 最後簽到 ${u.last_checkin || "—"}` }),
-        h("span", { text: workReady ? "💼 現在可以打工" : `💼 ${fmtDuration(u.last_work + 3600 - Date.now() / 1000)}後可打工` }),
-        h("span", { text: `💬 今日聊天獎勵 ${u.chat_today}/200` }))),
+        h("span", { text: (u.work_hours >= u.work_daily_hours ? "💼 今天打工時數已滿"
+          : workLeft > 0 ? `💼 ${fmtDuration(workLeft)}後可打工` : "💼 現在可以打工")
+          + `（今天 ${u.work_hours}/${u.work_daily_hours} 小時）` }),
+        h("span", { text: `💬 今日聊天獎勵 ${fmt(u.chat_today)}/${fmt(u.chat_cap)}` }))),
     h("div", { class: "grid-2" },
       h("section", { class: "card" }, h("div", { class: "card-head" }, h("h3", { text: "調整存款" })), pointsForm),
       h("section", { class: "card" }, h("div", { class: "card-head" }, h("h3", { text: "簽到與打工" })), streakForm,

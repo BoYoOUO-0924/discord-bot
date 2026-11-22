@@ -25,6 +25,10 @@ class Quest:
     matches: Callable[[str, Dict], bool]
     needs_ai: bool = False
     feature: Optional[str] = None   # 這個功能被全域關掉時就不會抽到（不然任務根本做不到）
+    count: Optional[Callable[[Dict], int]] = None   # 一次動作算幾點進度（預設 1）
+
+    def amount(self, meta: Dict) -> int:
+        return max(1, self.count(meta)) if self.count else 1
 
 
 def _game(name=None, won=None):
@@ -44,7 +48,8 @@ def _kind(expected: str):
 QUEST_POOL: List[Quest] = [
     Quest("play3", "玩 3 場遊戲", 3, 15_000, _game()),
     Quest("win2", "贏 2 場遊戲", 2, 20_000, _game(won=True)),
-    Quest("work2", "打工 2 次", 2, 12_000, _kind("work"), feature="economy"),
+    Quest("work_hours4", "累計打工 4 小時", 4, 12_000, _kind("work"), feature="economy",
+          count=lambda meta: int(meta.get("hours", 1))),
     Quest("blackjack2", f"玩 2 局 21 點（賭注 {MIN_QUEST_BET:,} 元以上）", 2, 12_000, _game("blackjack"),
           feature="blackjack"),
     Quest("blackjack_win", f"21 點贏 1 局（賭注 {MIN_QUEST_BET:,} 元以上）", 1, 15_000,

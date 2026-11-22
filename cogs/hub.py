@@ -143,7 +143,7 @@ class Hub(commands.Cog):
         if action == "checkin":
             return await economy.do_checkin(interaction)
         if action == "work":
-            return await self.bot.get_cog("Earn").do_work(interaction)
+            return await self.bot.get_cog("Earn").ask_work_hours(interaction)
         if action == "quests":
             return await self.bot.get_cog("Earn").send_quests(interaction)
         if action == "profile":

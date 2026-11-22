@@ -117,7 +117,10 @@ class QuestTest(unittest.TestCase):
         self.assertFalse(quests["win2"].matches("game", {"game": "slots", "won": False}))
         self.assertTrue(quests["poker5"].matches("game", {"game": "poker", "won": False}))
         self.assertFalse(quests["poker5"].matches("game", {"game": "slots", "won": True}))
-        self.assertTrue(quests["work2"].matches("work", {}))
+        self.assertTrue(quests["work_hours4"].matches("work", {"hours": 3}))
+        self.assertEqual(quests["work_hours4"].amount({"hours": 3}), 3)    # 打工任務依時數累計
+        self.assertEqual(quests["work_hours4"].amount({}), 1)
+        self.assertEqual(quests["win2"].amount({"game": "slots"}), 1)
         self.assertTrue(quests["guess_win"].matches("game", {"game": "guess", "won": True}))
         self.assertFalse(quests["guess_win"].matches("guess", {}))   # 亂猜不算，要猜中
         self.assertTrue(quests["soup_solve"].matches("game", {"game": "seatortoise", "won": True}))
