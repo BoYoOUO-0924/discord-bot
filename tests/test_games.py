@@ -100,6 +100,103 @@ class BlackjackTest(unittest.TestCase):
         self.assertEqual(game.outcome, "dealer_blackjack")
         self.assertEqual(game.payout, 0)
 
+    def test_soft_hand_shows_both_totals(self):
+        from cogs.blackjack import hand_text
+        self.assertEqual(hand_text(cards("A", "5")), "6 / 16")
+        self.assertEqual(hand_text(cards("A", "6", "K")), "17")      # A 只能算 1，就不是軟牌
+        self.assertEqual(hand_text(cards("A", "K")), "21")
+        self.assertEqual(hand_text(cards("A", "A")), "2 / 12")
+        self.assertEqual(hand_text(cards("9", "7")), "16")
+
+    def test_split_plays_each_hand_then_dealer(self):
+        # 玩家 8 8，莊家 10 7；第一手補 3 → 11 再要 10 → 21 自動停；第二手補 K → 18 停牌
+        game = BlackjackGame(1, 100, None, deck=self.deal("8", "8", "10", "7", "3", "10", "K"))
+        game.begin()
+        self.assertTrue(game.can_split)
+        game.split()
+        self.assertEqual(len(game.hands), 2)
+        self.assertEqual(game.bet, 200)
+        self.assertEqual(hand_value(game.player), 11)
+        self.assertTrue(game.can_double)                 # 分牌後可以加倍
+        game.hit()                                       # 21 點自動換下一手
+        self.assertEqual(game.active, 1)
+        self.assertEqual(hand_value(game.player), 18)
+        self.assertFalse(game.finished)
+        game.stand()
+        self.assertEqual([h.outcome for h in game.hands], ["win", "win"])
+        self.assertEqual(game.outcome, "split_win")
+        self.assertEqual(game.payout, 400)
+
+    def test_split_mixed_results(self):
+        # 第一手 8+K=18，第二手 8+9=17 加倍補 10 爆牌；莊家 10 7 = 17 → 第一手贏、第二手輸
+        game = BlackjackGame(1, 100, None, deck=self.deal("8", "8", "10", "7", "K", "9", "10"))
+        game.begin()
+        game.split()
+        game.stand()
+        game.double()
+        self.assertEqual([h.outcome for h in game.hands], ["win", "bust"])
+        self.assertEqual(game.bet, 300)
+        self.assertEqual(game.payout, 200)
+        self.assertEqual(game.outcome, "split_lose")
+
+    def test_split_aces_get_one_card_each(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("A", "A", "10", "8", "K", "5"))
+        game.split()                                     # 莊家明牌 10，不問保險
+        self.assertTrue(game.finished)                   # 分 A 各補一張就停
+        self.assertEqual([hand_value(h.cards) for h in game.hands], [21, 16])
+        self.assertEqual([h.outcome for h in game.hands], ["win", "lose"])   # 分牌後的 21 不算 Blackjack
+        self.assertEqual(game.payout, 200)
+        self.assertEqual(game.outcome, "split_push")
+
+    def test_split_rules(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("K", "Q", "9", "7"))
+        self.assertTrue(game.can_split)                  # 10 點的牌都可以分
+        game = BlackjackGame(1, 100, None, deck=self.deal("9", "8", "9", "7"))
+        self.assertFalse(game.can_split)
+        game = BlackjackGame(1, 100, None, deck=self.deal("8", "8", "A", "7"))
+        game.begin()
+        self.assertFalse(game.can_split)                 # 保險還沒決定
+        game = BlackjackGame(1, 100, None, deck=self.deal("8", "8", "10", "7", "8", "8", "8", "8", "8"))
+        for _ in range(3):
+            game.split()
+        self.assertEqual(len(game.hands), 4)
+        self.assertFalse(game.can_split)                 # 最多 4 手
+
+    def test_surrender_returns_half_bet(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("10", "6", "10", "7"))
+        game.begin()
+        self.assertTrue(game.can_surrender)
+        game.surrender()
+        self.assertEqual(game.outcome, "surrender")
+        self.assertEqual(game.payout, 50)
+        self.assertEqual(len(game.dealer), 2)           # 莊家不用補牌
+        self.assertEqual(game.reveal_steps(), [1])      # 還是會翻開底牌給玩家看
+
+    def test_surrender_only_on_first_two_cards(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("2", "3", "10", "7", "4"))
+        game.hit()
+        self.assertFalse(game.can_surrender)
+        game = BlackjackGame(1, 100, None, deck=self.deal("8", "8", "10", "7", "3"))
+        game.split()
+        self.assertFalse(game.can_surrender)            # 分牌後不能投降
+        game = BlackjackGame(1, 100, None, deck=self.deal("10", "6", "A", "7"))
+        game.begin()
+        self.assertFalse(game.can_surrender)            # 保險還沒決定（莊家還沒偷看）
+
+    def test_practice_mode_can_double(self):
+        game = BlackjackGame(1, 0, None, deck=self.deal("5", "6", "10", "7", "10"))
+        self.assertTrue(game.can_double)
+        game.double()
+        self.assertEqual(game.outcome, "win")
+        self.assertEqual(game.payout, 0)
+
+    def test_stand_all_finishes_every_hand(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("8", "8", "10", "7", "2", "3"))
+        game.split()
+        game.stand_all()
+        self.assertTrue(game.finished)
+        self.assertTrue(all(h.outcome for h in game.hands))
+
     def test_dealer_cards_revealed_one_by_one(self):
         game = BlackjackGame(1, 100, None, deck=self.deal("10", "7", "5", "6", "3", "4"))
         game.stand()                             # 莊家 5+6 → 補 3 → 14 → 補 4 → 18
@@ -196,6 +293,31 @@ class BlackjackFlowTest(unittest.IsolatedAsyncioTestCase):
         inter.followup.send.assert_awaited_once()   # 只發一則訊息
         sent.edit.assert_awaited()                  # 之後的開牌動畫與結果都編輯同一則
         cog.bot.db.settle.assert_awaited_once()
+
+    async def test_split_button_extends_bet_and_shows_hands(self):
+        from unittest.mock import AsyncMock, patch
+
+        import cogs.blackjack as bj
+        cog, inter = self._cog(), self._interaction()
+        cog.bot.db.extend_hold = AsyncMock(return_value=True)
+        sent = SimpleNamespace(edit=AsyncMock())
+        inter.followup.send = AsyncMock(return_value=sent)
+        with patch.object(bj, "BlackjackGame", side_effect=lambda *a: BlackjackGame(
+                *a, deck=list(reversed(cards("8", "8", "10", "7", "2", "3"))))):
+            self.assertTrue(await cog.start(inter, 100))
+        game = cog.games[1]
+        user = inter.user
+        view = bj.BlackjackView(cog, game, user)
+        self.assertFalse(view.split_btn.disabled)
+        click = self._interaction()
+        click.message = sent
+        await view.split_btn.callback(click)
+        cog.bot.db.extend_hold.assert_awaited_once_with(7, 100)
+        self.assertEqual(len(game.hands), 2)
+        embed = cog.build_embed(game, user)
+        self.assertIn("第 1 手", embed.description)
+        self.assertIn("👉", embed.description)
+        self.assertIn("總賭注", embed.footer.text)
 
     async def test_command_not_enough_money_error_stays_private(self):
         from unittest.mock import AsyncMock, patch
