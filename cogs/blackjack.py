@@ -245,9 +245,19 @@ class Blackjack(commands.Cog):
             pass
         return message
 
+    @staticmethod
+    async def ack(interaction: Optional[discord.Interaction]) -> None:
+        """要動資料庫（扣錢、結算）前先回應 Discord：Discord 只等 3 秒，資料庫一慢玩家就會看到「此互動失敗」。
+
+        回應後 show() 會改用編輯原訊息更新畫面，錯誤訊息也會改用 followup 私訊。
+        """
+        if interaction is not None and not interaction.response.is_done():
+            await interaction.response.defer()
+
     async def play_out(self, game: BlackjackGame, user: discord.abc.User,
                        interaction: Optional[discord.Interaction], message) -> None:
         """結算並播放莊家逐張開牌，最後換成「再來一局」按鈕。"""
+        await self.ack(interaction)
         balance = await self.finish(game)
         for shown in game.reveal_steps():
             message = await self.show(interaction, message, embed=self.build_embed(game, user, shown=shown), view=None)
@@ -269,6 +279,9 @@ class Blackjack(commands.Cog):
 
         hold_id = None
         if bet > 0:
+            if message is not None:
+                # 只有按鈕（再來一局）先回應；/blackjack 指令先回應的話，「存款不足」會變成公開訊息
+                await self.ack(interaction)
             hold_id = await self.bot.db.hold(user.id, bet, "21點")
             if hold_id is None:
                 balance = await self.bot.db.get_points(user.id)
@@ -337,6 +350,8 @@ class InsuranceView(BaseView):
             if not self.game.insurance_pending:
                 return await send_error(interaction, "已經決定過了。")
             cost = self.game.insurance_cost
+            if buy and cost:
+                await self.cog.ack(interaction)
             if buy and cost and not await self.cog.bot.db.extend_hold(self.game.hold_id, cost):
                 return await send_error(interaction, f"買保險需要 {fmt_points(cost)}，你的錢不夠。")
             self.stop()
@@ -374,7 +389,8 @@ class BlackjackView(BaseView):
             await self.cog.play_out(self.game, self.user, interaction, self.message or interaction.message)
         else:
             self.double_btn.disabled = True  # 只有前兩張牌時能加倍
-            await interaction.response.edit_message(embed=self.cog.build_embed(self.game, self.user), view=self)
+            await self.cog.show(interaction, self.message or interaction.message,
+                                embed=self.cog.build_embed(self.game, self.user), view=self)
 
     @discord.ui.button(label="要牌", emoji="➕", style=discord.ButtonStyle.primary)
     async def hit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -397,6 +413,7 @@ class BlackjackView(BaseView):
         async with self.game.lock:
             if self.game.finished or len(self.game.player) != 2:
                 return await send_error(interaction, "只有拿到前兩張牌時可以加倍。")
+            await self.cog.ack(interaction)
             if not await self.cog.bot.db.extend_hold(self.game.hold_id, self.game.bet):
                 return await send_error(interaction, f"加倍需要再 {fmt_points(self.game.bet)}，你的錢不夠。")
             self.game.double()

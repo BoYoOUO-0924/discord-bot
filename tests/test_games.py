@@ -133,7 +133,7 @@ class BlackjackFlowTest(unittest.IsolatedAsyncioTestCase):
         return SimpleNamespace(
             user=user, channel_id=10, channel=None, message=None,
             response=SimpleNamespace(is_done=lambda: state["done"], edit_message=AsyncMock(side_effect=done),
-                                     send_message=AsyncMock(side_effect=done)),
+                                     send_message=AsyncMock(side_effect=done), defer=AsyncMock(side_effect=done)),
             original_response=AsyncMock(), followup=SimpleNamespace(send=AsyncMock()))
 
     async def test_play_again_edits_same_message(self):
@@ -145,9 +145,50 @@ class BlackjackFlowTest(unittest.IsolatedAsyncioTestCase):
         with patch.object(bj, "BlackjackGame", side_effect=lambda *a: BlackjackGame(
                 *a, deck=list(reversed(cards("10", "7", "9", "8"))))):
             self.assertTrue(await cog.start(inter, 100, message=message))
-        inter.response.edit_message.assert_awaited_once()   # 直接把舊訊息換成新牌局
+        inter.response.defer.assert_awaited_once()   # 扣賭注前先回應 Discord
+        message.edit.assert_awaited_once()           # 直接把舊訊息換成新牌局
         inter.response.send_message.assert_not_awaited()
         inter.followup.send.assert_not_awaited()
+
+    async def test_play_again_button_answers_discord_before_holding_bet(self):
+        from unittest.mock import AsyncMock, patch
+
+        import cogs.blackjack as bj
+        cog, inter = self._cog(), self._interaction()
+        order = []
+        state = {"done": False}
+
+        async def defer(**kwargs):
+            order.append("defer")
+            state["done"] = True
+
+        async def hold(*args):
+            order.append("hold")
+            return 7
+        inter.response.is_done = lambda: state["done"]
+        inter.response.defer = AsyncMock(side_effect=defer)
+        cog.bot.db.hold = AsyncMock(side_effect=hold)
+        message = SimpleNamespace(edit=AsyncMock())
+        view = bj.PlayAgainView(cog, 1, 100)
+        view.message = message
+        with patch.object(bj, "BlackjackGame", side_effect=lambda *a: BlackjackGame(
+                *a, deck=list(reversed(cards("10", "7", "9", "8"))))):
+            await view._restart(inter, 100)
+        self.assertEqual(order, ["defer", "hold"])   # 先回應 Discord，3 秒限制就不會超過
+        message.edit.assert_awaited()                 # 回應後改用編輯原訊息顯示新牌局
+        inter.followup.send.assert_not_awaited()
+
+    async def test_command_not_enough_money_error_stays_private(self):
+        from unittest.mock import AsyncMock, patch
+
+        import cogs.blackjack as bj
+        cog, inter = self._cog(), self._interaction()
+        inter.response.defer = AsyncMock()
+        cog.bot.db.hold = AsyncMock(return_value=None)
+        with patch.object(bj, "send_error", new=AsyncMock()) as err:
+            self.assertFalse(await cog.start(inter, 100))
+        inter.response.defer.assert_not_awaited()   # 指令先回應的話，錯誤訊息會變成公開的
+        err.assert_awaited_once()
 
     async def test_bet_over_limit_is_rejected(self):
         from unittest.mock import patch
