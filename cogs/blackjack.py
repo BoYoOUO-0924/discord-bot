@@ -238,6 +238,9 @@ class Blackjack(commands.Cog):
                 return message
             return await respond(interaction, **kwargs)
         if message is None:
+            # 送新訊息時 view=None（不要按鈕）不能直接傳，Discord 會拒絕；編輯時才用 None 清掉按鈕
+            if kwargs.get("view", ...) is None:
+                kwargs.pop("view")
             return await respond(interaction, **kwargs)
         try:
             await message.edit(**kwargs)

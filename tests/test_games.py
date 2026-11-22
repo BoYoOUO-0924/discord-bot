@@ -178,6 +178,25 @@ class BlackjackFlowTest(unittest.IsolatedAsyncioTestCase):
         message.edit.assert_awaited()                 # 回應後改用編輯原訊息顯示新牌局
         inter.followup.send.assert_not_awaited()
 
+    async def test_command_natural_blackjack_shows_result(self):
+        """/blackjack 莊家開牌就 Blackjack：要播開牌動畫，送新訊息時不能帶 view=None。"""
+        from unittest.mock import AsyncMock, patch
+
+        import cogs.blackjack as bj
+        cog, inter = self._cog(), self._interaction()
+        sent = SimpleNamespace(edit=AsyncMock())
+
+        async def followup(**kwargs):
+            self.assertFalse("view" in kwargs and kwargs["view"] is None)
+            return sent
+        inter.followup.send = AsyncMock(side_effect=followup)
+        with patch.object(bj, "REVEAL_DELAY", 0), patch.object(bj, "BlackjackGame", side_effect=lambda *a: BlackjackGame(
+                *a, deck=list(reversed(cards("10", "9", "K", "A"))))):
+            self.assertTrue(await cog.start(inter, 100))
+        inter.followup.send.assert_awaited_once()   # 只發一則訊息
+        sent.edit.assert_awaited()                  # 之後的開牌動畫與結果都編輯同一則
+        cog.bot.db.settle.assert_awaited_once()
+
     async def test_command_not_enough_money_error_stays_private(self):
         from unittest.mock import AsyncMock, patch
 
