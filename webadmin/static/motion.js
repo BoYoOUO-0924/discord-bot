@@ -13,12 +13,14 @@ const Motion = (() => {
   const easeOutExpo = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x));
   const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
 
-  // ---------------------------------------------------------------- 動畫迴圈：畫面外、分頁切走時暫停
-  function animate(el, draw) {
-    let visible = true, running = false, alive = true, io = null;
+  // ---------------------------------------------------------------- 動畫迴圈：畫面外、分頁切走時暫停；fps 可以限制每秒最多畫幾次（背景不需要 60 張）
+  function animate(el, draw, fps = 0) {
+    let visible = true, running = false, alive = true, io = null, last = 0;
+    const gap = fps ? 1000 / fps - 2 : 0;
     const frame = (now) => {
       if (!alive || !visible || document.hidden) { running = false; return; }
-      draw(now); requestAnimationFrame(frame);
+      if (!gap || now - last >= gap) { last = now; draw(now); }
+      requestAnimationFrame(frame);
     };
     const wake = () => { if (alive && !running && visible && !document.hidden) { running = true; requestAnimationFrame(frame); } };
     if ("IntersectionObserver" in window) { io = new IntersectionObserver((es) => { visible = es[0].isIntersecting; wake(); }); io.observe(el); }
@@ -47,16 +49,23 @@ const Motion = (() => {
       this.cv = document.getElementById("bg");
       this.c = this.cv.getContext("2d");
       const cross = document.getElementById("crosshair"), tag = cross.querySelector(".tag");
-      const spot = document.getElementById("spot-grid");
+      const spot = document.getElementById("spot-grid"), spotGrid = spot && spot.firstElementChild;
+      // 全螢幕背景很大又在卡片後面：用 1 倍解析度；不會動的透視直線與光暈預先畫在另一張畫布，每格只要貼上
+      this.still = document.createElement("canvas");
       const resize = () => {
-        const d = dpr();
         this.w = innerWidth; this.h = innerHeight;
-        this.cv.width = this.w * d; this.cv.height = this.h * d; this.c.setTransform(d, 0, 0, d, 0, 0);
-        const hz = this.h * .62;
+        this.cv.width = this.w; this.cv.height = this.h;
+        const hz = this.h * .62, cx = this.w / 2;
         this.lineGrad = this.c.createLinearGradient(0, hz, 0, this.h);
         this.lineGrad.addColorStop(0, "rgba(53,217,255,0)"); this.lineGrad.addColorStop(1, "rgba(53,217,255,.3)");
-        this.sun = this.c.createRadialGradient(this.w / 2, hz, 0, this.w / 2, hz, this.w * .35);
-        this.sun.addColorStop(0, "rgba(178,107,255,.18)"); this.sun.addColorStop(1, "rgba(178,107,255,0)");
+        this.still.width = this.w; this.still.height = this.h;
+        const s = this.still.getContext("2d");
+        s.strokeStyle = this.lineGrad; s.lineWidth = 1; s.beginPath();
+        for (let i = -14; i <= 14; i++) { s.moveTo(cx + i * 18, hz); s.lineTo(cx + i * this.w / 9, this.h); }
+        s.stroke();
+        const sun = s.createRadialGradient(cx, hz, 0, cx, hz, this.w * .35);
+        sun.addColorStop(0, "rgba(178,107,255,.18)"); sun.addColorStop(1, "rgba(178,107,255,0)");
+        s.fillStyle = sun; s.fillRect(0, hz - this.w * .35, this.w, this.w * .35 + 2);
         if (reduce && this.ps) this.draw(0);
       };
       resize(); addEventListener("resize", resize);
@@ -70,7 +79,11 @@ const Motion = (() => {
         cross.style.setProperty("--px", px + "px"); cross.style.setProperty("--py", py + "px");
         tag.textContent = `X ${String(px).padStart(4, "0")} / Y ${String(py).padStart(4, "0")}`;
         // 游標照亮的網格：一塊圓形的網格跟著游標移動，網格本身對齊整個畫面
-        if (spot) { spot.style.transform = `translate(${px - 280}px, ${py - 280}px)`; spot.style.backgroundPosition = `${280 - px}px ${280 - py}px`; }
+        if (spot) {
+          const x = px - 280, y = py - 280, ox = ((x % 40) + 40) % 40, oy = ((y % 40) + 40) % 40;
+          spot.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+          if (spotGrid) spotGrid.style.transform = `translate3d(${-ox}px, ${-oy}px, 0)`;
+        }
       };
       addEventListener("pointermove", (e) => {
         if (e.pointerType !== "mouse") return;
@@ -79,28 +92,27 @@ const Motion = (() => {
         if (!pending) { pending = true; requestAnimationFrame(apply); }
       }, { passive: true });
       document.addEventListener("pointerleave", () => document.body.classList.remove("pointer"));
-      animate(this.cv, (now) => this.draw((now - this.t0) / 1000));
+      animate(this.cv, (now) => this.draw((now - this.t0) / 1000), 30);
     },
     draw(t) {
       const { c, w, h } = this, hz = h * .62, cx = w / 2;
       c.clearRect(0, 0, w, h);
+      c.drawImage(this.still, 0, 0);
       c.strokeStyle = this.lineGrad; c.lineWidth = 1; c.beginPath();
-      for (let i = -14; i <= 14; i++) { c.moveTo(cx + i * 18, hz); c.lineTo(cx + i * w / 9, h); }
       const off = (t * .35) % 1;
       for (let k = 0; k < 14; k++) { const p = (k + off) / 14, y = hz + (h - hz) * p * p; c.moveTo(0, y); c.lineTo(w, y); }
       c.stroke();
-      c.fillStyle = this.sun; c.fillRect(0, hz - w * .35, w, w * .35 + 2);
       c.font = "12px Consolas, monospace";
       for (const s of this.streams) {
-        if (!reduce) { s.y += s.v; if (s.y > hz + 60) { s.y = -200; s.chars[Math.floor(Math.random() * 14)] = "0123456789ABCDEF"[Math.floor(Math.random() * 16)]; } }
+        if (!reduce) { s.y += s.v * 2; if (s.y > hz + 60) { s.y = -200; s.chars[Math.floor(Math.random() * 14)] = "0123456789ABCDEF"[Math.floor(Math.random() * 16)]; } }
         s.chars.forEach((ch, j) => { const y = s.y - j * 15; if (y < 0 || y > hz) return;
           c.fillStyle = j === 0 ? "rgba(200,255,255,.45)" : `rgba(53,217,255,${.11 - j * .007})`; c.fillText(ch, s.x * w, y); });
       }
       const ps = this.ps, m = this.mouse;
       for (const p of ps) {
-        if (!reduce) { p.x += p.vx; p.y += p.vy; }
+        if (!reduce) { p.x += p.vx * 2; p.y += p.vy * 2; }
         const dx = p.x - m.x, dy = p.y - m.y, d = Math.hypot(dx, dy);
-        if (d < 120 && d > 0) { p.x += dx / d * 1.8; p.y += dy / d * 1.8; }
+        if (d < 120 && d > 0) { p.x += dx / d * 3.6; p.y += dy / d * 3.6; }
         if (p.x < 0 || p.x > w) p.vx *= -1; if (p.y < 0 || p.y > hz) p.vy *= -1;
       }
       // 連線依透明度分 4 組，一組一次畫完
@@ -374,15 +386,16 @@ const Motion = (() => {
       return c; };
     const halo = ring("halo", ARC, 12), val = ring("val", ARC);
     g.append(ring("trk", 0), halo, val);
-    const ticks = document.createElementNS(SVG, "circle");
+    const ticks = document.createElementNS(SVG, "circle"), tickSvg = document.createElementNS(SVG, "svg");
     for (const [k, v] of Object.entries({ cx: 43, cy: 43, r: 41, fill: "none", "stroke-width": 2, "stroke-dasharray": "1 5", class: "ticks" })) ticks.setAttribute(k, v);
+    tickSvg.setAttribute("viewBox", "0 0 86 86"); tickSvg.setAttribute("aria-hidden", "true"); tickSvg.setAttribute("class", "gauge-ticks"); tickSvg.append(ticks);
     const tipHalo = document.createElementNS(SVG, "circle"), tip = document.createElementNS(SVG, "circle");
     for (const [el, r, cls] of [[tipHalo, 7, "tip-halo"], [tip, 3.2, "tip"]]) { el.setAttribute("r", r); el.setAttribute("class", cls); el.setAttribute("cx", 43); el.setAttribute("cy", 43); }
     const text = document.createElementNS(SVG, "text");
     text.setAttribute("x", 43); text.setAttribute("y", 48); text.setAttribute("text-anchor", "middle"); text.textContent = "—";
-    svg.append(g, ticks, tipHalo, tip, text);
+    svg.append(g, tipHalo, tip, text);
     const small = document.createElement("small"); small.textContent = label;
-    box.append(svg, small);
+    box.append(svg, tickSvg, small);
     let current = 0, raf = 0;
     const paint = (f) => {
       const off = (ARC * (1 - f)).toFixed(2);
@@ -433,9 +446,10 @@ const Motion = (() => {
   let magnetPending = false, mx = -999, my = -999;
   const magnetFrame = () => {
     magnetPending = false;
-    for (const el of magnets) {
-      if (!el.isConnected) { magnets.delete(el); continue; }
-      const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, dx = mx - cx, dy = my - cy;
+    const rects = [];
+    for (const el of magnets) { if (!el.isConnected) magnets.delete(el); else rects.push([el, el.getBoundingClientRect()]); }
+    for (const [el, r] of rects) {
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2, dx = mx - cx, dy = my - cy;
       const reach = Math.max(r.width, r.height) / 2 + 46, d = Math.hypot(dx, dy);
       if (d < reach) { const p = 1 - d / reach; el.style.transform = `translate(${(dx * .32 * p).toFixed(1)}px, ${(dy * .45 * p).toFixed(1)}px)`; el.classList.add("magnet-on"); }
       else if (el.classList.contains("magnet-on")) { el.style.transform = ""; el.classList.remove("magnet-on"); }
@@ -456,10 +470,11 @@ const Motion = (() => {
 
   // 流光繞邊：一道青紫光束沿著卡片邊框繞圈（旋轉的是內層元素，交給 GPU）
   function beam(el) {
-    if (!el || el.querySelector(":scope > .beam-ring")) return;
+    if (!el || el.querySelector(":scope > .beam-ring")) return el;
     const ring = document.createElement("span"); ring.className = "beam-ring"; ring.setAttribute("aria-hidden", "true");
     ring.append(document.createElement("i"));
     el.append(ring);
+    return el;
   }
 
   // ---------------------------------------------------------------- 進場：全息掃描光束＋卡片交錯模糊浮現

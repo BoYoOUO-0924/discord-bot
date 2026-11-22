@@ -1269,7 +1269,7 @@ async function renderAI(view) {
           field("我錯過了什麼", catchupTone), field("每週週報", reportTone)),
         h("div", { class: "save-bar" }, reset, save)),
       h("div", { class: "ai-side" },
-        h("section", { class: "card beam" }, h("div", { class: "card-head" }, h("h2", { text: "試聊" })), chat, h("div", { class: "chat-input" }, ask, send)),
+        Motion.beam(h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "試聊" })), chat, h("div", { class: "chat-input" }, ask, send))),
         h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "AI 連線" }), h("span", { class: "spacer" }), testBtn),
           connInfo, h("div", { class: "field", style: { marginTop: "12px" } }, h("label", { text: isGlobal ? "使用的模型（按「測試連線」載入清單）" : "模型只能在全域設定" }), modelSelect)),
         h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "版本紀錄" })), versions))),
@@ -1422,7 +1422,7 @@ async function renderMusic(view) {
       const eq = h("span", { class: "eq" + (p.state === "playing" ? " on" : ""), "aria-hidden": "true" }, h("i"), h("i"), h("i"), h("i"));
       const btn = (text, action, disabled, title) => h("button", { class: "btn small", type: "button", text, disabled, title,
         onclick: () => control(p.guild, action) });
-      return h("section", { class: "card music-card" + (p.state === "playing" ? " beam" : "") },
+      const card = h("section", { class: "card music-card" },
         h("div", { class: "card-head" }, h("h2", { text: p.guild_name }), h("span", { class: `badge ${cls}`, text: label }), eq,
           h("span", { class: "spacer" }), h("span", { class: "muted", text: p.channel ? `🔊 ${p.channel}・${p.listeners.length} 人在聽` : "" })),
         cur ? h("div", { class: "now" },
@@ -1439,6 +1439,7 @@ async function renderMusic(view) {
         p.tracks.length ? h("ol", { class: "queue" }, p.tracks.map((t) => h("li", { class: t.index === p.index ? "on" : t.index < p.index ? "past" : "" },
           h("span", { class: "q-title", text: t.title }), h("small", { text: `${t.duration}・${t.requester}` })))) : null,
         p.listeners.length ? h("p", { class: "muted", text: `在聽的人：${p.listeners.join("、")}` }) : null);
+      return p.state === "playing" ? Motion.beam(card) : card;
     }));
   };
   view.replaceChildren(h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "音樂" }),
@@ -1555,9 +1556,9 @@ async function renderMinecraft(view) {
   };
 
   view.replaceChildren(
-    h("section", { class: "card beam scan" }, h("div", { class: "card-head" }, h("h2", { text: "伺服器狀態" }), pill, busy,
+    Motion.beam(h("section", { class: "card scan" }, h("div", { class: "card-head" }, h("h2", { text: "伺服器狀態" }), pill, busy,
       h("span", { class: "spacer" }), h("button", { class: "btn small", type: "button", text: "重新整理", onclick: () => load() })),
-      status, h("div", { class: "toolbar", style: { marginTop: "12px" } }, buttons), last),
+      status, h("div", { class: "toolbar", style: { marginTop: "12px" } }, buttons), last)),
     h("div", { class: "grid-2" },
       h("section", { class: "card" }, h("div", { class: "card-head" }, h("h2", { text: "控制台指令" })),
         h("div", { class: "chat-input" }, cmd, h("button", { class: "btn primary", type: "button", text: "送出", onclick: runCmd })),
