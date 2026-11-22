@@ -1,5 +1,6 @@
 import random
 import unittest
+from types import SimpleNamespace
 from datetime import datetime
 
 from cogs.blackjack import BlackjackGame, hand_value
@@ -62,6 +63,102 @@ class BlackjackTest(unittest.TestCase):
         self.assertEqual(game.bet, 200)
         self.assertEqual(game.outcome, "win")
         self.assertEqual(game.payout, 400)
+
+
+    def test_insurance_pays_when_dealer_has_blackjack(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("10", "9", "A", "K"))
+        game.begin()
+        self.assertTrue(game.insurance_pending)
+        self.assertIsNone(game.outcome)        # 莊家先不偷看，等玩家決定保險
+        game.resolve_insurance(True)
+        self.assertEqual(game.outcome, "dealer_blackjack")
+        self.assertEqual(game.staked, 150)
+        self.assertEqual(game.payout, 150)     # 主注輸 100，保險 50 賠 2 倍拿回 150 → 打平
+        self.assertEqual(game.reveal_steps(), [1])
+
+    def test_insurance_lost_when_dealer_has_no_blackjack(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("10", "9", "A", "6", "10"))
+        game.begin()
+        game.resolve_insurance(True)
+        self.assertIsNone(game.outcome)        # 莊家不是 Blackjack，牌局繼續
+        game.stand()                           # 莊家 17 點以上停（A+6 = 17）
+        self.assertEqual(game.outcome, "win")
+        self.assertEqual(game.payout, 200)     # 保險金沒收
+        self.assertEqual(game.payout - game.staked, 50)
+
+    def test_no_insurance_offer_without_ace(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("10", "9", "K", "A"))
+        game.begin()
+        self.assertFalse(game.insurance_pending)
+        self.assertEqual(game.outcome, "dealer_blackjack")   # 明牌 10 點，莊家偷看底牌
+
+    def test_stand_while_insurance_pending_declines_it(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("10", "9", "A", "K"))
+        game.begin()
+        game.stand()                            # 逾時或後台強制結束
+        self.assertFalse(game.insured)
+        self.assertEqual(game.outcome, "dealer_blackjack")
+        self.assertEqual(game.payout, 0)
+
+    def test_dealer_cards_revealed_one_by_one(self):
+        game = BlackjackGame(1, 100, None, deck=self.deal("10", "7", "5", "6", "3", "4"))
+        game.stand()                             # 莊家 5+6 → 補 3 → 14 → 補 4 → 18
+        self.assertEqual(len(game.dealer), 4)
+        self.assertEqual(game.reveal_steps(), [1, 2, 3])
+        bust = BlackjackGame(1, 100, None, deck=self.deal("10", "6", "5", "6", "K"))
+        bust.hit()
+        self.assertEqual(bust.outcome, "bust")
+        self.assertEqual(bust.reveal_steps(), [])  # 玩家爆牌直接公布
+
+
+class BlackjackFlowTest(unittest.IsolatedAsyncioTestCase):
+    def _cog(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from cogs.blackjack import Blackjack
+        bot = MagicMock()
+        bot.db.hold = AsyncMock(return_value=7)
+        bot.db.get_points = AsyncMock(return_value=0)
+        bot.db.settle = AsyncMock(return_value=1000)
+        return Blackjack(bot)
+
+    def _interaction(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        state = {"done": False}
+
+        async def done(**kwargs):
+            state["done"] = True
+        user = SimpleNamespace(id=1, display_name="P1", display_avatar=SimpleNamespace(url="https://x/a.png"))
+        return SimpleNamespace(
+            user=user, channel_id=10, channel=None, message=None,
+            response=SimpleNamespace(is_done=lambda: state["done"], edit_message=AsyncMock(side_effect=done),
+                                     send_message=AsyncMock(side_effect=done)),
+            original_response=AsyncMock(), followup=SimpleNamespace(send=AsyncMock()))
+
+    async def test_play_again_edits_same_message(self):
+        from unittest.mock import AsyncMock, patch
+
+        import cogs.blackjack as bj
+        cog, inter = self._cog(), self._interaction()
+        message = SimpleNamespace(edit=AsyncMock())
+        with patch.object(bj, "BlackjackGame", side_effect=lambda *a: BlackjackGame(
+                *a, deck=list(reversed(cards("10", "7", "9", "8"))))):
+            self.assertTrue(await cog.start(inter, 100, message=message))
+        inter.response.edit_message.assert_awaited_once()   # 直接把舊訊息換成新牌局
+        inter.response.send_message.assert_not_awaited()
+        inter.followup.send.assert_not_awaited()
+
+    async def test_bet_over_limit_is_rejected(self):
+        from unittest.mock import patch
+
+        import cogs.blackjack as bj
+        cog, inter = self._cog(), self._interaction()
+        with patch.object(bj, "send_error") as err:
+            self.assertFalse(await cog.start(inter, bj.MAX_BET + 1))
+        err.assert_called_once()
+        cog.bot.db.hold.assert_not_called()
+        self.assertEqual(bj.MAX_BET, 50_000)
 
 
 class CardDisplayTest(unittest.TestCase):
