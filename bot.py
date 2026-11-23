@@ -36,6 +36,7 @@ EXTENSIONS = [
     "cogs.admin",
     "cogs.blackjack",
     "cogs.slots",
+    "cogs.sicbo",
     "cogs.guess_number",
     "cogs.tictactoe",
     "cogs.poker",

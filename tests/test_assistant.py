@@ -72,6 +72,16 @@ class GuardTest(unittest.TestCase):
         self.check("記住我喜歡吃拉麵", "chat", "chat")          # 叫它記東西就是聊天，背景會自己整理
         self.check("你記得我上次說的那部電影叫什麼名字嗎，我想推薦給朋友", "chat", "chat")   # 太長
 
+    def test_sicbo_guard(self):
+        for text in ("來玩骰寶", "我要押大小", "開一桌買大小"):
+            for ai_says in ({"intent": "chat"}, {"intent": "game"}):
+                intent = asst.apply_guards(text, asst.parse_intent(ai_says))
+                self.assertEqual((intent.name, intent.game), ("game", "sicbo"), (text, ai_says))
+        # AI 已經判斷出別的遊戲就不改
+        intent = asst.apply_guards("骰寶跟21點哪個好玩", asst.parse_intent({"intent": "game", "game": "blackjack"}))
+        self.assertEqual(intent.game, "blackjack")
+        self.check("昨天我跟朋友在夜市玩了好幾輪押大小，結果輸到脫褲子，真的好慘喔哈哈哈", "chat", "chat")   # 太長，只是聊天
+
     def test_typhoon_and_catchup_guards(self):
         self.check("明天會放颱風假嗎", "weather", "alert")
         self.check("台北有停班停課嗎", "chat", "alert")

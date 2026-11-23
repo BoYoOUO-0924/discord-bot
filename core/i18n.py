@@ -23,6 +23,7 @@ COMMAND_NAMES = {
     "clear": "清除訊息",
     "blackjack": "21點",
     "slots": "拉霸機",
+    "sicbo": "骰寶",
     "guess": "猜數字",
     "tictactoe": "井字遊戲",
     "poker": "德州撲克",

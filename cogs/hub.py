@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 GAME_COGS = {
     "blackjack": "Blackjack",
     "slots": "Slots",
+    "sicbo": "SicBo",
     "guess": "GuessNumber",
     "tictactoe": "TicTacToe",
     "poker": "Poker",

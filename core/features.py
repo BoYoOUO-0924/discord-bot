@@ -40,6 +40,7 @@ FEATURES: List[Feature] = [
             category="economy"),
     Feature("blackjack", "🃏", "21點", "跟莊家比點數", ("blackjack",), ("game:blackjack",), category="games"),
     Feature("slots", "🎰", "拉霸機", "三個一樣就中獎", ("slots",), ("game:slots",), category="games"),
+    Feature("sicbo", "🎲", "骰寶", "押大小、點數、豹子，多人同桌", ("sicbo",), ("game:sicbo",), category="games"),
     Feature("guess", "🔢", "猜數字", "全頻道一起猜數字", ("guess",), ("game:guess",), category="games"),
     Feature("tictactoe", "⭕", "井字遊戲", "跟朋友或機器人對戰", ("tictactoe",), ("game:tictactoe",), category="games"),
     Feature("poker", "♠️", "德州撲克", "2–8 人德州撲克，可加電腦對手", ("poker",), ("game:poker",), category="games"),

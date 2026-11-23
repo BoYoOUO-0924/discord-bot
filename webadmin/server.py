@@ -46,7 +46,7 @@ INTENT_LABELS = {"weather": "天氣", "earthquake": "地震", "alert": "颱風�
                  "remind": "提醒", "task": "待辦", "help": "說明", "changelog": "更新日誌", "memory": "AI 記憶", "unsupported": "拒絕（改錢、轉帳）"}
 PREVIEW_COOLDOWN = 3
 
-GAME_NAMES = {"blackjack": "21點", "slots": "拉霸機", "guess": "猜數字", "tictactoe": "井字遊戲",
+GAME_NAMES = {"blackjack": "21點", "slots": "拉霸機", "sicbo": "骰寶", "guess": "猜數字", "tictactoe": "井字遊戲",
               "poker": "德州撲克", "seatortoise": "海龜湯"}
 
 
@@ -480,6 +480,9 @@ class AdminServer:
         for lobby in getattr(poker, "lobbies", {}).values():
             for hold_id in lobby.holds.values():
                 attached[hold_id] = "德州撲克大廳"
+        for table in getattr(self.bot.get_cog("SicBo"), "tables", {}).values():
+            for hold_id in (table.round.holds.values() if table.round else ()):
+                attached[hold_id] = "骰寶"
         return attached
 
     async def games(self, request: web.Request):
@@ -503,6 +506,12 @@ class AdminServer:
             items.append({"type": "blackjack", "id": str(user_id), "game": "21點",
                           "where": self.channel_name(game.channel_id) if game.channel_id else "?",
                           "detail": f"賭注 {game.bet:,}", "players": [name or str(user_id)]})
+        for channel_id, table in getattr(self.bot.get_cog("SicBo"), "tables", {}).items():
+            rnd = table.round
+            phase = {"betting": "開放下注", "rolling": "開獎中", "break": "等下一局"}.get(table.phase, table.phase)
+            items.append({"type": "sicbo", "id": str(channel_id), "game": "骰寶", "where": self.channel_name(channel_id),
+                          "detail": f"第 {table.number} 局・{phase}・押注 {rnd.total if rnd else 0:,}",
+                          "players": [f"{rnd.names.get(u, u)}（{rnd.stake(u):,}）" for u in rnd.bets] if rnd else []})
         guess = self.bot.get_cog("GuessNumber")
         for channel_id, game in getattr(guess, "games", {}).items():
             items.append({"type": "guess", "id": str(channel_id), "game": "猜數字", "where": self.channel_name(channel_id),
@@ -551,6 +560,12 @@ class AdminServer:
                 if not game.finished:
                     game.stand()   # 依目前手牌直接停牌結算
                     await cog.finish(game)
+        elif kind == "sicbo":
+            cog = self.bot.get_cog("SicBo")
+            table = cog.tables.get(key) if cog else None
+            if not table:
+                return web.json_response({"error": "這桌已經收起來了"}, status=404)
+            await cog.shutdown(table, f"🛑 {reason}，這局還沒開獎的押注已全數退還。")
         elif kind == "guess":
             cog = self.bot.get_cog("GuessNumber")
             game = cog.games.get(key) if cog else None

@@ -31,6 +31,7 @@ flowchart LR
 | 大廳、說明 | `cogs/hub.py` | `core/catalog.py` | — |
 | 錢包、簽到、打工、任務 | `cogs/economy.py`、`cogs/earn.py` | `core/db.py`、`core/quests.py` | — |
 | 21 點、拉霸、猜數字、井字、德州撲克 | `cogs/blackjack.py` 等、`cogs/poker/` | `cogs/poker/engine.py` | — |
+| 骰寶（押大小） | `cogs/sicbo.py` | `core/sicbo.py`（押法、賠率、結算） | — |
 | 海龜湯 | `cogs/seatortoise.py` | `content/seatortoise.json` | `OLLAMA_URL` |
 | 提醒、投票 | `cogs/reminders.py`、`cogs/polls.py` | `core/db.py` | — |
 | 待辦、專案、週報 | `cogs/tasks.py`、`cogs/projects.py`、`cogs/github_sync.py` | `core/tasks.py`、`core/github.py` | 週報 AI 總結要 `OLLAMA_URL`；私人 repo 要 `GITHUB_TOKEN` |

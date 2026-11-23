@@ -45,7 +45,7 @@ class MappingTest(unittest.TestCase):
         self.assertEqual(sorted(grouped), sorted(f.key for f in FEATURES))     # 每個功能剛好出現一次
         self.assertEqual(features_by_category()[1][0][0], "games")
         self.assertEqual({f.key for f in dict((c[0], i) for c, i in features_by_category())["games"]},
-                         {"blackjack", "slots", "guess", "tictactoe", "poker", "seatortoise"})
+                         {"blackjack", "slots", "sicbo", "guess", "tictactoe", "poker", "seatortoise"})
 
 
 class FlagsTest(unittest.IsolatedAsyncioTestCase):

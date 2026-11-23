@@ -36,8 +36,8 @@ INTENTS: Dict[str, str] = {
     "unsupported": "要求轉帳、給別人錢、買賣股票、加錢、改分數、管理伺服器等會改動資料或需要權限的事",
     "chat": "閒聊、打招呼、心情、問意見，或以上都不是",
 }
-GAMES = ("blackjack", "poker", "slots", "guess", "tictactoe", "seatortoise")
-GAME_NAMES = {"blackjack": "21點", "poker": "德州撲克", "slots": "拉霸機", "guess": "猜數字",
+GAMES = ("blackjack", "poker", "slots", "sicbo", "guess", "tictactoe", "seatortoise")
+GAME_NAMES = {"blackjack": "21點", "poker": "德州撲克", "slots": "拉霸機", "sicbo": "骰寶（押大小）", "guess": "猜數字",
               "tictactoe": "井字遊戲", "seatortoise": "海龜湯"}
 PLACES = ("台北", "淡水")
 
@@ -177,6 +177,7 @@ ALERT_WORDS = re.compile(r"颱風|停班|停課|颱風假|放假嗎|豪雨特報
 CATCHUP_WORDS = re.compile(r"錯過了?(什麼|啥|哪些)|(剛剛|剛才|大家|你們)(在)?聊(了)?(什麼|啥)|前情提要|懶人包|爬文")
 MEMORY_WORDS = re.compile(r"(你|妳)(還)?記得我(什麼|啥|哪些|多少)|(你|妳)對我(有)?(多少|什麼)?了解|"
                           r"(你|妳)知道我(的)?(什麼|啥|哪些)|忘(掉|記)(我|關於我|我的事)|刪(掉|除)(我的)?記憶|清除記憶")
+SICBO_WORDS = re.compile(r"骰寶|押大小|買大小|賭大小|搖骰|擲骰子|丟骰子|骰子遊戲")
 HELP_WORDS = re.compile(r"指令|功能|怎麼用|說明|help|教學|(會|能|可以)(做|幹)?什麼[?？呢啊]*$", re.IGNORECASE)
 
 
@@ -187,6 +188,7 @@ def apply_guards(text: str, intent: Intent) -> Intent:
     - 判成閒聊但明顯在問更新（「最近更新了什麼」）→ changelog；明顯在問指令 → help
     - 判成天氣或閒聊但在問颱風、停班停課 → alert；判成閒聊但在問錯過什麼 → catchup
     - 判成閒聊但在問「你記得我什麼」「忘掉我的事」→ memory
+    - 說要玩骰寶、押大小，但判成閒聊或沒指定遊戲 → game=sicbo
     - 貼了 YouTube 網址 → 直接放那個網址（不讓 AI 抄網址，抄錯一個字就放不了）
     """
     if INJECTION_WORDS.search(text):
@@ -202,6 +204,9 @@ def apply_guards(text: str, intent: Intent) -> Intent:
         return Intent("catchup")
     if intent.name == "chat" and MEMORY_WORDS.search(text) and len(text) <= 25:
         return Intent("memory")
+    if intent.name in ("chat", "game") and not (intent.name == "game" and intent.game) \
+            and SICBO_WORDS.search(text) and len(text) <= 25:
+        return Intent("game", game="sicbo")
     if intent.name in ("chat", "help") and CHANGELOG_WORDS.search(text) and len(text) <= 20:
         return Intent("changelog")
     if intent.name == "chat" and HELP_WORDS.search(text) and len(text) <= 20:

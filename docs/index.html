@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>嘎哇 Bot 功能介紹</title>
-<meta name="description" content="嘎哇是一個繁體中文 Discord 機器人：新台幣錢包、六款遊戲、台股模擬、音樂、待辦與專案管理、天氣與地震通知，還能 @ 它用講的叫功能，個性可以自己設定。">
+<meta name="description" content="嘎哇是一個繁體中文 Discord 機器人：新台幣錢包、七款遊戲、台股模擬、音樂、待辦與專案管理、天氣與地震通知，還能 @ 它用講的叫功能，個性可以自己設定。">
 <meta name="theme-color" content="#04070d">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -331,7 +331,7 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
     <span class="eyebrow">Discord bot・繁體中文</span>
     <h1 id="hero-title"><span class="glow">嘎哇</span></h1>
     <p class="tag" id="hero-tag">會聊天、會記事、也會陪你玩的伺服器夥伴</p>
-    <p class="lead" id="hero-lead">新台幣錢包、六款遊戲、台股模擬、YouTube 音樂、待辦與專案管理、天氣和地震通知。
+    <p class="lead" id="hero-lead">新台幣錢包、七款遊戲、台股模擬、YouTube 音樂、待辦與專案管理、天氣和地震通知。
       不想記指令？直接 @ 它說你想做什麼就好。</p>
     <div class="cta"><a class="btn primary magnetic" href="#start">開始使用 →</a><a class="btn magnetic" href="#games">看看能玩什麼</a></div>
   </div>
@@ -382,21 +382,23 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
 <div class="games-pin" id="games">
   <div class="wrap games-head">
     <span class="kicker">Games</span>
-    <h2 class="title reveal-title">六款遊戲，<em>贏的錢</em>直接進錢包</h2>
+    <h2 class="title reveal-title">七款遊戲，<em>贏的錢</em>直接進錢包</h2>
     <p class="sub">往下捲，遊戲會從右邊滑進來。滑鼠移到卡片上看看閃卡效果。</p>
   </div>
   <div class="games-track" id="games-track">
-    <article class="game" style="--g:linear-gradient(160deg,#173a2a,#0a1a14)"><span class="n">01 / 06</span><span class="big" aria-hidden="true">🃏</span>
+    <article class="game" style="--g:linear-gradient(160deg,#173a2a,#0a1a14)"><span class="n">01 / 07</span><span class="big" aria-hidden="true">🃏</span>
       <h3>21 點</h3><p>跟莊家比誰最接近 21 點，可以加倍、分牌、投降，莊家亮 A 時買保險，Blackjack 賠 3:2，莊家的牌一張一張翻開。每局賭注上限 5 萬。</p><ul class="cmds"><li><code>/blackjack [賭注]</code></li></ul></article>
-    <article class="game" style="--g:linear-gradient(160deg,#3a2a0c,#1a1206)"><span class="n">02 / 06</span><span class="big" aria-hidden="true">🎰</span>
+    <article class="game" style="--g:linear-gradient(160deg,#3a2a0c,#1a1206)"><span class="n">02 / 07</span><span class="big" aria-hidden="true">🎰</span>
       <h3>拉霸機</h3><p>三個一樣就中獎，最高 100 倍。</p><ul class="cmds"><li><code>/slots 賭注</code></li></ul></article>
-    <article class="game" style="--g:linear-gradient(160deg,#10284a,#081428)"><span class="n">03 / 06</span><span class="big" aria-hidden="true">🔢</span>
+    <article class="game" style="--g:linear-gradient(160deg,#3a0f14,#1a0608)"><span class="n">03 / 07</span><span class="big" aria-hidden="true">🎲</span>
+      <h3>骰寶</h3><p>押大小、單雙、點數、豹子，一個頻道一張桌，大家下注 30 秒後一起開獎；澳門賠率表，圍骰 180 倍。</p><ul class="cmds"><li><code>/sicbo</code></li></ul></article>
+    <article class="game" style="--g:linear-gradient(160deg,#10284a,#081428)"><span class="n">04 / 07</span><span class="big" aria-hidden="true">🔢</span>
       <h3>猜數字</h3><p>全頻道一起猜，直接在頻道輸入數字，機器人用 ⬆️⬇️ 告訴你大了還是小了，猜中的人拿獎勵。</p><ul class="cmds"><li><code>/guess [範圍]</code></li></ul></article>
-    <article class="game" style="--g:linear-gradient(160deg,#2c1640,#140a20)"><span class="n">04 / 06</span><span class="big" aria-hidden="true">⭕</span>
+    <article class="game" style="--g:linear-gradient(160deg,#2c1640,#140a20)"><span class="n">05 / 07</span><span class="big" aria-hidden="true">⭕</span>
       <h3>井字遊戲</h3><p>邀請朋友對戰，或挑戰三種難度的機器人。</p><ul class="cmds"><li><code>/tictactoe [對手] [難度]</code></li></ul></article>
-    <article class="game" style="--g:linear-gradient(160deg,#0d3a2c,#061a14)"><span class="n">05 / 06</span><span class="big" aria-hidden="true">♠️</span>
+    <article class="game" style="--g:linear-gradient(160deg,#0d3a2c,#061a14)"><span class="n">06 / 07</span><span class="big" aria-hidden="true">♠️</span>
       <h3>德州撲克</h3><p>2–8 人一桌，可以加入四種個性的電腦對手；支援邊池、逾時自動行動、中途入座。</p><ul class="cmds"><li><code>/poker [大盲注] [帶入籌碼] [電腦對手]</code></li></ul></article>
-    <article class="game" style="--g:linear-gradient(160deg,#0a3540,#04161c)"><span class="n">06 / 06</span><span class="big" aria-hidden="true">🐢</span>
+    <article class="game" style="--g:linear-gradient(160deg,#0a3540,#04161c)"><span class="n">07 / 07</span><span class="big" aria-hidden="true">🐢</span>
       <h3>海龜湯 <span class="tag-ai">AI</span></h3><p>AI 擔任湯主，大家輪流問是非題推理出真相；問到關鍵會標 🔑。</p><ul class="cmds"><li><code>/seatortoise [難度] [題目]</code></li></ul></article>
   </div>
 </div>
@@ -519,6 +521,7 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
           <li><span class="q">明天要帶傘嗎？那後天呢</span><span class="a">天氣按鈕・會接話</span></li>
           <li><span class="q">幫我簽到、我想打工</span><span class="a">簽到、打工按鈕</span></li>
           <li><span class="q">好無聊、來一局德州撲克</span><span class="a">遊戲按鈕</span></li>
+          <li><span class="q">來玩骰寶、我要押大小</span><span class="a">骰寶按鈕</span></li>
           <li><span class="q">台積電現在多少？那鴻海呢</span><span class="a">股價按鈕</span></li>
           <li><span class="q">10 分鐘後提醒我關瓦斯</span><span class="a">設定提醒按鈕</span></li>
           <li><span class="q">把簡報交給 @小明 下週一前</span><span class="a">新增待辦按鈕</span></li>
@@ -684,7 +687,7 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
   var field = $("#field");
   (function () {
     var c = field.getContext("2d"), w, h, d = DPR, mouse = { x: 0, y: 0 }, t0 = performance.now(), glow;
-    var WORDS = ["/checkin", "/work", "/poker", "/blackjack", "/slots", "/weather", "/stock", "/play", "/task add", "/remind", "/poll", "/catchup", "/menu", "/help", "/alert", "@嘎哇", "💰", "🃏", "♠️", "🎵", "📈", "🌦️", "📋", "🐢"];
+    var WORDS = ["/checkin", "/work", "/poker", "/blackjack", "/slots", "/sicbo", "/weather", "/stock", "/play", "/task add", "/remind", "/poll", "/catchup", "/menu", "/help", "/alert", "@嘎哇", "💰", "🃏", "🎲", "♠️", "🎵", "📈", "🌦️", "📋", "🐢"];
     // 每個字先畫成小圖（只畫一次），之後每格只要縮放貼上，比每格重新排版文字快很多
     var BASE = 44, sprites = {};
     function sprite(word) {

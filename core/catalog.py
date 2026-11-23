@@ -16,6 +16,7 @@ class GameInfo:
 GAMES: List[GameInfo] = [
     GameInfo("blackjack", "🃏", "21點", "跟莊家比誰最接近 21 點", "[賭注]"),
     GameInfo("slots", "🎰", "拉霸機", "三個一樣就中獎，最高 100 倍", "賭注"),
+    GameInfo("sicbo", "🎲", "骰寶", "押大小、點數、豹子，大家同桌一起開獎", ""),
     GameInfo("guess", "🔢", "猜數字", "全頻道一起猜，猜中的人拿獎勵", "[範圍]"),
     GameInfo("tictactoe", "⭕", "井字遊戲", "找朋友對戰，或挑戰機器人", "[對手] [難度]"),
     GameInfo("poker", "♠️", "德州撲克", "2–8 人一桌，也能加入電腦對手", "[大盲注] [帶入籌碼] [電腦對手]"),
