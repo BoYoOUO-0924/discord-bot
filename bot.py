@@ -128,6 +128,7 @@ class Bot(commands.Bot):
         self.ai = create_ai(self.settings)
         self.restart_requested = False
         self._background = set()               # 留著參考，背景工作才不會被回收
+        self._cleanup = None                   # 關閉資料庫的工作，只做一次
 
     def run_background(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -213,6 +214,17 @@ class Bot(commands.Bot):
 
     async def close(self) -> None:
         await super().close()
+        if self._cleanup is None:
+            self._cleanup = asyncio.create_task(self._close_own())
+        await asyncio.shield(self._cleanup)
+
+    async def __aexit__(self, exc_type, exc_value, traceback) -> None:
+        # 斷線後主程式就會結束，asyncio.run 會取消所有還沒做完的工作，包含正在重啟的那個。
+        # 這裡要等資料庫真的關好：它的執行緒沒結束，整個程式就退不出去，也不會重新啟動
+        await super().__aexit__(exc_type, exc_value, traceback)
+        await self.close()
+
+    async def _close_own(self) -> None:
         for task in list(self._background):
             task.cancel()
         if self._background:
