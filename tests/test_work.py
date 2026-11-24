@@ -4,6 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
+
 import cogs.earn as earn
 from cogs.earn import JOBS, WORK_DAILY_HOURS, WORK_MAX_HOURS, WORK_MIN_HOURS, Earn, WorkHoursView, jobs_for, work_pay
 from core.db import Database
@@ -32,11 +34,13 @@ def interaction(user_id=1):
 
     async def done(**kwargs):
         state["done"] = True
+    send = AsyncMock()
     user = SimpleNamespace(id=user_id, display_name="P1", display_avatar=SimpleNamespace(url="https://x/a.png"))
     return SimpleNamespace(
-        user=user, channel_id=10, channel=None, guild_id=None,
-        response=SimpleNamespace(is_done=lambda: state["done"], send_message=AsyncMock(side_effect=done)),
-        original_response=AsyncMock(), followup=SimpleNamespace(send=AsyncMock()),
+        user=user, channel_id=10, channel=None, guild_id=None, extras={}, delete_original_response=AsyncMock(),
+        response=SimpleNamespace(is_done=lambda: state["done"], send_message=AsyncMock(side_effect=done),
+                                 defer=AsyncMock(side_effect=done)),
+        original_response=AsyncMock(), followup=SimpleNamespace(send=send),
         edit_original_response=AsyncMock())
 
 
@@ -54,7 +58,24 @@ class WorkFlowTest(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     def sent(self, inter):
-        return inter.response.send_message.await_args.kwargs
+        sent = inter.followup.send if inter.followup.send.await_args else inter.response.send_message
+        return sent.await_args.kwargs
+
+    async def test_expired_interaction_is_not_paid(self):
+        inter = interaction()
+        inter.response.defer = AsyncMock(side_effect=discord.NotFound(
+            MagicMock(status=404, reason="Not Found"), {"code": 10062, "message": "Unknown interaction"}))
+        with self.assertRaises(discord.NotFound):
+            await self.cog.do_work(inter, 8)
+        self.assertEqual((await self.db.income_status(1, today_tw()))[1], 0)     # 沒發薪也沒算時數
+
+    async def test_blocked_message_is_private(self):
+        with patch.object(earn.time, "time", return_value=1000.0):
+            await self.cog.do_work(interaction(), 8)
+            inter = interaction()
+            await self.cog.do_work(inter, 1)
+        inter.delete_original_response.assert_awaited_once()       # 刪掉公開的「思考中…」
+        self.assertTrue(self.sent(inter)["ephemeral"])
 
     async def test_default_is_one_hour(self):
         inter = interaction()

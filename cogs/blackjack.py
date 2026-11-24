@@ -5,6 +5,7 @@
 結算時莊家的牌一張一張翻開；「再來一局」直接在同一則訊息繼續。
 """
 import asyncio
+import logging
 import secrets
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -15,7 +16,9 @@ from discord.ext import commands
 
 from cogs.poker.cards import card_label
 from core.quests import MIN_QUEST_BET
-from core.ui import AmountModal, BaseView, Color, fmt_points, fmt_signed, make_embed, respond, send_error
+from core.ui import (AmountModal, BaseView, Color, defer, fmt_points, fmt_signed, make_embed, respond, send_error)
+
+log = logging.getLogger(__name__)
 
 Card = Tuple[str, str]
 RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
@@ -316,6 +319,7 @@ class Blackjack(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.games: Dict[int, BlackjackGame] = {}
+        self.starting: set = set()      # 正在開局（等 Discord 或資料庫）的玩家，避免連按開出兩局
 
     # ------------------------------------------------------------------ 畫面
     def build_embed(self, game: BlackjackGame, user: discord.abc.User, balance: Optional[int] = None,
@@ -380,8 +384,11 @@ class Blackjack(commands.Cog):
             embed.set_footer(text="練習模式（沒有下注）")
         return embed
 
-    async def show(self, interaction: Optional[discord.Interaction], message, **kwargs):
-        """更新牌局畫面：互動還沒回應就用互動回應（有原訊息就直接編輯），之後都編輯同一則訊息。"""
+    async def show(self, interaction: Optional[discord.Interaction], message, strict: bool = False, **kwargs):
+        """更新牌局畫面：互動還沒回應就用互動回應（有原訊息就直接編輯），之後都編輯同一則訊息。
+
+        strict：編輯失敗就拋出錯誤（開局時用，畫面沒出來就要退錢）。
+        """
         if interaction is not None and not interaction.response.is_done():
             if message is not None:
                 await interaction.response.edit_message(**kwargs)
@@ -395,7 +402,8 @@ class Blackjack(commands.Cog):
         try:
             await message.edit(**kwargs)
         except discord.HTTPException:
-            pass
+            if strict:
+                raise
         return message
 
     @staticmethod
@@ -426,15 +434,25 @@ class Blackjack(commands.Cog):
             await send_error(interaction, f"21 點每局賭注上限是 {fmt_points(MAX_BET)}。")
             return False
         current = self.games.get(user.id)
-        if current and not current.finished:
+        if user.id in self.starting or (current and not current.finished):
             await send_error(interaction, "你還有一局 21 點沒打完，先把它結束吧！")
             return False
+        self.starting.add(user.id)
+        try:
+            return await self._start(interaction, bet, message)
+        finally:
+            self.starting.discard(user.id)
+
+    async def _start(self, interaction: discord.Interaction, bet: int, message) -> bool:
+        user = interaction.user
+        # 先回應 Discord 再扣錢、登記牌局：回應失敗（逾時）就什麼都不會發生，不會卡住一局
+        if message is not None:
+            await self.ack(interaction)
+        else:
+            await defer(interaction, private_errors=True)
 
         hold_id = None
         if bet > 0:
-            if message is not None:
-                # 只有按鈕（再來一局）先回應；/blackjack 指令先回應的話，「存款不足」會變成公開訊息
-                await self.ack(interaction)
             hold_id = await self.bot.db.hold(user.id, bet, "21點")
             if hold_id is None:
                 balance = await self.bot.db.get_points(user.id)
@@ -450,8 +468,22 @@ class Blackjack(commands.Cog):
             await self.play_out(game, user, interaction, message)
             return True
         view = InsuranceView(self, game, user) if game.insurance_pending else BlackjackView(self, game, user)
-        view.message = await self.show(interaction, message, embed=self.build_embed(game, user), view=view)
+        try:
+            view.message = await self.show(interaction, message, strict=True,
+                                           embed=self.build_embed(game, user), view=view)
+        except Exception:
+            # 畫面沒出來，玩家按不到按鈕也不會逾時：取消這局並退還賭注
+            log.exception("21 點畫面送不出去，取消這局並退還賭注")
+            await self.cancel(game)
+            await send_error(interaction, "牌桌畫面送不出去，這局已取消，賭注已退還。")
+            return False
         return True
+
+    async def cancel(self, game: BlackjackGame) -> None:
+        """取消還沒開始打的牌局，全額退還賭注，不算戰績。"""
+        self.games.pop(game.player_id, None)
+        if game.hold_id is not None:
+            await self.bot.db.settle(game.hold_id, game.staked, "21點：畫面送不出去，退還賭注")
 
     async def finish(self, game: BlackjackGame) -> Optional[int]:
         """結算並回傳新餘額。"""

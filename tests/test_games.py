@@ -324,12 +324,68 @@ class BlackjackFlowTest(unittest.IsolatedAsyncioTestCase):
 
         import cogs.blackjack as bj
         cog, inter = self._cog(), self._interaction()
-        inter.response.defer = AsyncMock()
+        inter.extras = {}
+        inter.delete_original_response = AsyncMock()
         cog.bot.db.hold = AsyncMock(return_value=None)
-        with patch.object(bj, "send_error", new=AsyncMock()) as err:
-            self.assertFalse(await cog.start(inter, 100))
-        inter.response.defer.assert_not_awaited()   # 指令先回應的話，錯誤訊息會變成公開的
-        err.assert_awaited_once()
+        self.assertFalse(await cog.start(inter, 100))
+        inter.response.defer.assert_awaited_once()             # 先回應再扣錢
+        inter.delete_original_response.assert_awaited_once()   # 公開的「思考中…」要刪掉，錯誤才會是私密的
+        self.assertTrue(inter.followup.send.await_args.kwargs["ephemeral"])
+        self.assertEqual((cog.games, cog.starting), ({}, set()))
+
+    def _not_found(self):
+        from unittest.mock import MagicMock
+
+        import discord
+        return discord.NotFound(MagicMock(status=404, reason="Not Found"), {"code": 10062, "message": "Unknown interaction"})
+
+    async def test_expired_interaction_takes_no_money_and_leaves_no_game(self):
+        from unittest.mock import AsyncMock
+
+        import discord
+        for message in (None, SimpleNamespace(edit=AsyncMock())):     # 指令、再來一局
+            cog, inter = self._cog(), self._interaction()
+            inter.response.defer = AsyncMock(side_effect=self._not_found())
+            with self.assertRaises(discord.NotFound):
+                await cog.start(inter, 100, message=message)
+            cog.bot.db.hold.assert_not_awaited()
+            self.assertEqual((cog.games, cog.starting), ({}, set()))
+
+    async def test_board_not_shown_cancels_and_refunds(self):
+        from unittest.mock import AsyncMock, patch
+
+        import cogs.blackjack as bj
+        for again in (False, True):
+            cog, inter = self._cog(), self._interaction()
+            message = SimpleNamespace(edit=AsyncMock(side_effect=self._not_found())) if again else None
+            inter.followup.send = AsyncMock(side_effect=[None] if again else [self._not_found(), None])
+            with patch.object(bj, "BlackjackGame", side_effect=lambda *a: BlackjackGame(
+                    *a, deck=list(reversed(cards("10", "7", "9", "8"))))), self.assertLogs("cogs.blackjack", "ERROR"):
+                self.assertFalse(await cog.start(inter, 100, message=message))
+            self.assertEqual(cog.games, {})
+            self.assertEqual(cog.bot.db.settle.await_args.args[:2], (7, 100))     # 全額退還
+            self.assertNotIn("game", cog.bot.db.settle.await_args.kwargs)         # 不算戰績
+
+    async def test_double_start_only_opens_one_game(self):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        import cogs.blackjack as bj
+        cog, first, second = self._cog(), self._interaction(), self._interaction()
+        gate, defer_first = asyncio.Event(), first.response.defer
+
+        async def slow(**kwargs):
+            await gate.wait()
+            await defer_first(**kwargs)
+        first.response.defer = AsyncMock(side_effect=slow)
+        with patch.object(bj, "BlackjackGame", side_effect=lambda *a: BlackjackGame(
+                *a, deck=list(reversed(cards("10", "7", "9", "8"))))):
+            task = asyncio.create_task(cog.start(first, 100))
+            await asyncio.sleep(0)
+            self.assertFalse(await cog.start(second, 100))
+            gate.set()
+            self.assertTrue(await task)
+        cog.bot.db.hold.assert_awaited_once()
 
     async def test_bet_over_limit_is_rejected(self):
         from unittest.mock import patch

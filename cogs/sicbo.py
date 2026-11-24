@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+import math
 import time
 from collections import deque
 from typing import Dict, List, Optional, Tuple
@@ -16,7 +17,8 @@ from discord.ext import commands
 from core.features import enabled
 from core.quests import MIN_QUEST_BET
 from core.sicbo import (MAX_PER_ROUND, MIN_CHIP, RULES, SPOTS, SicBoRound, describe, faces, road_mark, roll)
-from core.ui import AmountModal, Color, fmt_points, fmt_signed, make_embed, respond, send_error
+from core.ui import (AmountModal, Color, defer, fmt_points, fmt_signed, log_interaction_error, make_embed, progress_bar,
+                     respond, send_error)
 
 log = logging.getLogger(__name__)
 
@@ -25,8 +27,9 @@ ROLL_SECONDS = 1.5
 BREAK_SECONDS = 8
 REFRESH_SECONDS = 2.0     # 押注畫面最多每 2 秒更新一次，避免被 Discord 限速
 DEFAULT_CHIP = 5_000
-CHIPS = (1_000, 5_000, 10_000, 50_000, 100_000)
+CHIPS = (1_000, 5_000, 10_000, 25_000, 50_000)
 HISTORY = 12
+RULES_TIMEOUT = 60         # 之後由 cog_load 註冊的永久介面接手
 
 
 def fmt_spot_amount(key: str, amount: int) -> str:
@@ -51,6 +54,15 @@ def _clip(lines: List[str], limit: int = 1000) -> str:
     return "\n".join(out) or "—"
 
 
+def next_tick(remaining: float) -> int:
+    """倒數下一次要更新成幾秒：剩 10 秒以上每 5 秒更新一次，最後 10 秒每 2 秒一次。
+
+    不每秒更新：同一個頻道約 5 秒只能改 5 次訊息，還要留給押注更新和其他遊戲。
+    """
+    step = 5 if remaining > 10 else 2
+    return (math.ceil(remaining - 0.05) - 1) // step * step
+
+
 class Table:
     def __init__(self, channel, guild_id: Optional[int]):
         self.channel = channel
@@ -67,6 +79,9 @@ class Table:
         self.lock = asyncio.Lock()
         self.task: Optional[asyncio.Task] = None
         self.refresh_task: Optional[asyncio.Task] = None
+        self.ticker: Optional[asyncio.Task] = None
+        self.edit_lock = asyncio.Lock()      # 更新畫面排隊，舊的倒數才不會蓋掉開獎
+        self.result: Optional[discord.Embed] = None
 
     def road(self) -> str:
         return "　".join(road_mark(d) for d in self.history) or "還沒有紀錄"
@@ -77,6 +92,10 @@ class SicBo(commands.Cog):
         self.bot = bot
         self.tables: Dict[int, Table] = {}
         self.chips: Dict[int, int] = {}
+
+    async def cog_load(self):
+        # 開獎中、開獎後的「押法說明」：註冊成永久介面，過多久、重啟後都能按
+        self.bot.add_view(RulesView())
 
     async def cog_unload(self):
         for table in list(self.tables.values()):
@@ -91,7 +110,7 @@ class SicBo(commands.Cog):
         rnd = table.round
         embed = make_embed(
             f"🎲 骰寶・第 {table.number} 局",
-            f"**開放下注中**，<t:{int(table.closes_at)}:R>停止下注\n"
+            f"**開放下注中**　⏳ {self.countdown(table.closes_at, BET_SECONDS)}\n"
             "按下面的按鈕用你的籌碼押一注（可以連按疊加），點數、總和、對子等在「🎯 更多押法」。\n"
             "⚠️ 開出豹子時，大小單雙全部算輸。",
             Color.TABLE)
@@ -102,6 +121,12 @@ class SicBo(commands.Cog):
         embed.add_field(name="路單（舊 → 新）", value=table.road(), inline=False)
         embed.set_footer(text=f"預設籌碼 {DEFAULT_CHIP:,} 元・每人每局最多 {MAX_PER_ROUND:,} 元")
         return embed
+
+    @staticmethod
+    def countdown(until: float, total: float) -> str:
+        """倒數條。用固定秒數、由 bot 定時更新：Discord 的相對時間（:R）不保證每個人的畫面都會跳。"""
+        left = max(0, round(until - time.time()))
+        return f"`{progress_bar(left / total if total else 0)}` 剩 **{left}** 秒"
 
     def rolling_embed(self, table: Table) -> discord.Embed:
         rnd = table.round
@@ -123,12 +148,16 @@ class SicBo(commands.Cog):
                          f"損益 **{fmt_signed(paid - stake)}**・餘額 {balances.get(user_id, 0):,}")
         embed.add_field(name="結算", value=_clip(lines), inline=False)
         embed.add_field(name="路單（舊 → 新）", value=table.road(), inline=False)
-        embed.add_field(name="下一局", value=f"<t:{int(table.next_at)}:R>開放下注", inline=False)
+        embed.add_field(name="下一局", value=self.next_text(table), inline=False)
         return embed
+
+    def next_text(self, table: Table) -> str:
+        return f"⏳ {self.countdown(table.next_at, BREAK_SECONDS)}後開放下注"
 
     def wait_message(self, table: Table) -> str:
         if table.phase in ("rolling", "break") and table.next_at > time.time():
-            return f"這局已經停止下注，下一局 <t:{int(table.next_at)}:R>開放，請等一下再押。"
+            left = math.ceil(table.next_at - time.time())
+            return f"這局已經停止下注，下一局大約 {left} 秒後開放，請等一下再押。"
         if table.phase in ("rolling", "break"):
             return "這局已經停止下注，正在開獎，下一局馬上開放。"
         return "這張賭桌已經收起來了，用 /sicbo 再開一桌。"
@@ -138,16 +167,35 @@ class SicBo(commands.Cog):
         channel = interaction.channel
         if channel is None:
             return await send_error(interaction, "這裡不能開賭桌。")
-        table = self.tables.get(channel.id)
-        if table:
-            if table.phase == "betting":
-                link = f"（[前往賭桌]({table.message.jump_url})）" if getattr(table.message, "jump_url", None) else ""
-                return await send_error(interaction, f"這個頻道的骰寶正在開放下注，直接按賭桌上的按鈕押注{link}。")
-            return await send_error(interaction, self.wait_message(table))
+        if await self._already_open(interaction, channel):
+            return
+        # 先回應 Discord 再登記賭桌：回應失敗（逾時）就不會留下沒有畫面的桌子
+        await defer(interaction, private_errors=True)
+        if await self._already_open(interaction, channel):     # 等回應時別人先開了
+            return
         table = Table(channel, interaction.guild_id)
         self.tables[channel.id] = table
-        await self.start_round(table, interaction)
+        try:
+            await self.start_round(table, interaction)
+        except Exception:
+            # 畫面沒出來：移除賭桌，這個頻道才能再開
+            log.exception("骰寶賭桌送不出去，取消開桌")
+            await self.shutdown(table, "⚠️ 賭桌開桌失敗，請再開一次。")
+            return await send_error(interaction, "賭桌畫面送不出去，請再開一次。")
         table.task = asyncio.create_task(self._run(table))
+
+    async def _already_open(self, interaction: discord.Interaction, channel) -> bool:
+        """這個頻道已經有桌子就告訴本人該怎麼做，並回傳 True。"""
+        table = self.tables.get(channel.id)
+        if table is None:
+            return False
+        if table.phase == "betting":
+            link = f"（[前往賭桌]({table.message.jump_url})）" if getattr(table.message, "jump_url", None) else ""
+            text = f"這個頻道的骰寶正在開放下注，直接按賭桌上的按鈕押注{link}。"
+        else:
+            text = self.wait_message(table)
+        await send_error(interaction, text)
+        return True
 
     async def start_round(self, table: Table, interaction: Optional[discord.Interaction] = None) -> None:
         async with table.lock:
@@ -165,12 +213,15 @@ class SicBo(commands.Cog):
     async def _run(self, table: Table) -> None:
         try:
             while True:
+                # 倒數在另一個工作更新：就算改訊息被 Discord 限速，也不會拖到停止下注的時間
+                table.ticker = asyncio.create_task(self.tick(table, "betting", table.closes_at))
                 await asyncio.sleep(max(0.0, table.closes_at - time.time()))
                 if not await self.close_round(table):
                     return
                 await asyncio.sleep(ROLL_SECONDS)
                 await self.reveal(table)
-                await asyncio.sleep(BREAK_SECONDS)
+                table.ticker = asyncio.create_task(self.tick(table, "break", table.next_at))
+                await asyncio.sleep(max(0.0, table.next_at - time.time()))
                 if not enabled(self.bot, "sicbo", table.guild_id):
                     return await self.shutdown(table, "🛑 骰寶功能已經關閉，賭桌收起來了。")
                 await self.start_round(table)
@@ -187,13 +238,11 @@ class SicBo(commands.Cog):
             table.next_at = time.time() + ROLL_SECONDS + BREAK_SECONDS
             if table.view:
                 table.view.stop()
-            if table.refresh_task:
-                table.refresh_task.cancel()
             empty = not table.round.bets
         if empty:
             await self.shutdown(table, "沒人下注，賭桌收起來了。想玩再用 /sicbo 開一桌！")
             return False
-        await self._edit(table, embed=self.rolling_embed(table), view=None)
+        await self._edit(table, embed=self.rolling_embed(table), view=RulesView(timeout=RULES_TIMEOUT))
         return True
 
     async def reveal(self, table: Table, dice=None) -> None:
@@ -213,7 +262,8 @@ class SicBo(commands.Cog):
             table.history.append(tuple(dice))
             table.phase = "break"
             table.next_at = time.time() + BREAK_SECONDS
-        await self._edit(table, embed=self.result_embed(table, dice, results, balances), view=None)
+        table.result = self.result_embed(table, dice, results, balances)
+        await self._edit(table, embed=table.result, view=RulesView(timeout=RULES_TIMEOUT))
 
     async def shutdown(self, table: Table, text: str) -> None:
         """收桌：退還這局還沒結算的押注。"""
@@ -236,6 +286,10 @@ class SicBo(commands.Cog):
         await self._edit(table, embed=embed, view=None)
 
     async def _edit(self, table: Table, **kwargs) -> None:
+        async with table.edit_lock:
+            await self._edit_now(table, **kwargs)
+
+    async def _edit_now(self, table: Table, **kwargs) -> None:
         if table.message is None:
             return
         try:
@@ -243,18 +297,44 @@ class SicBo(commands.Cog):
         except discord.HTTPException:
             log.warning("骰寶賭桌訊息更新失敗", exc_info=True)
 
+    async def refresh(self, table: Table, phase: str, number: int) -> bool:
+        """重畫倒數與押注。已經換階段或換局就不畫並回傳 False。"""
+        async with table.edit_lock:
+            if table.phase != phase or table.number != number:
+                return False
+            if phase == "betting":
+                embed = self.betting_embed(table)
+            else:
+                embed = table.result
+                embed.set_field_at(-1, name="下一局", value=self.next_text(table), inline=False)
+            await self._edit_now(table, embed=embed)
+            return True
+
+    async def tick(self, table: Table, phase: str, until: float) -> None:
+        """倒數到 until 為止，定時更新畫面上的秒數。"""
+        number = table.number
+        try:
+            while True:
+                remaining = until - time.time()
+                target = next_tick(remaining)
+                if target <= 0:
+                    return
+                await asyncio.sleep(remaining - target)
+                if not await self.refresh(table, phase, number):
+                    return
+        except Exception:
+            log.exception("骰寶倒數更新失敗")       # 只是畫面，不影響牌局進行
+
     def schedule_refresh(self, table: Table) -> None:
         if table.refresh_task and not table.refresh_task.done():
             return
 
-        async def refresh():
+        number = table.number
+
+        async def later():
             await asyncio.sleep(REFRESH_SECONDS)
-            async with table.lock:
-                if table.phase != "betting":
-                    return
-                embed = self.betting_embed(table)
-            await self._edit(table, embed=embed)
-        table.refresh_task = asyncio.create_task(refresh())
+            await self.refresh(table, "betting", number)
+        table.refresh_task = asyncio.create_task(later())
 
     # ------------------------------------------------------------------ 押注
     async def place_bet(self, user, table: Table, key: str) -> Tuple[bool, str]:
@@ -283,7 +363,8 @@ class SicBo(commands.Cog):
         balance = await self.bot.db.get_points(user.id)
         self.schedule_refresh(table)
         return True, (f"✅ 已押 **{SPOTS[key].label} {amount:,}** 元（{SPOTS[key].odds}）\n"
-                      f"你這局共押 {stake:,} 元：{mine}\n餘額 {balance:,} 元")
+                      f"你這局共押 {stake:,}／{MAX_PER_ROUND:,} 元：{mine}\n"
+                      f"目前籌碼 {amount:,} 元・餘額 {balance:,} 元")
 
     async def withdraw(self, user_id: int, table: Table) -> Tuple[bool, str]:
         async with table.lock:
@@ -299,9 +380,10 @@ class SicBo(commands.Cog):
         return True, f"↩️ 已撤回這局的押注，退還 {amount:,} 元，餘額 {balance:,} 元。"
 
     async def bet_from(self, interaction: discord.Interaction, table: Table, key: str) -> None:
+        await defer(interaction, ephemeral=True)      # 先回應再扣錢
         ok, text = await self.place_bet(interaction.user, table, key)
         if ok:
-            await interaction.response.send_message(text, ephemeral=True)
+            await respond(interaction, content=text, ephemeral=True)
         else:
             await send_error(interaction, text)
 
@@ -346,7 +428,7 @@ class TableView(discord.ui.View):
     async def any_triple(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._bet(interaction, "any_triple")
 
-    @discord.ui.button(label="換籌碼", emoji="💰", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label=f"換籌碼（預設 {DEFAULT_CHIP:,}）", emoji="💰", style=discord.ButtonStyle.secondary, row=1)
     async def chip(self, interaction: discord.Interaction, button: discord.ui.Button):
         current = self.cog.chip(interaction.user.id)
         await interaction.response.send_message(f"💰 你目前的籌碼是 **{current:,} 元**，選一個新的面額：",
@@ -359,9 +441,10 @@ class TableView(discord.ui.View):
 
     @discord.ui.button(label="撤回我的押注", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
     async def withdraw(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await defer(interaction, ephemeral=True)
         ok, text = await self.cog.withdraw(interaction.user.id, self.table)
         if ok:
-            await interaction.response.send_message(text, ephemeral=True)
+            await respond(interaction, content=text, ephemeral=True)
         else:
             await send_error(interaction, text)
 
@@ -370,8 +453,19 @@ class TableView(discord.ui.View):
         await interaction.response.send_message(embed=rules_embed(), ephemeral=True)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item) -> None:
-        log.exception("骰寶按鈕發生錯誤", exc_info=error)
-        await send_error(interaction, "操作時發生錯誤，請稍後再試。")
+        if log_interaction_error(interaction, error, "骰寶按鈕"):
+            await send_error(interaction, "操作時發生錯誤，請稍後再試。")
+
+
+class RulesView(discord.ui.View):
+    """停止下注後（搖骰中、開獎後）只留「押法說明」。"""
+
+    def __init__(self, timeout: Optional[float] = None):
+        super().__init__(timeout=timeout)
+
+    @discord.ui.button(label="押法說明", emoji="📋", style=discord.ButtonStyle.secondary, custom_id="sicbo:rules")
+    async def rules(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=rules_embed(), ephemeral=True)
 
 
 class ChipView(discord.ui.View):
@@ -433,10 +527,12 @@ class MoreBetsView(discord.ui.View):
 
     def _picked(self, select: discord.ui.Select):
         async def callback(interaction: discord.Interaction):
-            ok, text = await self.cog.place_bet(interaction.user, self.table, select.values[0])
+            key = select.values[0]
+            await interaction.response.defer()            # 先回應再扣錢
+            ok, text = await self.cog.place_bet(interaction.user, self.table, key)
             note = text if ok else f"❌ {text}"
             fresh = MoreBetsView(self.cog, self.table) if ok or self.table.phase == "betting" else None
-            await interaction.response.edit_message(embed=self.embed(self.cog, interaction.user.id, note), view=fresh)
+            await interaction.edit_original_response(embed=self.embed(self.cog, interaction.user.id, note), view=fresh)
         return callback
 
 

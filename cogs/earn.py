@@ -78,8 +78,8 @@ class WorkHoursView(BaseView):
 
     def _make_callback(self, hours: int):
         async def callback(interaction: discord.Interaction):
-            self.stop()
             await self.cog.do_work(interaction, hours)
+            self.stop()
             try:
                 await self.origin.edit_original_response(
                     embed=make_embed("💼 已開始打工", f"選了 {hours} 小時，結果公布在頻道裡。", Color.MUTED), view=None)
@@ -125,6 +125,8 @@ class Earn(commands.Cog):
 
     async def do_work(self, interaction: discord.Interaction, hours: int = WORK_MIN_HOURS) -> None:
         """開始打工就發薪，之後要等選的時數過了才能再打工；每天最多 WORK_DAILY_HOURS 小時。"""
+        # 先回應 Discord 再發薪：回應失敗（逾時）就什麼都不會發生，可以直接重打一次
+        await defer(interaction, private_errors=True)
         now, today = time.time(), today_tw()
         hours = max(WORK_MIN_HOURS, min(WORK_MAX_HOURS, hours))
         used = await self._work_blocked(interaction, now)

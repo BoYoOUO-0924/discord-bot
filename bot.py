@@ -1,4 +1,5 @@
 """Discord Bot 主程式（斜線指令版）。"""
+import asyncio
 import logging
 import os
 import socket
@@ -20,7 +21,7 @@ from core.persona import Personas
 from core.overview import feature_overview, format_overview
 from core.instance import acquire_single_instance
 from core.i18n import ZhTranslator
-from core.ui import send_error
+from core.ui import log_interaction_error, note_arrival, send_error
 
 log = logging.getLogger("bot")
 
@@ -80,12 +81,17 @@ class AppTree(app_commands.CommandTree):
             if activity:
                 activity.record(interaction.guild_id, command.qualified_name if command else "")
         if interaction.guild_id and interaction.type is discord.InteractionType.application_command:
-            db = interaction.client.db
-            await db.touch_member(interaction.guild_id, interaction.user.id)
-            # 記下名稱，管理後台才能用名字搜尋（名稱沒變就不會寫資料庫）
-            await db.remember_user(interaction.user.id, interaction.user.display_name,
-                                   interaction.user.display_avatar.url)
+            # 放到背景寫：指令要先回應 Discord（只等 3 秒），不能先等資料庫
+            interaction.client.run_background(self._remember(interaction))
         return True
+
+    @staticmethod
+    async def _remember(interaction: discord.Interaction) -> None:
+        db = interaction.client.db
+        await db.touch_member(interaction.guild_id, interaction.user.id)
+        # 記下名稱，管理後台才能用名字搜尋（名稱沒變就不會寫資料庫）
+        await db.remember_user(interaction.user.id, interaction.user.display_name,
+                               interaction.user.display_avatar.url)
 
     async def on_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.CommandOnCooldown):
@@ -100,7 +106,9 @@ class AppTree(app_commands.CommandTree):
         elif isinstance(error, app_commands.CheckFailure):
             message = "目前無法使用這個指令。"
         else:
-            log.exception("指令 /%s 發生錯誤", interaction.command.name if interaction.command else "?", exc_info=error)
+            name = interaction.command.qualified_name if interaction.command else "?"
+            if not log_interaction_error(interaction, error, f"指令 /{name}"):
+                return
             message = "執行指令時發生錯誤，請稍後再試。"
         await send_error(interaction, message)
 
@@ -119,6 +127,29 @@ class Bot(commands.Bot):
         self.command_stats = Activity()        # 每分鐘指令數，給管理後台首頁的即時圖表
         self.ai = create_ai(self.settings)
         self.restart_requested = False
+        self._background = set()               # 留著參考，背景工作才不會被回收
+
+    def run_background(self, coro) -> None:
+        task = asyncio.create_task(coro)
+        self._background.add(task)
+
+        def done(t: asyncio.Task) -> None:
+            self._background.discard(t)
+            if not t.cancelled() and t.exception():
+                log.error("背景工作發生錯誤", exc_info=t.exception())
+        task.add_done_callback(done)
+
+    async def on_interaction(self, interaction: discord.Interaction) -> None:
+        note_arrival(interaction)
+
+    async def watch_loop_lag(self) -> None:
+        """程式卡住（事件迴圈停頓）時記下來。和互動送達延遲對照：有停頓是程式慢，沒有就是網路慢。"""
+        while True:
+            before = time.monotonic()
+            await asyncio.sleep(0.1)
+            lag = time.monotonic() - before - 0.1
+            if lag >= 0.5:
+                log.warning("程式停頓了 %.2f 秒", lag)
 
     async def request_restart(self) -> None:
         """關閉 bot 並以 RESTART_EXIT_CODE 結束，讓啟動腳本馬上重新啟動。"""
@@ -127,6 +158,7 @@ class Bot(commands.Bot):
 
     async def setup_hook(self) -> None:
         await self.db.connect()
+        self.run_background(self.watch_loop_lag())
         await self.features.load()
         await self.personas.load()
         model = self.personas.get().model
@@ -181,6 +213,10 @@ class Bot(commands.Bot):
 
     async def close(self) -> None:
         await super().close()
+        for task in list(self._background):
+            task.cancel()
+        if self._background:
+            await asyncio.gather(*self._background, return_exceptions=True)
         await self.db.close()
 
 

@@ -1,4 +1,4 @@
-"""骰寶（押大小）的規則與結算，比照澳門賭場賠率表。不依賴 Discord，方便測試。
+"""骰寶（押大小）的規則與結算。不依賴 Discord，方便測試。
 
 賠率一律寫成「X 賠 1」：中獎拿回本金再加 X 倍，所以 payout() 回傳的倍數是 X + 1。
 開出豹子（三顆一樣）時，大、小、單、雙全部算輸，這就是莊家的優勢。
@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 FACES = "⚀⚁⚂⚃⚄⚅"
 
-# 總和的賠率（澳門）：越難開出來賠越多
+# 總和的賠率：越難開出來賠越多
 TOTAL_ODDS = {4: 60, 17: 60, 5: 30, 16: 30, 6: 17, 15: 17, 7: 12, 14: 12,
               8: 8, 13: 8, 9: 6, 12: 6, 10: 6, 11: 6}
 DOUBLE_ODDS = 10
@@ -18,8 +18,7 @@ TRIPLE_ODDS = 180
 ANY_TRIPLE_ODDS = 30
 COMBO_ODDS = 5
 
-MAX_PER_SPOT = 1_000_000      # 每個押法的上限
-MAX_PER_ROUND = 5_000_000     # 每人每局合計上限
+MAX_PER_ROUND = 50_000        # 每人每局所有押注合計的上限
 MIN_CHIP = 100
 
 
@@ -128,7 +127,7 @@ RULES: List[Tuple[str, str]] = [
     (f"全圍（{ANY_TRIPLE_ODDS} 賠 1）",
      "任何豹子都中，不管是哪個點數。"),
     ("💰 下注限額",
-     f"每個押法最多 {MAX_PER_SPOT:,} 元，每人每局合計最多 {MAX_PER_ROUND:,} 元。\n"
+     f"每人每局所有押注加起來最多 {MAX_PER_ROUND:,} 元，每注至少 {MIN_CHIP:,} 元。\n"
      "按押注按鈕會用你選的籌碼面額押一注，可以連按疊加；用「換籌碼」改面額。"),
 ]
 
@@ -155,11 +154,10 @@ class SicBoRound:
             return "沒有這種押法。"
         if amount < MIN_CHIP:
             return f"每注至少 {MIN_CHIP:,} 元。"
-        current = self.bets.get(user_id, {}).get(key, 0)
-        if current + amount > MAX_PER_SPOT:
-            return f"「{SPOTS[key].label}」每人最多押 {MAX_PER_SPOT:,} 元，你已經押了 {current:,} 元。"
-        if self.stake(user_id) + amount > MAX_PER_ROUND:
-            return f"每局最多押 {MAX_PER_ROUND:,} 元，你已經押了 {self.stake(user_id):,} 元。"
+        stake = self.stake(user_id)
+        if stake + amount > MAX_PER_ROUND:
+            return (f"每局合計最多押 {MAX_PER_ROUND:,} 元，你已經押了 {stake:,} 元，"
+                    f"還能押 {MAX_PER_ROUND - stake:,} 元（這注是 {amount:,} 元）。")
         return None
 
     def add(self, user_id: int, key: str, amount: int, name: str = "") -> None:
