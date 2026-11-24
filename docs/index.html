@@ -83,6 +83,9 @@ code { font: .86em/1.4 var(--mono); background: rgba(53, 217, 255, .08); border:
 .nav-links::-webkit-scrollbar { display: none; }
 .nav-links a { color: var(--text-2); text-decoration: none; padding: 6px 12px; border-radius: 999px; font-size: 14px; white-space: nowrap; transition: color .2s, background .2s; }
 .nav-links a:hover, .nav-links a.on { color: var(--text); background: rgba(53, 217, 255, .1); }
+.nav-invite { flex: none; padding: 7px 16px; border-radius: 999px; font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; color: #021018;
+  background: linear-gradient(100deg, var(--cyan), var(--lime)); transition: box-shadow .3s; }
+.nav-invite:hover { box-shadow: 0 0 24px -4px var(--cyan); }
 
 /* ---------- 首頁大字 ---------- */
 .hero.off *, .hero.off *::before, .hero.off *::after { animation-play-state: paused !important; }
@@ -276,6 +279,9 @@ footer p { color: var(--muted); margin: 0; }
   .ways, .stock-grid, .ai-grid { grid-template-columns: minmax(0, 1fr); }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nav-links { display: none; }
+  .nav .wrap { gap: 8px; }
+  .nav-invite { margin-left: auto; padding: 6px 12px; font-size: 13px; }
+  .motion-toggle { margin-left: 0; }
   .games-track { flex-direction: column; width: auto; padding-inline: max(20px, env(safe-area-inset-left, 0px)) max(20px, env(safe-area-inset-right, 0px)); }
   .game { width: 100%; min-height: 360px; }
   .kanban { grid-template-columns: minmax(0, 1fr); }
@@ -321,6 +327,7 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
       <a href="#start">開始使用</a><a href="#wallet">錢包</a><a href="#games">遊戲</a><a href="#stocks">股票</a>
       <a href="#tasks">待辦</a><a href="#tools">生活工具</a><a href="#ai">AI 聊天</a><a href="#admins">給管理員</a><a href="#faq">問題</a>
     </div>
+    <a class="nav-invite" href="https://discord.com/oauth2/authorize?client_id=1435614669623529573&amp;scope=bot+applications.commands&amp;permissions=274881145920" target="_blank" rel="noopener">邀請嘎哇</a>
     <button class="motion-toggle" id="motion-toggle" type="button"></button>
   </div>
 </nav>
@@ -333,7 +340,7 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
     <p class="tag" id="hero-tag">會聊天、會記事、也會陪你玩的伺服器夥伴</p>
     <p class="lead" id="hero-lead">新台幣錢包、七款遊戲、台股模擬、YouTube 音樂、待辦與專案管理、天氣和地震通知。
       不想記指令？直接 @ 它說你想做什麼就好。</p>
-    <div class="cta"><a class="btn primary magnetic" href="#start">開始使用 →</a><a class="btn magnetic" href="#games">看看能玩什麼</a></div>
+    <div class="cta"><a class="btn primary magnetic" href="https://discord.com/oauth2/authorize?client_id=1435614669623529573&amp;scope=bot+applications.commands&amp;permissions=274881145920" target="_blank" rel="noopener">邀請到我的伺服器 →</a><a class="btn magnetic" href="#start">怎麼使用</a><a class="btn magnetic" href="#games">看看能玩什麼</a></div>
   </div>
   <div class="scroll-hint" aria-hidden="true">SCROLL<i></i></div>
 </header>
@@ -569,6 +576,24 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
   </div>
 </section>
 
+<section class="block" id="invite">
+  <div class="wrap">
+    <span class="kicker">Invite</span>
+    <h2 class="title reveal-title">把嘎哇<em>帶進你的伺服器</em></h2>
+    <p class="sub">免費，不用自己架設。你需要有那個伺服器的「管理伺服器」權限才能邀請。</p>
+    <div class="ways stagger">
+      <article class="card way"><span class="icon">1</span><h3>邀請</h3>
+        <p>按下面的按鈕，選伺服器後授權。權限可以自己取消勾選，用不到的功能不給也沒關係。</p></article>
+      <article class="card way"><span class="icon">2</span><h3>設定</h3>
+        <p>管理員輸入 <code>/settings</code>，選天氣地點、通知頻道，不需要的功能可以關掉。</p></article>
+      <article class="card way"><span class="icon">3</span><h3>開始玩</h3>
+        <p>輸入 <code>/menu 公開:True</code> 把大廳發在頻道裡，大家點按鈕就能用。</p></article>
+    </div>
+    <div class="cta"><a class="btn primary magnetic" href="https://discord.com/oauth2/authorize?client_id=1435614669623529573&amp;scope=bot+applications.commands&amp;permissions=274881145920" target="_blank" rel="noopener">邀請到我的伺服器 →</a></div>
+    <p class="note">要求的權限：檢視頻道、傳送訊息（含討論串）、嵌入連結、新增反應、讀取訊息紀錄；連接與說話用在放音樂，管理訊息用在 <code>/clear</code>。不需要管理員權限。</p>
+  </div>
+</section>
+
 <section class="block faq" id="faq">
   <div class="wrap">
     <span class="kicker">FAQ</span>
@@ -576,7 +601,10 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
     <div style="margin-top:36px">
       <details><summary>錢可以換成真的新台幣嗎？</summary><p>不行，錢包裡的新台幣只是遊戲用的虛擬貨幣，不能兌換、也不能買賣。</p></details>
       <details><summary>機器人說「大腦在睡覺」是什麼意思？</summary><p>AI 聊天、海龜湯和週報的 AI 跑在主人的電腦上，那台電腦關機時 AI 就暫時不能用。斜線指令和其他功能都照常可以用。</p></details>
-      <details><summary>我的對話會被傳到雲端嗎？</summary><p>不會。AI 用的是自己架的 Ollama，對話只在主人的電腦上處理；聊天記錄只存在記憶體，bot 重開就忘。</p></details>
+      <details><summary>我的對話會被傳到雲端嗎？</summary><p>AI 部分不會。AI 用的是自己架的 Ollama，對話只在主人自己的電腦上處理，不會送到雲端 AI 服務。會留下來的東西有這些：</p>
+        <p>・<b>最近幾句對話</b>：只暫存在記憶體，用來接話，bot 重開就忘。<br>
+        ・<b>AI 記憶</b>：跟它閒聊時，你說過的興趣、身分、習慣等會整理成短句存進資料庫，重開也會留著。每個伺服器分開記，每人最多 20 條；用 <code>/memory</code> 可以看、刪掉一條或全部忘掉，管理員也可以在功能開關整個關掉。<br>
+        ・<b>除錯紀錄</b>：@ 它說的話，開頭 40 個字左右會寫進主機的紀錄檔，只有架 bot 的人看得到，舊紀錄會自動覆蓋；猜海龜湯的內容偶爾也會記下開頭。</p></details>
       <details><summary>為什麼有些指令說「已經關閉」？</summary><p>這個伺服器的管理員把那個功能關掉了，可以請管理員打開。</p></details>
       <details><summary>中文介面看到的指令名稱不一樣？</summary><p>Discord 語言設定成中文時，指令會顯示中文名稱，例如 <code>/task add</code> 顯示成 <code>/待辦 新增</code>，功能完全一樣。</p></details>
     </div>
@@ -585,7 +613,7 @@ html.rm .cyl-stage::before, html.rm .cyl-stage::after { display: none; }
 
 <footer>
   <div class="big-foot" aria-hidden="true">/help /menu</div>
-  <div class="wrap"><p>嘎哇 Bot・在 Discord 輸入 <code>/help</code> 看指令說明，或 <code>/menu</code> 打開大廳。</p></div>
+  <div class="wrap"><p>嘎哇 Bot・在 Discord 輸入 <code>/help</code> 看指令說明，或 <code>/menu</code> 打開大廳。<a href="https://discord.com/oauth2/authorize?client_id=1435614669623529573&amp;scope=bot+applications.commands&amp;permissions=274881145920" target="_blank" rel="noopener">邀請到我的伺服器</a></p></div>
 </footer>
 
 <script src="vendor/gsap.min.js"></script>

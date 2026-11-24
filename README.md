@@ -12,6 +12,16 @@
 輸入 `/menu` 打開大廳，所有功能都能用按鈕操作；Discord 介面是中文的話會看到中文指令（例如 `/簽到`）。
 每個伺服器的管理員可以用 `/settings` 自己決定開哪些功能、天氣看哪裡、通知發到哪個頻道。
 
+## 邀請機器人
+
+### ➕ [邀請嘎哇到我的伺服器](https://discord.com/oauth2/authorize?client_id=1435614669623529573&scope=bot+applications.commands&permissions=274881145920)
+
+免費，不用自己架設。你需要有那個伺服器的「管理伺服器」權限；加入後輸入 `/settings` 設定、`/menu` 打開大廳。
+功能長什麼樣子可以先看[功能介紹網頁](https://boyoouo-0924.github.io/discord-bot/)。
+
+要求的權限：檢視頻道、傳送訊息（含討論串）、嵌入連結、新增反應、讀取訊息紀錄；連接與說話用在放音樂，管理訊息用在 `/clear`。
+不需要管理員權限，授權時也可以取消勾選用不到的。想自己架一台，請看下面的快速開始。
+
 📖 **[功能說明](docs/features.md)**・🧩 [進階說明](docs/advanced.md)・🏗️ [架構](docs/architecture.md)・🗺️ [路線圖](ROADMAP.md)
 
 ## 快速開始
